@@ -46,7 +46,7 @@ module lagrange_mod
     TYPE(ChmState), intent(inout) :: state_chm
     TYPE(OptInput), intent(in) :: input_opt
     
-    REAL(fp) :: Rearth       = 6.375e+6_fp
+    REAL(fp) :: REarth       = 6.375e+6_fp
     REAL(fp) :: Pi       = 3.14159265358979323e+0_fp     ! PI    : Double-Precision value of PI          
     REAL(fp) :: Pi_180   = PI / 180e+0_fp                ! PI_180 : Number of radians per degree
 
@@ -64,9 +64,14 @@ module lagrange_mod
        curr_lon = box_lon(i_box)
        curr_lat = box_lat(i_box)
        !curr_pressure = box_pressure(i_box)
-       if (curr_lon > 360.0) cycle
-       i_lon = find_longitude(curr_lon) ! WRITE THIS FUNCTION
-       i_lat = find_latitude(curr_lat) !  WRITE THIS FUNCTION
+
+       if (curr_lon > 180.0) cycle   ! Input lon should be between (-180,180)
+       if (curr_lon < -180.0) cycle
+       if (curr_lat > 89.0) cycle    ! Input lat should be between (-89,89)
+       if (curr_lat < -89.0) cycle
+
+       i_lon = find_longitude(curr_lon) !  WRITE THIS FUNCTION
+       i_lat = find_latitude(curr_lat) !  
        ! Cheat for now
        curr_pressure = 20.0e+0_fp ! hPa
        i_lev = find_level(curr_pressure,i_lon,i_lat)
@@ -78,8 +83,8 @@ module lagrange_mod
        !call grow_box(box_length(i_box),box_width(i_box),box_depth(i_box),i_lon,i_lat,i_lev)
     end do
 
-    !Dbox_lat = (time_step*v(:,:,:))/(Pi*Rearth)*180.0            !model time_step length
-    !Dbox_lon = (time_step*u(:,:,:))/(2.0*Pi*Rearth*cos(lat*Pi/180.0))*360
+    !Dbox_lat = (time_step*v(:,:,:))/(Pi*REarth)*180.0            !model time_step length
+    !Dbox_lon = (time_step*u(:,:,:))/(2.0*Pi*REarth*cos(lat*Pi/180.0))*360
 !specify the exact location of u(:,:,:)
 
     !box_lat = box_lat + Dbox_lat
@@ -91,6 +96,20 @@ module lagrange_mod
 
   end subroutine run_lagrange
 
+  real function find_longitude(curr_lon)
+    implicit none
+    real :: curr_lon
+    find_longitude = ( ANINT(curr_lon/5.0)*5.0 - (-180.0) )/5.0 +1   ! for 5*4 horizontal resolution run (-180:5:175); ANINT 四舍五入函数
+    return
+  end function
+
+  real function find_latitude(curr_lat)
+    implicit none
+    real :: curr_lat
+    find_latitude = ( ANINT((curr_lat+2.0)/4.0)*4.0-2.0 - (-90) )/4.0 +1  ! since we won't spread aerosols in polar region, ignore 89 and -89 in polar region. (-89,-86:4:86,89))
+    return
+  end function
+
   subroutine cleanup_lagrange()
     if (allocated(box_lon)) deallocate(box_lon)
     if (allocated(box_lat)) deallocate(box_lat)
@@ -98,5 +117,7 @@ module lagrange_mod
     if (allocated(box_depth)) deallocate(box_depth)
     if (allocated(box_width)) deallocate(box_width)
   end subroutine cleanup_lagrange
+
+
 
 end module lagrange_mod
