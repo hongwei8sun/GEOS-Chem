@@ -58,6 +58,7 @@ module lagrange_mod
     u => State_Met%U   ! figure out state_met%U is based on lat/lon or model grid(i,j)
     v => State_Met%V
     omeg => State_Met%OMEGA
+    p_lev => State_Met%PMID  !Pressure (w/r/t moist air) at level centers (hPa)
     ! Run Lagrangian advection HERE
 
     do i_box = 1,n_boxes_max
@@ -74,45 +75,57 @@ module lagrange_mod
        i_lat = find_latitude(curr_lat) !  
        ! Cheat for now
        curr_pressure = 20.0e+0_fp ! hPa
-       i_lev = find_level(curr_pressure,i_lon,i_lat)
+       i_lev = find_plev(curr_pressure,i_lon,i_lat,p_lev)
+
        dbox_lon = (time_step*u(i_lon,i_lat,i_lev)) / (2.0*Pi*REarth*cos(curr_lat*Pi/180.0))*360.0
        dbox_lat = (time_step*v(i_lon,i_lat,i_lev)) / (Pi*REarth)*180.0
+       dbox_lev = time_step*omeg(i_lon,i_lat,i_lev)
+
        box_lon(i_box) = box_lon(i_box) + dbox_lon
        box_lat(i_box) = box_lat(i_box) + dbox_lat
+       box_lev(i_lev) = box_lev(i_box) + dbox_lev
 
        !call grow_box(box_length(i_box),box_width(i_box),box_depth(i_box),i_lon,i_lat,i_lev)
     end do
 
-    !Dbox_lat = (time_step*v(:,:,:))/(Pi*REarth)*180.0            !model time_step length
-    !Dbox_lon = (time_step*u(:,:,:))/(2.0*Pi*REarth*cos(lat*Pi/180.0))*360
-!specify the exact location of u(:,:,:)
-
-    !box_lat = box_lat + Dbox_lat
-    !box_lon = box_lon + Dbox_lon
-
     ! Everything is done, clean up pointers
     nullify(u)
     nullify(v)
+    nullify(omeg)
 
   end subroutine run_lagrange
 
   real function find_longitude(curr_lon)
     implicit none
     real :: curr_lon
-    find_longitude = ( ANINT(curr_lon/5.0)*5.0 - (-180.0) )/5.0 +1   ! for 5*4 horizontal resolution run (-180:5:175); ANINT 四舍五入函数
+    find_longitude = ( ANINT(curr_lon/5.0)*5.0 - (-180.0) )/5.0 +1   
+    ! for 5*4 horizontal resolution run (-180:5:175); ANINT 四舍五入函数
     return
   end function
 
   real function find_latitude(curr_lat)
     implicit none
     real :: curr_lat
-    find_latitude = ( ANINT((curr_lat+2.0)/4.0)*4.0-2.0 - (-90) )/4.0 +1  ! since we won't spread aerosols in polar region, ignore 89 and -89 in polar region. (-89,-86:4:86,89))
+    find_latitude = ( ANINT((curr_lat+2.0)/4.0)*4.0-2.0 - (-90) )/4.0 +1  
+    ! since we won't spread aerosols in polar region, ignore 89 and -89 in polar region. (-89,-86:4:86,89))
+    return
+  end function
+
+  real function find_plev(curr_pressure,i_lon,i_lat,p_lev)
+    implicit none
+    real :: curr_pressure, p_lev
+    integer :: i_lon, i_lat
+    integer :: locate(1)
+    locate = MINLOC(abs( p_lev(i_lon,i_lat,:)-curr_pressure ))  
+    ! Notice that minimum difference in pressure (hPa) might not the minimum difference in distance (km)
+    find_plev = locate(1)
     return
   end function
 
   subroutine cleanup_lagrange()
     if (allocated(box_lon)) deallocate(box_lon)
     if (allocated(box_lat)) deallocate(box_lat)
+    if (allocated(box_lev)) deallocate(box_lev)
     if (allocated(box_length)) deallocate(box_length)
     if (allocated(box_depth)) deallocate(box_depth)
     if (allocated(box_width)) deallocate(box_width)
