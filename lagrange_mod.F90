@@ -5,16 +5,15 @@
 MODULE Lagrange_Mod
 
   USE precision_mod
-  USE CMN_SIZE_mod
-  USE PhysConstants   ! Physical constants: Re, PI, PI_180
 
   IMPLICIT NONE
 
 
   ! !PUBLIC MEMBER FUNCTIONS:
-  PUBLIC :: init_lagrange
-  PUBLIC :: run_lagrange
-  PUBLIC :: cleanup_lagrange
+  PUBLIC :: lagrange_init
+  PUBLIC :: lagrange_run
+  PUBLIC :: lagrange_write_std
+  PUBLIC :: lagrange_cleanup
 
 
   integer, parameter :: n_boxes_max = 5000
@@ -28,8 +27,9 @@ MODULE Lagrange_Mod
 CONTAINS
 
 
+!-----------------------------------------------------------------
 
-  SUBROUTINE init_lagrange( am_I_root )
+  SUBROUTINE lagrange_init( am_I_root )
 
     LOGICAL,        INTENT(IN)    :: am_I_Root   ! Are we on the root CPU
 
@@ -47,11 +47,12 @@ CONTAINS
     box_depth  = 0.0e+0_fp
     box_length = 0.0e+0_fp
 
-  END SUBROUTINE init_lagrange
+  END SUBROUTINE lagrange_init
 
 
+!-----------------------------------------------------------------
 
-  SUBROUTINE run_lagrange(am_I_Root, State_Met, State_Chm, Input_Opt)
+  SUBROUTINE lagrange_run(am_I_Root, State_Met, State_Chm, Input_Opt)
 
     USE Input_Opt_Mod, ONLY : OptInput
     USE PhysConstants, ONLY : PI, Re 
@@ -59,7 +60,8 @@ CONTAINS
     USE State_Chm_Mod, ONLY : ChmState
     USE State_Met_Mod, ONLY : MetState
 
-    USE GC_GRID_MOD,   ONLY : XEDGE, YEDGE, XMID, YMID                  ! choose XEDGE or XMID ??        
+    ! choose XEDGE or XMID ?? 
+    USE GC_GRID_MOD,   ONLY : XEDGE, YEDGE, XMID, YMID                   
     USE CMN_SIZE_Mod,  ONLY : IIPAR, JJPAR, LLPAR, DLAT, DLON
     ! DLAT( IIPAR, JJPAR, LLPAR ), DLON( IIPAR, JJPAR, LLPAR )
     ! XEDGE  ( IM+1, JM,   L ), YEDGE  ( IM,   JM+1, L ), IM=IIPAR, JM=JJPAR
@@ -69,7 +71,8 @@ CONTAINS
     TYPE(ChmState), intent(inout) :: State_Chm
     TYPE(OptInput), intent(in) :: Input_Opt
 
-    REAL :: Dt           = 600.0e+0_fp          ! TS_CONV is the time step we need here ? 
+    REAL :: Dt           = 600.0e+0_fp          
+    ! TS_CONV is the time step we need here ? 
 
     integer :: i_box
 
@@ -155,8 +158,10 @@ CONTAINS
     nullify(omeg)
     nullify(p_lev)
 
-  END SUBROUTINE run_lagrange
+  END SUBROUTINE lagrange_run
 
+
+!-------------------------------------------------------------------
 
   integer function find_longitude(curr_lon,  Dx,  X_mid2)
     implicit none
@@ -204,15 +209,136 @@ CONTAINS
   end function
 
 
+!-------------------------------------------------------------------
 
-  subroutine cleanup_lagrange()
+  SUBROUTINE lagrange_write_std( am_I_Root )
+    
+    
+    USE m_netCDF_io_define
+    USE m_netcdf_io_read
+    USE m_netcdf_io_open
+    USE Ncdf_Mod,            ONLY : NC_Open
+    USE Ncdf_Mod,            ONLY : NC_Read_Time
+    USE Ncdf_Mod,            ONLY : NC_Read_Arr
+    USE Ncdf_Mod,            ONLY : NC_Create
+    USE Ncdf_Mod,            ONLY : NC_Close
+    USE Ncdf_Mod,            ONLY : NC_Var_Def
+    USE Ncdf_Mod,            ONLY : NC_Var_Write
+    USE Ncdf_Mod,            ONLY : NC_Get_RefDateTime
+    USE CHARPAK_Mod,         ONLY : TRANLC
+    USE JulDay_Mod,          ONLY : JulDay
+
+    USE Input_Opt_Mod, ONLY : OptInput
+
+    ! Parameters for netCDF routines
+    include "netcdf.inc"
+
+
+    LOGICAL,                    INTENT(IN   ) :: am_I_Root   ! root CPU?
+
+    REAL(f8), POINTER         :: Arr1D(:)
+    INTEGER,  POINTER         :: Int1D(:)
+    REAL(f4), POINTER         :: Arr3D(:,:,:)
+    REAL(f4), POINTER         :: Arr4D(:,:,:,:)
+    CHARACTER(LEN=255)        :: NcFile
+    CHARACTER(LEN=255)        :: Pfx, title, Reference, Contact
+    INTEGER                   :: fId, lonId, latId, levId, TimeId
+    INTEGER                   :: VarCt
+    INTEGER                   :: nLon, nLat, nLev, nLevTmp, nTime
+!    INTEGER                   :: L
+
+    CHARACTER(LEN=255), PARAMETER :: LOC = 'LAGRANGE_WRITE_STD(lagrange_write_std_mod.F90)'
+
+
+    !=================================================================
+    ! LAGRANGE_WRITE_STD begins here!
+    !=================================================================
+
+       nLon     = n_boxes_max
+       nLat     = n_boxes_max
+       nLev     = n_boxes_max
+       nTime    = 1
+
+       !----------------------------------------------------------
+       ! Create output file
+       ! Pass CREATE_NC4 to make file format netCDF-4 (mps, 3/3/16)
+       ! Now create netCDF file with time dimension as UNLIMITED (bmy, 3/8/17)
+       !----------------------------------------------------------
+
+       CALL NC_Create( NcFile       = NcFile,                            &
+                       Title        = "lagrange_test",                   &
+                       nLon         = nLon,                              &
+                       nLat         = nLat,                              &
+                       nLev         = nLevTmp,                           &
+                       nTime        = NF_UNLIMITED,                      &
+                       fId          = fId,                               &
+                       lonId        = lonId,                             &
+                       latId        = latId,                             &
+                       levId        = levId,                             &
+                       timeId       = timeId,                            &
+                       VarCt        = VarCt,                             &
+                       CREATE_NC4   =.TRUE.                             )
+
+    !-----------------------------------------------------------------
+    ! Write variables
+    !-----------------------------------------------------------------
+
+       ! Write longitude location of box ("box_lon(:)") to file   
+       CALL NC_Var_Def( fId         = fId,                                &
+                        lonId       = lonId,                              &
+                        latId       = -1,                                 &
+                        levId       = -1,                                 &
+                        timeId      = -1,                                 &
+                        VarName     = 'box_lon',                          &
+                        VarLongName = 'Longitude location of box',        &
+                        VarUnit     = 'degrees_east',                     &
+                        Axis        = 'X',                                &
+                        DataType    = f8,                                 &
+                        VarCt       = VarCt,                              &
+                        Compress    = .TRUE.                             )
+
+       ALLOCATE( Arr1D( nLon ) )
+       Arr1D = box_lon
+       CALL NC_Var_Write( fId, 'box_lon', Arr1D=Arr1D )
+       DEALLOCATE( Arr1D )
+     
+
+       ! Write latitude location of box ("box_lat()") to file                                               
+       CALL NC_Var_Def( fId         = fId,                                &
+                        lonId       = -1,                                 &
+                        latId       = latId,                              &
+                        levId       = -1,                                 &
+                        timeId      = -1,                                 &
+                        VarName     = 'box_lat',                          &
+                        VarLongName = 'Latitude lcoation of box',         &
+                        VarUnit     = 'degrees_north',                    &
+                        Axis        = 'Y',                                &
+                        DataType    = f8,                                 &
+                        VarCt       = VarCt,                              &
+                        Compress    = .TRUE.                             )
+
+       ALLOCATE( Arr1D( nLat ) )
+       Arr1D = box_lat
+       CALL NC_Var_Write( fId, 'box_lat', Arr1D=Arr1D )
+       DEALLOCATE( Arr1D )
+
+
+    ! Close file
+    CALL NC_CLOSE ( fId )
+
+  END SUBROUTINE lagrange_write_std
+
+
+!---------------------------------------------------------------------
+
+  subroutine lagrange_cleanup()
     if (allocated(box_lon)) deallocate(box_lon)
     if (allocated(box_lat)) deallocate(box_lat)
     if (allocated(box_lev)) deallocate(box_lev)
     if (allocated(box_length)) deallocate(box_length)
     if (allocated(box_depth)) deallocate(box_depth)
     if (allocated(box_width)) deallocate(box_width)
-  end subroutine cleanup_lagrange
+  end subroutine lagrange_cleanup
 
 
 END MODULE Lagrange_Mod
