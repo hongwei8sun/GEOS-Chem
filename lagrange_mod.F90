@@ -211,7 +211,7 @@ CONTAINS
 
 !-------------------------------------------------------------------
 
-  SUBROUTINE lagrange_write_std( am_I_Root )
+  SUBROUTINE lagrange_write_std( am_I_Root, RC )
     
     
     USE m_netCDF_io_define
@@ -234,18 +234,20 @@ CONTAINS
     include "netcdf.inc"
 
 
-    LOGICAL,                    INTENT(IN   ) :: am_I_Root   ! root CPU?
+    LOGICAL,          INTENT(IN   ) :: am_I_Root   ! root CPU?
+    INTEGER,          INTENT(INOUT) :: RC          ! Failure or success
 
-    REAL(f8), POINTER         :: Arr1D(:)
-    INTEGER,  POINTER         :: Int1D(:)
-    REAL(f4), POINTER         :: Arr3D(:,:,:)
-    REAL(f4), POINTER         :: Arr4D(:,:,:,:)
+    REAL(f8), POINTER         :: Arr2D(:,:)
+    REAL(f8), POINTER         :: Arr2DOld(:,:)
+    REAL*8,   POINTER         :: timeVec(:)
     CHARACTER(LEN=255)        :: NcFile
     CHARACTER(LEN=255)        :: Pfx, title, Reference, Contact
+    CHARACTER(LEN=255)        :: timeunit
     INTEGER                   :: fId, lonId, latId, levId, TimeId
     INTEGER                   :: VarCt
-    INTEGER                   :: nLon, nLat, nLev, nLevTmp, nTime
+    INTEGER                   :: nLon, nLat, nLev, nTime
 !    INTEGER                   :: L
+    LOGICAL                   :: IsOldFile
 
     CHARACTER(LEN=255), PARAMETER :: LOC = 'LAGRANGE_WRITE_STD(lagrange_write_std_mod.F90)'
 
@@ -254,22 +256,48 @@ CONTAINS
     ! LAGRANGE_WRITE_STD begins here!
     !=================================================================
 
-       nLon     = n_boxes_max
-       nLat     = n_boxes_max
-       nLev     = n_boxes_max
-       nTime    = 1
+    RC        =  HCO_SUCCESS
+    Arr1D     => NULL()
+    Int1D     => NULL()
+    Arr3D     => NULL()
+    Arr4D     => NULL()
+    timeVec   => NULL()
+    ThisDiagn => NULL()
 
-       !----------------------------------------------------------
+
+    nLon     = n_boxes_max
+    nLat     = n_boxes_max
+    nLev     = n_boxes_max
+    nTime    = 1
+
+    NcFile = 'lagrange_test.nc'
+
+    !--------------------------------------------------------
+    ! Check if file already exists. 
+    ! If so, add new diagnostics to this file
+    ! (instead of creating a new one)
+    !--------------------------------------------------------
+
+    INQUIRE( FILE=NcFile, EXIST=IsOldFile ) 
+
+    IF ( IsOldFile ) THEN
+       CALL Ncop_Wr( fID, NcFile )
+       CALL NC_READ_TIME( fID, nTime, timeunit, timeVec, RC=RC )
+
+       ! new file will have one more time dimension
+       nTime = nTime + 1
+
+    ELSE
+
        ! Create output file
        ! Pass CREATE_NC4 to make file format netCDF-4 (mps, 3/3/16)
        ! Now create netCDF file with time dimension as UNLIMITED (bmy, 3/8/17)
-       !----------------------------------------------------------
 
        CALL NC_Create( NcFile       = NcFile,                            &
-                       Title        = "lagrange_test",                   &
+                       Title        = "lagrange_stdout_test",                   &
                        nLon         = nLon,                              &
                        nLat         = nLat,                              &
-                       nLev         = nLevTmp,                           &
+                       nLev         = nLev,                           &
                        nTime        = NF_UNLIMITED,                      &
                        fId          = fId,                               &
                        lonId        = lonId,                             &
@@ -278,6 +306,8 @@ CONTAINS
                        timeId       = timeId,                            &
                        VarCt        = VarCt,                             &
                        CREATE_NC4   =.TRUE.                             )
+
+    ENDIF
 
     !-----------------------------------------------------------------
     ! Write variables
@@ -297,10 +327,16 @@ CONTAINS
                         VarCt       = VarCt,                              &
                         Compress    = .TRUE.                             )
 
-       ALLOCATE( Arr1D( nLon ) )
-       Arr1D = box_lon
-       CALL NC_Var_Write( fId, 'box_lon', Arr1D=Arr1D )
-       DEALLOCATE( Arr1D )
+       ALLOCATE( Arr2D( nLon, nTime ) )
+       ALLOCATE( Arr2DOld( nLon, nTime ) )
+       Arr2D(:,nTime) = box_lon(:)
+       Arr2D(:,1:nTime-1) = Arr2DOld(:,:)
+       CALL NC_Var_Write( fId, 'box_lon', Arr2D=Arr1D )
+       DEALLOCATE( Arr2D )
+
+       CALL NC_READ_ARR( fID, TRIM(myName), 1, nlon, 1, nlat, &
+                        1, nlev, 1, ntime-1, ncArr=Arr4DOld, RC=RC )
+       Arr4D(:,:,:,1:ntime-1) = Arr4DOld(:,:,:,:)
      
 
        ! Write latitude location of box ("box_lat()") to file                                               
