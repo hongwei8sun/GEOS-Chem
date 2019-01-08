@@ -44,7 +44,7 @@ CONTAINS
 
     box_lon    = (/0.0e+0_fp, 5.0e+0_fp, 10.0e+0_fp/)
     box_lat    = (/0.0e+0_fp, 4.0e+0_fp, 8.0e+0_fp/)
-    box_lev    = 20.0e+0_fp
+    box_lev    = 20.0e+0_fp      ! hPa
     box_width  = 0.0e+0_fp
     box_depth  = 0.0e+0_fp
     box_length = 0.0e+0_fp
@@ -76,6 +76,7 @@ CONTAINS
 
     USE Input_Opt_Mod, ONLY : OptInput
     USE PhysConstants, ONLY : PI, Re 
+    ! Re    : Radius of Earth [m]
 
     USE State_Chm_Mod, ONLY : ChmState
     USE State_Met_Mod, ONLY : MetState
@@ -122,8 +123,8 @@ CONTAINS
 
     ! Establish pointers
     u => State_Met%U   ! figure out state_met%U is based on lat/lon or modelgrid(i,j)
-    v => State_Met%V
-    omeg => State_Met%OMEGA
+    v => State_Met%V   ! V [m s-1]
+    omeg => State_Met%OMEGA  ! Updraft velocity [Pa/s]
     p_lev => State_Met%PMID  !Pressure (w/r/t moist air) at level centers (hPa)
 
     Dx = DLON(1,1,1)
@@ -160,7 +161,7 @@ CONTAINS
 
        dbox_lon = (Dt*u(i_lon,i_lat,i_lev)) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
        dbox_lat = (Dt*v(i_lon,i_lat,i_lev)) / (PI*Re) * 180.0
-       dbox_lev = Dt * omeg(i_lon,i_lat,i_lev)
+       dbox_lev = Dt * omeg(i_lon,i_lat,i_lev)/100.0  ! Pa => hPa
 
        box_lon(i_box) = box_lon(i_box) + dbox_lon
        box_lat(i_box) = box_lat(i_box) + dbox_lat
