@@ -16,7 +16,7 @@ MODULE Lagrange_Mod
   PUBLIC :: lagrange_cleanup
 
 
-  integer, parameter :: n_boxes_max = 3
+  integer, parameter :: n_boxes_max = 1000  !20*50
   real(fp), allocatable :: box_lon(:)    !first use one point to test
   real(fp), allocatable :: box_lat(:)
   real(fp), allocatable :: box_lev(:)
@@ -33,6 +33,7 @@ CONTAINS
 
     LOGICAL,        INTENT(IN)    :: am_I_Root   ! Are we on the root CPU
     INTEGER                       :: i_box
+    INTEGER                       :: ii
     CHARACTER(LEN=255)            :: FILENAME
 
     allocate(box_lon(n_boxes_max))
@@ -42,30 +43,32 @@ CONTAINS
     allocate(box_depth(n_boxes_max))
     allocate(box_length(n_boxes_max))
 
-    box_lon    = (/0.0e+0_fp, 5.0e+0_fp, 10.0e+0_fp/)
-    box_lat    = (/0.0e+0_fp, 4.0e+0_fp, 8.0e+0_fp/)
+    do ii=1,50,1
+        box_lon(ii) = -2.5e+0_fp + 0.1e+0_fp * ii
+    enddo
+
+    do ii=1,20,1
+        box_lat(ii) = 0.2e+0_fp * ii
+    enddo
+
+!    box_lon    = 0.0e+0_fp       ! (/0.0e+0_fp, 5.0e+0_fp, 10.0e+0_fp/)
+!    box_lat    = 0.0e+0_fp       ! (/0.0e+0_fp, 4.0e+0_fp, 8.0e+0_fp/)
     box_lev    = 20.0e+0_fp      ! hPa
     box_width  = 0.0e+0_fp
     box_depth  = 0.0e+0_fp
     box_length = 0.0e+0_fp
 
-    WRITE(6,'(a)') ' --> Lagrange Module Location Init <-- '
-    Do i_box = 1, n_boxes_max
-       WRITE(6,'(I0.4,3(x,E16.5E4))') i_box, box_lon(i_box), box_lat(i_box),box_lev(i_box)
-    End Do
 
-
-    FILENAME   = 'Lagrange_location.txt'
+    FILENAME   = 'Lagrange_box_i_lon_lat_lev.txt'
     OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-    WRITE(261,'(a)') ' --> Lagrange Module Location (i_box,box_lon,box_lat,box_lev) <-- '
+!    WRITE(261,'(a)') ' --> Lagrange Module Location (i_box,box_lon,box_lat,box_lev) <-- '
 
     Do i_box = 1, n_boxes_max
        WRITE(261,'(I0.4,3(x,E16.5E4))') i_box,box_lon(i_box),box_lat(i_box),box_lev(i_box)
     End Do
 
-    WRITE(261,'(a)')'-----'
 
   END SUBROUTINE lagrange_init
 
@@ -81,8 +84,8 @@ CONTAINS
     USE State_Chm_Mod, ONLY : ChmState
     USE State_Met_Mod, ONLY : MetState
 
-    ! choose XEDGE or XMID ?? 
-    USE GC_GRID_MOD,   ONLY : XEDGE, YEDGE, XMID, YMID                   
+    ! choose XEDGE  
+    USE GC_GRID_MOD,   ONLY : XEDGE, YEDGE                 
     USE CMN_SIZE_Mod,  ONLY : IIPAR, JJPAR, LLPAR, DLAT, DLON
     ! DLAT( IIPAR, JJPAR, LLPAR ), DLON( IIPAR, JJPAR, LLPAR )
     ! XEDGE  ( IM+1, JM,   L ), YEDGE  ( IM,   JM+1, L ), IM=IIPAR, JM=JJPAR
@@ -104,8 +107,8 @@ CONTAINS
     real :: curr_lon
     real :: curr_lat
     real :: curr_pressure
-    real :: X_mid2
-    real :: Y_mid2
+    real :: X_edge2
+    real :: Y_edge2
 
     real :: dbox_lon
     real :: dbox_lat
@@ -118,8 +121,8 @@ CONTAINS
 
     real :: Dx
     real :: Dy
-    real(fp), pointer :: X_mid(:)    
-    real(fp), pointer :: Y_mid(:)       
+    real(fp), pointer :: X_edge(:)    
+    real(fp), pointer :: Y_edge(:)       
 
     ! Establish pointers
     u => State_Met%U   ! figure out state_met%U is based on lat/lon or modelgrid(i,j)
@@ -129,21 +132,27 @@ CONTAINS
 
     Dx = DLON(1,1,1)
     Dy = DLAT(1,1,1)
-    X_mid => XMID(:,1,1)
-    Y_mid => YMID(1,:,1)   ! Use second YMID, because sometimes YMID(2)-YMID(1) is not DLAT
+    X_edge => XEDGE(:,1,1)   ! IIPAR+1
+    Y_edge => YEDGE(1,:,1)  
+    ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
 
     ! Run Lagrangian advection HERE
     do i_box = 1,n_boxes_max
 
        ! make sure the location is not out of range
-       if (box_lat(i_box) > Y_mid(JJPAR)) cycle 
-       if (box_lat(i_box) < Y_mid(1)) cycle
+       do while (box_lat(i_box) > Y_edge(JJPAR+1))
+          box_lat(i_box) = Y_edge(JJPAR+1) - ( box_lat(i_box)-Y_edge(JJPAR+1) )
+       end do
 
-       do while (box_lon(i_box) > X_mid(IIPAR))
+       do while (box_lat(i_box) < Y_edge(1))
+          box_lat(i_box) = Y_edge(1) + ( box_lat(i_box)-Y_edge(1) )
+       end do
+
+       do while (box_lon(i_box) > X_edge(IIPAR+1))
           box_lon(i_box) = box_lon(i_box) - 360.0
        end do
 
-       do while (box_lon(i_box) < X_mid(1))
+       do while (box_lon(i_box) < X_edge(1))
           box_lon(i_box) = box_lon(i_box) + 360.0
        end do
 
@@ -151,11 +160,12 @@ CONTAINS
        curr_lon      = box_lon(i_box)
        curr_lat      = box_lat(i_box)
        curr_pressure = box_lev(i_box)        ! hPa
-       X_mid2         = X_mid(2)
-       Y_mid2         = Y_mid(2)
+       X_edge2       = X_edge(2)
+       Y_edge2       = Y_edge(2)
 
-       i_lon = find_longitude(curr_lon, Dx, X_mid2)
-       i_lat = find_latitude(curr_lat, Dy, Y_mid2) 
+
+       i_lon = find_longitude(curr_lon, Dx, X_edge2)
+       i_lat = find_latitude(curr_lat, Dy, Y_edge2) 
        i_lev = find_plev(curr_pressure,i_lon,i_lat,p_lev)
 
 
@@ -163,9 +173,10 @@ CONTAINS
        dbox_lat = (Dt*v(i_lon,i_lat,i_lev)) / (PI*Re) * 180.0
        dbox_lev = Dt * omeg(i_lon,i_lat,i_lev)/100.0  ! Pa => hPa
 
+
        box_lon(i_box) = box_lon(i_box) + dbox_lon
        box_lat(i_box) = box_lat(i_box) + dbox_lat
-       box_lev(i_lev) = box_lev(i_box) + dbox_lev
+       box_lev(i_box) = box_lev(i_box) + dbox_lev
 
        !call
        !grow_box(box_length(i_box),box_width(i_box),box_depth(i_box),i_lon,i_lat,i_lev)
@@ -182,36 +193,23 @@ CONTAINS
 
 !-------------------------------------------------------------------
 
-  integer function find_longitude(curr_lon,  Dx,  X_mid2)
+  integer function find_longitude(curr_lon,  Dx,  X_edge2)
     implicit none
-    real :: curr_lon, Dx, X_mid2
-    find_longitude = INT(ANINT( (curr_lon - (X_mid2 - Dx)) / Dx ))+1
-    ! for lon: Xmid_Sec - Dx = Xmid_first
+    real :: curr_lon, Dx, X_edge2
+    find_longitude = INT(AINT( (curr_lon - (X_edge2 - Dx)) / Dx ))+1
+    ! for lon: Xedge_Sec - Dx = Xedge_first
     return
   end function
 
 
-  integer function find_latitude(curr_lat, Dy, Y_mid2)
+  integer function find_latitude(curr_lat, Dy, Y_edge2)
     implicit none
-    real :: curr_lat, Dy, Y_mid2
-    find_latitude = INT(ANINT( (curr_lat - (Y_mid2 - Dy)) / Dy ))+1
-    ! for lat: (Ymid_Sec - Dy) may be different from Ymid_first
+    real :: curr_lat, Dy, Y_edge2
+    find_latitude = INT(AINT( (curr_lat - (Y_edge2 - Dy)) / Dy ))+1
+    ! for lat: (Yedge_Sec - Dy) may be different from Yedge_first
     ! region for 4*5: (-89,-86:4:86,89))
     return
   end function
-
-
-  ! which find_latitude function is better ?? 
-
-  !  integer function find_latitude(curr_lat, Dy, YMID)
-  !    implicit none
-  !    real :: YMID
-  !    real :: curr_lat, Dy
-  !    integer :: locate(1)
-  !    locate = MINLOC(abs( YMID(1,:,1) - curr_lat ))
-  !    find_plev = locate(1)
-  !    return
-  !  end function
 
 
   integer function find_plev(curr_pressure,i_lon,i_lat,p_lev)
@@ -276,12 +274,6 @@ CONTAINS
     CHARACTER(LEN=255)            :: FILENAME
 
 
-       WRITE(6,'(a)') ' ----------------------------------------------------- '
-       WRITE(6,'(a)') ' -- Lagrange module (i_box,box_lon,box_lat,box_lev) -- '
-    Do i_box = 1, n_boxes_max
-       WRITE(6,'(I0.4,3(x,E16.5E4))') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
-    End Do
-
 
     FILENAME   = 'Lagrange_location.txt'
     OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD', &
@@ -291,7 +283,6 @@ CONTAINS
        WRITE(261,'(I0.4,3(x,E16.5E4))') i_box, box_lon(i_box), box_lat(i_box),box_lev(i_box)
     End Do
     
-    WRITE(261,'(a)')'-----'
 
     !=================================================================
     ! LAGRANGE_WRITE_STD begins here!
