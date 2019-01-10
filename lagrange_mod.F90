@@ -24,6 +24,7 @@ MODULE Lagrange_Mod
   real(fp), allocatable :: box_width(:)
   real(fp), allocatable :: box_length(:)
 
+
 CONTAINS
 
 
@@ -33,7 +34,7 @@ CONTAINS
 
     LOGICAL,        INTENT(IN)    :: am_I_Root   ! Are we on the root CPU
     INTEGER                       :: i_box
-    INTEGER                       :: ii
+    INTEGER                       :: ii, jj
     CHARACTER(LEN=255)            :: FILENAME
 
     allocate(box_lon(n_boxes_max))
@@ -44,11 +45,11 @@ CONTAINS
     allocate(box_length(n_boxes_max))
 
     do ii=1,50,1
-        box_lon(ii) = -2.5e+0_fp + 0.1e+0_fp * ii
+    do jj=1,20,1
+        i_box=jj+(ii-1)*20
+        box_lon(i_box) = -2.5e+0_fp + 0.1e+0_fp * ii
+        box_lat(i_box) = 0.2e+0_fp * jj
     enddo
-
-    do ii=1,20,1
-        box_lat(ii) = 0.2e+0_fp * ii
     enddo
 
 !    box_lon    = 0.0e+0_fp       ! (/0.0e+0_fp, 5.0e+0_fp, 10.0e+0_fp/)
@@ -60,6 +61,7 @@ CONTAINS
 
 
     FILENAME   = 'Lagrange_box_i_lon_lat_lev.txt'
+
     OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
@@ -136,6 +138,9 @@ CONTAINS
     Y_edge => YEDGE(1,:,1)  
     ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
 
+    X_edge2       = X_edge(2)
+    Y_edge2       = Y_edge(2)
+
     ! Run Lagrangian advection HERE
     do i_box = 1,n_boxes_max
 
@@ -160,8 +165,6 @@ CONTAINS
        curr_lon      = box_lon(i_box)
        curr_lat      = box_lat(i_box)
        curr_pressure = box_lev(i_box)        ! hPa
-       X_edge2       = X_edge(2)
-       Y_edge2       = Y_edge(2)
 
 
        i_lon = find_longitude(curr_lon, Dx, X_edge2)
@@ -270,12 +273,10 @@ CONTAINS
 !    INTEGER                   :: L
     LOGICAL                   :: IsOldFile
 
-    CHARACTER(LEN=255), PARAMETER :: LOC = 'LAGRANGE_WRITE_STD(lagrange_write_std_mod.F90)'
     CHARACTER(LEN=255)            :: FILENAME
 
+    FILENAME   = 'Lagrange_box_i_lon_lat_lev.txt'
 
-
-    FILENAME   = 'Lagrange_location.txt'
     OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
