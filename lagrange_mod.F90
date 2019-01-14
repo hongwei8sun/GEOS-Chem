@@ -48,7 +48,8 @@ CONTAINS
     do jj=1,20,1
         i_box=jj+(ii-1)*20
         box_lon(i_box) = -2.5e+0_fp + 0.1e+0_fp * ii
-        box_lat(i_box) = 0.2e+0_fp * jj
+        box_lat(i_box) = 12.0e+0_fp + 0.2e+0_fp * jj
+!       box_lat(i_box) = 0.2e+0_fp * jj
     enddo
     enddo
 
