@@ -48,8 +48,8 @@ CONTAINS
     do jj=1,20,1
         i_box=jj+(ii-1)*20
         box_lon(i_box) = -2.5e+0_fp + 0.1e+0_fp * ii
-        box_lat(i_box) = 12.0e+0_fp + 0.2e+0_fp * jj
-!       box_lat(i_box) = 0.2e+0_fp * jj
+!        box_lat(i_box) = 12.0e+0_fp + 0.2e+0_fp * jj
+        box_lat(i_box) = 0.2e+0_fp * jj
     enddo
     enddo
 
@@ -134,7 +134,7 @@ CONTAINS
     p_lev => State_Met%PMID  !Pressure (w/r/t moist air) at level centers (hPa)
 
     Dx = DLON(1,1,1)
-    Dy = DLAT(1,1,1)
+    Dy = DLAT(1,2,1)
     X_edge => XEDGE(:,1,1)   ! IIPAR+1
     Y_edge => YEDGE(1,:,1)  
     ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
