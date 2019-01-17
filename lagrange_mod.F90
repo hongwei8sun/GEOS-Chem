@@ -16,7 +16,7 @@ MODULE Lagrange_Mod
   PUBLIC :: lagrange_cleanup
 
 
-  integer, parameter :: n_boxes_max = 1000  !20*50
+  integer, parameter :: n_boxes_max = 80000  ! 50*40*40
   real(fp), allocatable :: box_lon(:)    !first use one point to test
   real(fp), allocatable :: box_lat(:)
   real(fp), allocatable :: box_lev(:)
@@ -34,7 +34,7 @@ CONTAINS
 
     LOGICAL,        INTENT(IN)    :: am_I_Root   ! Are we on the root CPU
     INTEGER                       :: i_box
-    INTEGER                       :: ii, jj
+    INTEGER                       :: ii, jj, kk
     CHARACTER(LEN=255)            :: FILENAME
 
     allocate(box_lon(n_boxes_max))
@@ -45,17 +45,20 @@ CONTAINS
     allocate(box_length(n_boxes_max))
 
     do ii=1,50,1
-    do jj=1,20,1
-        i_box=jj+(ii-1)*20
-        box_lon(i_box) = -2.5e+0_fp + 0.1e+0_fp * ii
+    do jj=1,40,1
+    do kk=1,40,1
+        i_box=kk+(jj+(ii-1)*40-1)*40
+        box_lon(i_box) = -2.55e+0_fp + 0.1e+0_fp * ii   ! -2.45 ~ 2.45 degree
 !        box_lat(i_box) = 12.0e+0_fp + 0.2e+0_fp * jj
-        box_lat(i_box) = 0.2e+0_fp * jj
+        box_lat(i_box) = -0.05e+0_fp + 0.1e+0_fp * jj   ! 0.05 ~ 3.95 degree
+        box_lev(i_box) = 23.8e+0_fp - 0.1e+0_fp * kk   ! 23.7 ~ 19.8 hPa
+    enddo
     enddo
     enddo
 
 !    box_lon    = 0.0e+0_fp       ! (/0.0e+0_fp, 5.0e+0_fp, 10.0e+0_fp/)
 !    box_lat    = 0.0e+0_fp       ! (/0.0e+0_fp, 4.0e+0_fp, 8.0e+0_fp/)
-    box_lev    = 20.0e+0_fp      ! hPa
+!    box_lev    = 20.0e+0_fp      ! hPa
     box_width  = 0.0e+0_fp
     box_depth  = 0.0e+0_fp
     box_length = 0.0e+0_fp
@@ -121,6 +124,7 @@ CONTAINS
     real(fp), pointer :: v(:,:,:)
     real(fp), pointer :: omeg(:,:,:)
     real(fp), pointer :: p_lev(:,:,:)
+    !real(fp), pointer :: pedge_lev(:,:,:)
 
     real :: Dx
     real :: Dy
@@ -131,7 +135,8 @@ CONTAINS
     u => State_Met%U   ! figure out state_met%U is based on lat/lon or modelgrid(i,j)
     v => State_Met%V   ! V [m s-1]
     omeg => State_Met%OMEGA  ! Updraft velocity [Pa/s]
-    p_lev => State_Met%PMID  !Pressure (w/r/t moist air) at level centers (hPa)
+    !p_lev => State_Met%PMID  ! Pressure (w/r/t moist air) at level centers (hPa)
+    p_lev => State_Met%PEDGE  ! Wet air press @ level edges [hPa]
 
     Dx = DLON(1,1,1)
     Dy = DLAT(1,2,1)
@@ -172,11 +177,9 @@ CONTAINS
        i_lat = find_latitude(curr_lat, Dy, Y_edge2) 
        i_lev = find_plev(curr_pressure,i_lon,i_lat,p_lev)
 
-
        dbox_lon = (Dt*u(i_lon,i_lat,i_lev)) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
        dbox_lat = (Dt*v(i_lon,i_lat,i_lev)) / (PI*Re) * 180.0
        dbox_lev = Dt * omeg(i_lon,i_lat,i_lev)/100.0  ! Pa => hPa
-
 
        box_lon(i_box) = box_lon(i_box) + dbox_lon
        box_lat(i_box) = box_lat(i_box) + dbox_lat
@@ -185,6 +188,8 @@ CONTAINS
        !call
        !grow_box(box_length(i_box),box_width(i_box),box_depth(i_box),i_lon,i_lat,i_lev)
     end do
+
+    WRITE(6,*)'-Lagrange(i_lev)->',i_lev,p_lev(i_lon,i_lat,i_lev),p_lev(i_lon,i_lat,i_lev+1)
 
     ! Everything is done, clean up pointers
     nullify(u)
@@ -223,9 +228,13 @@ CONTAINS
     integer :: i_lon, i_lat
     integer :: locate(1)
     locate = MINLOC(abs( p_lev(i_lon,i_lat,:)-curr_pressure ))
-    ! Notice that minimum difference in pressure (hPa) might not 
-    ! the minimum difference in distance (km)
-    find_plev = locate(1)
+
+    if(p_lev(i_lon,i_lat,locate(1))-curr_pressure >= 0 )then
+       find_plev = locate(1)
+    else
+       find_plev = locate(1) - 1
+    endif
+
     return
   end function
 
