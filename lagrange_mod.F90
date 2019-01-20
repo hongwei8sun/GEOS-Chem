@@ -17,6 +17,7 @@ MODULE Lagrange_Mod
 
 
   integer, parameter :: n_boxes_max = 80000  ! 50*40*40
+  integer            :: tt
   real(fp), allocatable :: box_lon(:)    !first use one point to test
   real(fp), allocatable :: box_lat(:)
   real(fp), allocatable :: box_lev(:)
@@ -64,7 +65,8 @@ CONTAINS
     box_length = 0.0e+0_fp
 
 
-    FILENAME   = 'Lagrange_box_i_lon_lat_lev.txt'
+    FILENAME   = 'Lagrange_1hr_box_i_lon_lat_lev.txt'
+    tt = 0
 
     OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
@@ -189,7 +191,7 @@ CONTAINS
        !grow_box(box_length(i_box),box_width(i_box),box_depth(i_box),i_lon,i_lat,i_lev)
     end do
 
-    WRITE(6,*)'-Lagrange(i_lev)->',i_lev,p_lev(i_lon,i_lat,i_lev),p_lev(i_lon,i_lat,i_lev+1)
+    ! WRITE(6,*)'-Lagrange(i_lev)->',i_lev,p_lev(i_lon,i_lat,i_lev),p_lev(i_lon,i_lat,i_lev+1)
 
     ! Everything is done, clean up pointers
     nullify(u)
@@ -285,15 +287,19 @@ CONTAINS
 
     CHARACTER(LEN=255)            :: FILENAME
 
-    FILENAME   = 'Lagrange_box_i_lon_lat_lev.txt'
+    FILENAME   = 'Lagrange_1hr_box_i_lon_lat_lev.txt'
+    tt = tt +1
 
-    OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD', &
-          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+    IF(mod(tt,6)==0)THEN
 
-    Do i_box = 1, n_boxes_max
-       WRITE(261,'(I0.4,3(x,E16.5E4))') i_box, box_lon(i_box), box_lat(i_box),box_lev(i_box)
-    End Do
+       OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD', &
+             FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+       Do i_box = 1, n_boxes_max
+          WRITE(261,'(I0.4,3(x,E16.5E4))') i_box, box_lon(i_box), box_lat(i_box),box_lev(i_box)
+       End Do
     
+    ENDIF
 
     !=================================================================
     ! LAGRANGE_WRITE_STD begins here!
