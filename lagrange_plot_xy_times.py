@@ -6,12 +6,13 @@ import math
 
 #---------------------------------------------------------------
 
-FILENAME='Lagrange_box_i_lon_lat_lev'
+FILENAME='Lagrange_0deg_box_i_lon_lat_lev'
+#FILENAME='Lagrange_10deg_box_i_lon_lat_lev'
 # FILENAME='Lagrange_location_15day_10deg'
 a=np.loadtxt(FILENAME+'.txt')
 
 print(len(a))
-nbox = 1000
+nbox = 80000
 ntimes = math.floor(len(a)/nbox)
 
 x1 = np.arange( ntimes * nbox ).reshape(ntimes, nbox)
@@ -39,7 +40,7 @@ while i < (ntimes-1):
 	x1[i,:] = a[ii*nbox : (ii+1)*nbox : 1, 1]  # there are 1000 not 1001 in a[i*1000:(i+1)*1000:1,1] 
 	y1[i,:] = a[ii*nbox : (ii+1)*nbox : 1, 2]
 	plt.scatter(x1[i,:],y1[i,:],s=sValue,c='r',marker='.',zorder=10)
-	plt.title('Time(s): '+ str(ii))
+	plt.title(str(ii))
 	plt.savefig(str(i)+'_xy.png')
 	plt.clf()
 	plt.cla()

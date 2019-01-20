@@ -2,9 +2,10 @@ from mpl_toolkits.basemap import Basemap, cm
 from netCDF4 import Dataset
 import numpy as np
 import matplotlib.pyplot as plt
-import math
 import matplotlib.colors as colors
+import matplotlib.ticker
 from matplotlib.mlab import bivariate_normal
+import math
 #pandas
 #------------------------------------------------
 # geos ------------------------------------------
@@ -75,13 +76,21 @@ while i<Nt:
 	print(i)
 	#clevs = [0.1E-10,0.1E-06,0.5E-06,0.1E-05,0.5E-05,0.1E-04]
 	#cmap=plt.cm.get_cmap('Blues', 7)
-	cs = m.contourf(x,y,pasv1[i,43,:,:],norm=colors.LogNorm(vmin=pasv1[:,43,:,:].min(), vmax=pasv1[:,43,:,:].max()),cmap='Blues')
-	print(cs.cmap)
+
+	# uneven bounds changes the colormapping:
+	bounds = np.array([1.0E-10,5.0E-10,1.0E-09,5.0E-09,1.0E-08,5.0E-08,1.0E-07,5.0E-07,1.0E-06])
+	norm = colors.BoundaryNorm(boundaries=bounds, ncolors=256)
+	#pcm = ax[1].pcolormesh(X, Y, Z, norm=norm, cmap='RdBu_r')
+	#cs = m.contourf(x, y, pasv1[i,43,:,:], norm=norm, cmap='Blues')
+	cs = m.pcolormesh(x, y, pasv1[i,43,:,:], norm=norm, cmap='Blues')
 	cs.cmap.set_under('w')
-	cs.set_clim(0.1E-10)
+	cs.set_clim(1.0E-10)
 	i=i+1
 	# add colorbar.
-	cbar = m.colorbar(cs,location='bottom',pad="5%")
+	fmt = matplotlib.ticker.ScalarFormatter(useMathText=True)
+	fmt.set_powerlimits((0, 0))
+
+	cbar = m.colorbar(cs,location='bottom',pad="5%",format=fmt)
 	cbar.set_label('mol mol-1')
 	
 	# for Lagrange *****
