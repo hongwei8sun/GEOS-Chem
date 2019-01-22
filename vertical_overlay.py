@@ -16,14 +16,19 @@ FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_12deg/'
 geos_nc = Dataset(FILEDIR+'GEOSChem.SpeciesConc_inst.20160701_0000z.nc4','r',format='NETCDF4_CLASSIC')
 
 pasv1 = geos_nc.variables['SpeciesConc_PASV1']
-lat2 = geos_nc.variables['lat']
-print(lat2[:])
 print(pasv1)
 
-pasv_mean = np.sum(pasv1[:,:,:,:], axis=1)
+pasv_Ymean = np.sum(pasv1[:,:,:,:], axis=2)
+
+lon = geos_nc.variables['lon']
+Pcenter = np.loadtxt("P_73_72_levels.txt")
+Pz = Pcenter[1:145:2]
+lev = Pz[::-1]
+print(Pz[:])
+print(Pz.shape)
 
 del geos_nc
-print(pasv_mean.shape)
+print(pasv_Ymean.shape)
 del pasv1
 #------------------------------------------------
 # lagrange --------------------------------------
@@ -38,7 +43,7 @@ ntimes = math.floor(len(lagrange_txt)/nbox)
 
 
 x1 = np.arange( ntimes * nbox ).reshape(ntimes, nbox)
-y1 = np.arange( ntimes * nbox ).reshape(ntimes, nbox)
+z1 = np.arange( ntimes * nbox ).reshape(ntimes, nbox)
 
 i = 0
 Ndt = 24  # 24 hour
@@ -47,7 +52,7 @@ ii = i*Ndt                             # plot in every 10 time steps
 while ii < (ntimes-1):
 	print(i)
 	x1[i,:] = lagrange_txt[ii*nbox : (ii+1)*nbox : 1, 1]  # there are 1000 not 1001 in a[i*1000:(i+1)*1000:1,1] 
-	y1[i,:] = lagrange_txt[ii*nbox : (ii+1)*nbox : 1, 2]
+	z1[i,:] = lagrange_txt[ii*nbox : (ii+1)*nbox : 1, 3]
 	i=i+1
 	ii = i*Ndt                             # plot in every 10 time steps
 
@@ -57,58 +62,39 @@ del lagrange_txt
 #------------------------------------------------
 
 # time step for ploting is 24 hours (once every day)
-Nt = len(pasv_mean[:,0,0])
+Nt = len(pasv_Ymean[:,0,0])
 print(Nt)
 sValue = x1[0,:]*0.0+0.5
 
 i=0
 while i<Nt:
-	
-	fig = plt.figure(figsize=(8,8))
-	ax = fig.add_axes([0.1,0.1,0.8,0.8])
-
-	m = Basemap(projection='cyl',llcrnrlat=-90,urcrnrlat=90,llcrnrlon=-180,urcrnrlon=180)
-	m.drawcoastlines()
-	m.drawparallels(np.arange(-90.,91.,30.))
-	m.drawmeridians(np.arange(-180.,181.,60.))
-	m.drawmapboundary(fill_color='white')
-	
-	parallels = np.arange(-90.,90,30.)
-	m.drawparallels(parallels,labels=[1,0,0,0],fontsize=10)
-	meridians = np.arange(-180.,180.,60.)
-	m.drawmeridians(meridians,labels=[0,0,0,1],fontsize=10)
-	#m.drawcountries()
-	
-	# for geos =====================
-	ny = pasv_mean.shape[1]; nx = pasv_mean.shape[2]
-	lons, lats = m.makegrid(nx, ny) # get lat/lons of ny by nx evenly space grid.
-	x, y = m(lons, lats) # compute map proj coordinates.
-	# for GEOS **********
 	print(i)
-	#clevs = [0.1E-10,0.1E-06,0.5E-06,0.1E-05,0.5E-05,0.1E-04]
-	#cmap=plt.cm.get_cmap('Blues', 7)
 
-	# uneven bounds changes the colormapping:
+	plt.set_yscale("log")
 	bounds = np.array([1.0E-11,5.0E-11,1.0E-10,5.0E-10,1.0E-09,5.0E-09,1.0E-08,5.0E-08,1.0E-07,5.0E-07,1.0E-06])
 	norm = colors.BoundaryNorm(boundaries=bounds, ncolors=256)
-	#pcm = ax[1].pcolormesh(X, Y, Z, norm=norm, cmap='RdBu_r')
-	#cs = m.contourf(x, y, pasv_mean[i,43,:,:], norm=norm, cmap='Blues')
-	#pasv_ave = pasv1.sum(axis=1)
-	cs = m.pcolormesh(x, y, pasv_mean[i,:,:], norm=norm, cmap='Blues')
-	cs.cmap.set_under('w')
-	cs.set_clim(1.0E-11)
-	# add colorbar.
+	fig1 = plt.pcolormesh(lon[:], lev[:], pasv_Ymean[i,:,:], norm=norm, cmap="Reds")
+	plt.invert_yaxis()
+
+	fig1.cmap.set_under('w')
+	fig1.set_clim(1.0E-11)
 	fmt = matplotlib.ticker.ScalarFormatter(useMathText=True)
 	fmt.set_powerlimits((0, 0))
+	fig.colorbar(fig1, ax=plt, orientation='vertical', format=fmt)
+	fig1.set_label('mol mol-1')
 
-	cbar = m.colorbar(cs,location='bottom',pad="7%",format=fmt)
-	cbar.set_label('mol mol-1')
 	
 	# for Lagrange *****
 	i=i+1   # because there is no origin data in GEOS file
-	plt.scatter(x1[i,:],y1[i,:],s=sValue,c='r',marker='.',zorder=10)
+	fig2 = plt.scatter(x1[i,:],z1[i,:],s=sValue,c='r',marker='.',zorder=10)
 	# add title
-	plt.title('GEOS-Chem (Blue/Shaded) & Lagrange (Red/Scatter)')
+
+	plt.set_title('GEOS-Chem (Blue/Shaded) & Lagrange (Red/Scatter)')
+
+	plt.suptitle('Day: '+str(i), fontsize=16)
+
+	plt.subplots_adjust(hspace=0.5)
+
 	plt.savefig(str(i)+'_xy.png')
 	plt.clf()
 	plt.cla()

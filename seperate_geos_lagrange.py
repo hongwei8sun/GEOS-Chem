@@ -10,7 +10,8 @@ import math
 #------------------------------------------------
 # geos ------------------------------------------
 #------------------------------------------------
-FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_tracer/'
+#FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_tracer/'
+FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_12deg/'
 
 geos_nc = Dataset(FILEDIR+'GEOSChem.SpeciesConc_inst.20160701_0000z.nc4','r',format='NETCDF4_CLASSIC')
 
@@ -26,7 +27,7 @@ del pasv1
 # lagrange --------------------------------------
 #------------------------------------------------
 
-lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_box_i_lon_lat_lev.txt')
+lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_1hr_box_i_lon_lat_lev.txt')
 
 print(len(lagrange_txt)) # 1 hour
 nbox = 80000
@@ -104,6 +105,8 @@ while i<Nt:
 	plt.title('GEOS-Chem (Concentration)', fontsize=10)
 	#plt.title('GEOS-Chem (Blue/Shaded) & Lagrange (Red/Scatter)')
 	
+	plt.suptitle('Day: '+str(i), fontsize=16)
+
 	# for Lagrange ===================
 	plt.subplot(2, 1, 1)
 	
@@ -123,6 +126,7 @@ while i<Nt:
 	plt.scatter(x1[i,:],y1[i,:],s=sValue,c='r',marker='.',zorder=10)
 	
 	plt.title('Lagrange (air parcels)', fontsize=10)
+	
 	
 	plt.savefig(str(i)+'_xy.png')
 	plt.clf()
