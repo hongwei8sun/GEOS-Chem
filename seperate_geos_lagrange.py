@@ -59,10 +59,11 @@ sValue = x1[0,:]*0.0+0.5
 
 i=0
 while i<Nt:
-	
-	fig = plt.figure(figsize=(8,8))
-	ax = fig.add_axes([0.1,0.1,0.8,0.8])
+	plt.figure(figsize=(7,9))
 
+	plt.subplot(2, 1, 2)
+	#ax = fig.add_axes([0.1,0.1,0.4,0.4])
+	
 	m = Basemap(projection='cyl',llcrnrlat=-90,urcrnrlat=90,llcrnrlon=-180,urcrnrlon=180)
 	m.drawcoastlines()
 	m.drawparallels(np.arange(-90.,91.,30.))
@@ -70,9 +71,9 @@ while i<Nt:
 	m.drawmapboundary(fill_color='white')
 	
 	parallels = np.arange(-90.,90,30.)
-	m.drawparallels(parallels,labels=[1,0,0,0],fontsize=10)
+	m.drawparallels(parallels,labels=[1,0,0,0],fontsize=8)
 	meridians = np.arange(-180.,180.,60.)
-	m.drawmeridians(meridians,labels=[0,0,0,1],fontsize=10)
+	m.drawmeridians(meridians,labels=[0,0,0,1],fontsize=8)
 	#m.drawcountries()
 	
 	# for geos =====================
@@ -83,7 +84,7 @@ while i<Nt:
 	print(i)
 	#clevs = [0.1E-10,0.1E-06,0.5E-06,0.1E-05,0.5E-05,0.1E-04]
 	#cmap=plt.cm.get_cmap('Blues', 7)
-
+	
 	# uneven bounds changes the colormapping:
 	bounds = np.array([1.0E-11,5.0E-11,1.0E-10,5.0E-10,1.0E-09,5.0E-09,1.0E-08,5.0E-08,1.0E-07,5.0E-07,1.0E-06])
 	norm = colors.BoundaryNorm(boundaries=bounds, ncolors=256)
@@ -96,15 +97,33 @@ while i<Nt:
 	# add colorbar.
 	fmt = matplotlib.ticker.ScalarFormatter(useMathText=True)
 	fmt.set_powerlimits((0, 0))
-
-	cbar = m.colorbar(cs,location='bottom',pad="7%",format=fmt)
+	
+	cbar = m.colorbar(cs,location='bottom',pad="9%",format=fmt)
 	cbar.set_label('mol mol-1')
 	
-	# for Lagrange *****
+	plt.title('GEOS-Chem (Concentration)', fontsize=10)
+	#plt.title('GEOS-Chem (Blue/Shaded) & Lagrange (Red/Scatter)')
+	
+	# for Lagrange ===================
+	plt.subplot(2, 1, 1)
+	
+	m = Basemap(projection='cyl',llcrnrlat=-90,urcrnrlat=90,llcrnrlon=-180,urcrnrlon=180)
+	m.drawcoastlines()
+	m.drawparallels(np.arange(-90.,91.,30.))
+	m.drawmeridians(np.arange(-180.,181.,60.))
+	m.drawmapboundary(fill_color='white')
+	
+	parallels = np.arange(-90.,90,30.)
+	m.drawparallels(parallels,labels=[1,0,0,0],fontsize=8)
+	meridians = np.arange(-180.,180.,60.)
+	m.drawmeridians(meridians,labels=[0,0,0,1],fontsize=8)
+	
+	
 	i=i+1   # because there is no origin data in GEOS file
 	plt.scatter(x1[i,:],y1[i,:],s=sValue,c='r',marker='.',zorder=10)
-	# add title
-	plt.title('GEOS-Chem (Blue/Shaded) & Lagrange (Red/Scatter)')
+	
+	plt.title('Lagrange (air parcels)', fontsize=10)
+	
 	plt.savefig(str(i)+'_xy.png')
 	plt.clf()
 	plt.cla()
