@@ -11,7 +11,8 @@ import math
 #------------------------------------------------
 FILEDIR = '/n/home12/hongwei/Python_script/Postdeal_lagrange_points/'
 
-NcFile = Dataset(FILEDIR+'Lagrange_Geos_Concentration.nc','r',format='NETCDF4_CLASSIC')
+#NcFile = Dataset(FILEDIR+'Lagrange_Geos_Concentration_0deg.nc','r',format='NETCDF4_CLASSIC')
+NcFile = Dataset(FILEDIR+'Lagrange_Geos_Concentration_12deg.nc','r',format='NETCDF4_CLASSIC')
 
 geos = NcFile.variables['SpeciesConc_PASV1']
 geos_mean = np.sum(geos[:,:,:,:], axis=1)

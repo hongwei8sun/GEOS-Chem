@@ -14,11 +14,16 @@ import math
 
 # input file:
 # files location/directory:
-FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_tracer/'
+
+# FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_tracer/'
+FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_12deg/'
+
 # GEOS-Chem file:
 geos_nc = Dataset(FILEDIR+'GEOSChem.SpeciesConc_inst.20160701_0000z.nc4','r',format='NETCDF4_CLASSIC')
+
 # Lagrange file:
-lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_box_i_lon_lat_lev.txt')
+# lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_box_i_lon_lat_lev.txt')
+lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_1hr_box_i_lon_lat_lev.txt')
 
 # modify detailed setting in their own section
 
@@ -31,9 +36,11 @@ Ymin = -92.0
 Dy = 4.0
 
 # For function find_lev(z, Pedge)
-Press = np.loadtxt("Pedge_73levels.txt")
-Pedge = Press[0:145:2]
-
+Press = np.loadtxt("P_73_72_levels.txt")
+Pedge2 = Press[0:145:2]
+Pedge = Pedge2[::-1]
+print(Pedge[:])
+print(Pedge.shape)
 
 #------------------------------------------------
 # geos ------------------------------------------
@@ -93,25 +100,26 @@ del lagrange_txt
 def find_lev( z, Pedge ):
 	delt_P = Pedge - z
 	index_min = np.argmin(abs(delt_P))
-	if delt_P[index_min]<=0:
+	if delt_P[index_min]>=0:
 		i_z = index_min
-	if delt_P[index_min]>0:
+	if delt_P[index_min]<0:
 		i_z = index_min - 1
 	return i_z;
 #------------------------------------------------
 
 t = 0
-n = 0
 print(Nt)
-while t < Nt:
-	print(t)
+while t < (Nt-1):    # 30 number in total
+	print(t)     # 0~29 -> 1~30
+	tt = t + 1   # ignore t=0, begin at t=1~30
+	n = 0
 	while n < nbox:
-		i_lon = int( (lagr[t,n,0] - Xmin) / Dx )   # find_lon(lagr[t,n,0], Xmin, Dx)
-		i_lat = int( (lagr[t,n,1] - Ymin) / Dy )   # find_lat(lagr[t,n,1], Ymin, Dy)
-		i_lev = find_lev(lagr[t,n,2] , Pedge )
-		
-		news[t,i_lev,i_lon,i_lat] = news[t,i_lev,i_lon,i_lat] + 1.0/nbox
+		i_lon = int( (lagr[tt,n,0] - Xmin) / Dx )   # find_lon(lagr[t,n,0], Xmin, Dx)
+		i_lat = int( (lagr[tt,n,1] - Ymin) / Dy )   # find_lat(lagr[t,n,1], Ymin, Dy)
+		i_lev = find_lev(lagr[tt,n,2] , Pedge )
+		news[t,i_lev,i_lat,i_lon] = news[t,i_lev,i_lat,i_lon] + 1.0/nbox
 		n = n + 1
+	print(n)
 	t = t + 1
 
 # write news variable into nc file ----------------
