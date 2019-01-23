@@ -10,8 +10,8 @@ import math
 #------------------------------------------------
 # geos ------------------------------------------
 #------------------------------------------------
-#FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_tracer/'
-FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_12deg/'
+FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_tracer/'
+#FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_12deg/'
 
 geos_nc = Dataset(FILEDIR+'GEOSChem.SpeciesConc_inst.20160701_0000z.nc4','r',format='NETCDF4_CLASSIC')
 
@@ -34,8 +34,8 @@ del pasv1
 # lagrange --------------------------------------
 #------------------------------------------------
 
-#lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_box_i_lon_lat_lev.txt')
-lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_1hr_box_i_lon_lat_lev.txt')
+lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_box_i_lon_lat_lev.txt')
+#lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_1hr_box_i_lon_lat_lev.txt')
 
 print(len(lagrange_txt)) # 1 hour
 nbox = 80000
@@ -70,30 +70,32 @@ i=0
 while i<Nt:
 	print(i)
 
-	plt.set_yscale("log")
+	fig, (ax1) = plt.subplots(nrows=1,figsize=(8,6))
+
+	# GEOS-Chem #
+	ax1.set_yscale("log")
 	bounds = np.array([1.0E-11,5.0E-11,1.0E-10,5.0E-10,1.0E-09,5.0E-09,1.0E-08,5.0E-08,1.0E-07,5.0E-07,1.0E-06])
 	norm = colors.BoundaryNorm(boundaries=bounds, ncolors=256)
-	fig1 = plt.pcolormesh(lon[:], lev[:], pasv_Ymean[i,:,:], norm=norm, cmap="Reds")
-	plt.invert_yaxis()
+	fig1=ax1.pcolormesh(lon[:], lev[:], pasv_Ymean[i,:,:], norm=norm, cmap="Blues")
+	ax1.invert_yaxis()
 
 	fig1.cmap.set_under('w')
 	fig1.set_clim(1.0E-11)
 	fmt = matplotlib.ticker.ScalarFormatter(useMathText=True)
 	fmt.set_powerlimits((0, 0))
-	fig.colorbar(fig1, ax=plt, orientation='vertical', format=fmt)
+	fig.colorbar(fig1, ax=ax1, orientation='vertical', format=fmt)
 	fig1.set_label('mol mol-1')
 
+	ax1.set_title('GEOS-Chem')
 	
 	# for Lagrange *****
 	i=i+1   # because there is no origin data in GEOS file
 	fig2 = plt.scatter(x1[i,:],z1[i,:],s=sValue,c='r',marker='.',zorder=10)
 	# add title
 
-	plt.set_title('GEOS-Chem (Blue/Shaded) & Lagrange (Red/Scatter)')
+	ax1.set_title('GEOS (Blue/Shaded) & Lagrange (Red/Scatter)')
 
 	plt.suptitle('Day: '+str(i), fontsize=16)
-
-	plt.subplots_adjust(hspace=0.5)
 
 	plt.savefig(str(i)+'_xy.png')
 	plt.clf()
