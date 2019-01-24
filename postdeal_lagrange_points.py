@@ -16,14 +16,16 @@ import math
 # files location/directory:
 
 # FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_tracer/'
-FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_12deg/'
+# FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_12deg/'
+FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_gc_timing_interplt/'
 
 # GEOS-Chem file:
 geos_nc = Dataset(FILEDIR+'GEOSChem.SpeciesConc_inst.20160701_0000z.nc4','r',format='NETCDF4_CLASSIC')
 
 # Lagrange file:
 # lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_box_i_lon_lat_lev.txt')
-lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_1hr_box_i_lon_lat_lev.txt')
+# lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_1hr_box_i_lon_lat_lev.txt')
+lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_1day_box_i_lon_lat_lev.txt')
 
 # modify detailed setting in their own section
 
@@ -39,8 +41,7 @@ Dy = 4.0
 Press = np.loadtxt("P_73_72_levels.txt")
 Pedge2 = Press[0:145:2]
 Pedge = Pedge2[::-1]
-print(Pedge[:])
-print(Pedge.shape)
+print('Pedge.shape',Pedge.shape)
 
 #------------------------------------------------
 # geos ------------------------------------------
@@ -49,13 +50,13 @@ print(Pedge.shape)
 pasv1 = geos_nc.variables['SpeciesConc_PASV1']
 lon = geos_nc.variables['lon']
 lat = geos_nc.variables['lat']
-print(pasv1)
+print('pasv1',pasv1)
 
 del geos_nc
 
 news = pasv1[:,:,:,:]
 news[:,:,:,:] = 0.0
-print(news.shape)
+print('news.shape',news.shape)
 
 del pasv1
 
@@ -63,27 +64,27 @@ del pasv1
 # lagrange --------------------------------------
 #------------------------------------------------
 
-print(len(lagrange_txt)) # 1 hour
+print('len(lagrange_txt)',len(lagrange_txt)) # 1 hour
 nbox = 80000
 ntimes = math.floor(len(lagrange_txt)/nbox)
-print(ntimes)
+print('ntimes',ntimes)
 
-Ndt = 24  # 24 hour
+Ndt = 1  # output is once every day now
 Nt = math.floor(ntimes/Ndt)
-print(Nt)
+print('Nt',Nt)
 lagr = np.arange( Nt * nbox * 3 ).reshape(Nt, nbox, 3)
 
 i = 0
 ii = i*Ndt                             # plot in every 10 time steps
 
 while i < Nt:
-	print(i)
+	print('i',i)
 	lagr[i,:,0] = lagrange_txt[ii*nbox : (ii+1)*nbox : 1, 1]  # there are 1000 not 1001 in a[i*1000:(i+1)*1000:1,1] 
 	lagr[i,:,1] = lagrange_txt[ii*nbox : (ii+1)*nbox : 1, 2]
 	lagr[i,:,2] = lagrange_txt[ii*nbox : (ii+1)*nbox : 1, 3]
 	i=i+1
 	ii = i*Ndt                             # plot in every 10 time steps
-print(lagr.shape)
+print('lagr.shape',lagr.shape)
 del lagrange_txt
 #------------------------------------------------
 # post deal to regrid data  ---------------------
@@ -109,17 +110,18 @@ def find_lev( z, Pedge ):
 
 t = 0
 print(Nt)
-while t < (Nt-1):    # 30 number in total
-	print(t)     # 0~29 -> 1~30
-	tt = t + 1   # ignore t=0, begin at t=1~30
+while t < (Nt-2):   # 30 number in total 
+# minus 1 for python begin at 0, minus 1 for lagragne is 1 more time than GEOS 
+	print('t',t)     # 0~29 -> 1~30
 	n = 0
+	tt = t + 1
 	while n < nbox:
 		i_lon = int( (lagr[tt,n,0] - Xmin) / Dx )   # find_lon(lagr[t,n,0], Xmin, Dx)
 		i_lat = int( (lagr[tt,n,1] - Ymin) / Dy )   # find_lat(lagr[t,n,1], Ymin, Dy)
 		i_lev = find_lev(lagr[tt,n,2] , Pedge )
 		news[t,i_lev,i_lat,i_lon] = news[t,i_lev,i_lat,i_lon] + 1.0/nbox
 		n = n + 1
-	print(n)
+	print('n',n)
 	t = t + 1
 
 # write news variable into nc file ----------------

@@ -49,10 +49,10 @@ CONTAINS
     do jj=1,40,1
     do kk=1,40,1
         i_box=kk+(jj+(ii-1)*40-1)*40
-        box_lon(i_box) = -2.55e+0_fp + 0.1e+0_fp * ii   ! -2.45 ~ 2.45 degree
-!        box_lat(i_box) = 12.0e+0_fp + 0.2e+0_fp * jj
-        box_lat(i_box) = -0.05e+0_fp + 0.1e+0_fp * jj   ! 0.05 ~ 3.95 degree
-        box_lev(i_box) = 23.8e+0_fp - 0.1e+0_fp * kk   ! 23.7 ~ 19.8 hPa
+        box_lon(i_box) = -2.55e+0_fp + 0.1e+0_fp * ii   ! -2.45 : 2.45 : 0.1 degree
+        box_lat(i_box) = 12.05e+0_fp + 0.1e+0_fp * jj   ! 12.05N : 15.95N : 0.1
+!       box_lat(i_box) = -0.05e+0_fp + 0.1e+0_fp * jj   ! 0.05N : 3.95N : 0.1 deg
+        box_lev(i_box) = 23.8e+0_fp - 0.1e+0_fp * kk    ! 23.7hPa : 19.8hPa : -0.1
     enddo
     enddo
     enddo
@@ -65,7 +65,8 @@ CONTAINS
     box_length = 0.0e+0_fp
 
 
-    FILENAME   = 'Lagrange_1hr_box_i_lon_lat_lev.txt'
+!    FILENAME   = 'Lagrange_1hr_box_i_lon_lat_lev.txt'
+    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
     tt = 0
 
     OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
@@ -82,6 +83,7 @@ CONTAINS
 
 
 !-----------------------------------------------------------------
+!=================================================================
 
   SUBROUTINE lagrange_run(am_I_Root, State_Met, State_Chm, Input_Opt)
 
@@ -93,8 +95,9 @@ CONTAINS
     USE State_Met_Mod, ONLY : MetState
 
     ! choose XEDGE  
-    USE GC_GRID_MOD,   ONLY : XEDGE, YEDGE                 
-    USE CMN_SIZE_Mod,  ONLY : IIPAR, JJPAR, LLPAR, DLAT, DLON
+    USE GC_GRID_MOD,   ONLY : XEDGE, YEDGE, XMID, YMID                 
+    USE CMN_SIZE_Mod,  ONLY : IIPAR, JJPAR, LLPAR, DLAT, DLON 
+    ! ??? DLAT_mid isdifferent from DLAT_edge ???
     ! DLAT( IIPAR, JJPAR, LLPAR ), DLON( IIPAR, JJPAR, LLPAR )
     ! XEDGE  ( IM+1, JM,   L ), YEDGE  ( IM,   JM+1, L ), IM=IIPAR, JM=JJPAR
 
@@ -125,25 +128,35 @@ CONTAINS
     real(fp), pointer :: u(:,:,:)
     real(fp), pointer :: v(:,:,:)
     real(fp), pointer :: omeg(:,:,:)
-    real(fp), pointer :: p_lev(:,:,:)
-    !real(fp), pointer :: pedge_lev(:,:,:)
+
+    real :: curr_u
+    real :: curr_v
+    real :: curr_omeg
+
+    real(fp), pointer :: P_edge(:,:,:)
+    real(fp), pointer :: P_mid(:)
 
     real :: Dx
     real :: Dy
     real(fp), pointer :: X_edge(:)    
     real(fp), pointer :: Y_edge(:)       
+    real(fp), pointer :: X_mid(:)    
+    real(fp), pointer :: Y_mid(:)       
 
     ! Establish pointers
     u => State_Met%U   ! figure out state_met%U is based on lat/lon or modelgrid(i,j)
     v => State_Met%V   ! V [m s-1]
     omeg => State_Met%OMEGA  ! Updraft velocity [Pa/s]
-    !p_lev => State_Met%PMID  ! Pressure (w/r/t moist air) at level centers (hPa)
-    p_lev => State_Met%PEDGE  ! Wet air press @ level edges [hPa]
+
+    P_edge => State_Met%PEDGE  ! Wet air press @ level edges [hPa]
+    P_mid => State_Met%PMID(1,1,:)  ! Pressure (w/r/t moist air) at level centers (hPa)
 
     Dx = DLON(1,1,1)
-    Dy = DLAT(1,2,1)
+    Dy = DLAT(1,2,1)  ! DLAT(1,1,1) is half of DLAT(1,2,1) !!!
     X_edge => XEDGE(:,1,1)   ! IIPAR+1
     Y_edge => YEDGE(1,:,1)  
+    X_mid => XMID(:,1,1)   ! IIPAR+1
+    Y_mid => YMID(1,:,1)  
     ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
 
     X_edge2       = X_edge(2)
@@ -177,11 +190,17 @@ CONTAINS
 
        i_lon = find_longitude(curr_lon, Dx, X_edge2)
        i_lat = find_latitude(curr_lat, Dy, Y_edge2) 
-       i_lev = find_plev(curr_pressure,i_lon,i_lat,p_lev)
+       i_lev = find_plev(curr_pressure,i_lon,i_lat,P_edge)
 
-       dbox_lon = (Dt*u(i_lon,i_lat,i_lev)) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
-       dbox_lat = (Dt*v(i_lon,i_lat,i_lev)) / (PI*Re) * 180.0
-       dbox_lev = Dt * omeg(i_lon,i_lat,i_lev)/100.0  ! Pa => hPa
+
+       curr_u = interplt_wind(u,X_mid,Y_mid,P_mid,i_lon,i_lat,i_lev,curr_lon,curr_lat,curr_pressure)
+       curr_v = interplt_wind(v,X_mid,Y_mid,P_mid,i_lon,i_lat,i_lev,curr_lon,curr_lat,curr_pressure)
+       curr_omeg = interplt_wind(omeg,X_mid,Y_mid,P_mid,i_lon,i_lat,i_lev,curr_lon,curr_lat,curr_pressure)
+
+
+       dbox_lon = (Dt*curr_u) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
+       dbox_lat = (Dt*curr_v) / (PI*Re) * 180.0
+       dbox_lev = Dt * curr_omeg / 100.0     ! Pa => hPa
 
        box_lon(i_box) = box_lon(i_box) + dbox_lon
        box_lat(i_box) = box_lat(i_box) + dbox_lat
@@ -191,23 +210,24 @@ CONTAINS
        !grow_box(box_length(i_box),box_width(i_box),box_depth(i_box),i_lon,i_lat,i_lev)
     end do
 
-    ! WRITE(6,*)'-Lagrange(i_lev)->',i_lev,p_lev(i_lon,i_lat,i_lev),p_lev(i_lon,i_lat,i_lev+1)
+    ! WRITE(6,*)'-Lagrange(i_lev)->',i_lev,P_edge(i_lon,i_lat,i_lev),P_edge(i_lon,i_lat,i_lev+1)
 
     ! Everything is done, clean up pointers
     nullify(u)
     nullify(v)
     nullify(omeg)
-    nullify(p_lev)
+    nullify(P_edge)
 
   END SUBROUTINE lagrange_run
 
-
-!-------------------------------------------------------------------
+!--------------------------------------------------------------------
+! functions to find location (i,j,k) of boxes 
 
   integer function find_longitude(curr_lon,  Dx,  X_edge2)
     implicit none
     real :: curr_lon, Dx, X_edge2
-    find_longitude = INT(AINT( (curr_lon - (X_edge2 - Dx)) / Dx ))+1
+    find_longitude = INT( (curr_lon - (X_edge2 - Dx)) / Dx )+1
+    ! Notice the difference between INT(), FLOOR(), AINT()
     ! for lon: Xedge_Sec - Dx = Xedge_first
     return
   end function
@@ -216,22 +236,22 @@ CONTAINS
   integer function find_latitude(curr_lat, Dy, Y_edge2)
     implicit none
     real :: curr_lat, Dy, Y_edge2
-    find_latitude = INT(AINT( (curr_lat - (Y_edge2 - Dy)) / Dy ))+1
+    find_latitude = INT( (curr_lat - (Y_edge2 - Dy)) / Dy )+1
     ! for lat: (Yedge_Sec - Dy) may be different from Yedge_first
     ! region for 4*5: (-89,-86:4:86,89))
     return
   end function
 
 
-  integer function find_plev(curr_pressure,i_lon,i_lat,p_lev)
+  integer function find_plev(curr_pressure,i_lon,i_lat,P_edge)
     implicit none
     real :: curr_pressure
-    real(fp), pointer :: p_lev(:,:,:)
+    real(fp), pointer :: P_edge(:,:,:)
     integer :: i_lon, i_lat
     integer :: locate(1)
-    locate = MINLOC(abs( p_lev(i_lon,i_lat,:)-curr_pressure ))
+    locate = MINLOC(abs( P_edge(i_lon,i_lat,:)-curr_pressure ))
 
-    if(p_lev(i_lon,i_lat,locate(1))-curr_pressure >= 0 )then
+    if(P_edge(i_lon,i_lat,locate(1))-curr_pressure >= 0 )then
        find_plev = locate(1)
     else
        find_plev = locate(1) - 1
@@ -240,6 +260,53 @@ CONTAINS
     return
   end function
 
+!------------------------------------------------------------------
+! functions to interpolate wind speed (u,v,omeg) 
+! based on the surrounding 4 points.
+
+  real function interplt_wind(wind,X_mid,Y_mid,P_mid,i_lon,i_lat,i_lev,curr_lon,curr_lat,curr_pressure)
+    implicit none
+    real :: curr_lon, curr_lat, curr_pressure
+    real(fp), pointer :: wind(:,:,:)
+    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
+    integer :: i_lon, i_lat, i_lev
+    integer :: i, ii, k, kk
+    real(fp) :: wind_lat(2,2), wind_lat_lon(2), wind_lat_lon_lev
+
+
+    ! first interpolate along latitude
+    do i=1,2,1
+      do k=1,2,1
+        ii = i + i_lon - 1
+        kk = k + i_lev - 1
+        wind_lat(i,k) =  line_interplt( wind(ii,i_lat,kk), wind(ii,i_lat+1,k), Y_mid(i_lat), Y_mid(i_lat+1), curr_lat )
+      enddo
+    enddo
+
+    ! second interpolate along longitude
+    do k=1,2,1
+      wind_lat_lon(k) = line_interplt( wind_lat(1,k), wind_lat(2,k), X_mid(i_lon), X_mid(i_lon+1), curr_lon )
+      ! 
+    enddo
+
+    ! finally interpolate along pressure
+    wind_lat_lon_lev = line_interplt( wind_lat_lon(k), wind_lat_lon(k+1), P_mid(k), P_mid(k+1), curr_pressure )
+
+    interplt_wind = wind_lat_lon_lev
+
+    return
+  end function
+
+  ! the linear interpolation function
+  real function line_interplt(wind1, wind2, L1, L2, Lx)
+    implicit none
+    real(fp) :: wind1, wind2,  L1, L2
+    real     :: Lx
+
+    line_interplt = wind1 + (wind2-wind1) / (L2-L1) * (Lx-L1)
+       
+    return
+  end function
 
 !-------------------------------------------------------------------
 
@@ -287,10 +354,12 @@ CONTAINS
 
     CHARACTER(LEN=255)            :: FILENAME
 
-    FILENAME   = 'Lagrange_1hr_box_i_lon_lat_lev.txt'
+!    FILENAME   = 'Lagrange_1hr_box_i_lon_lat_lev.txt'
+    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
     tt = tt +1
 
-    IF(mod(tt,6)==0)THEN
+!    IF(mod(tt,6)==0)THEN     ! output once every hour
+    IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
 
        OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD', &
              FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
