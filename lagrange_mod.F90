@@ -18,7 +18,7 @@ MODULE Lagrange_Mod
 
   integer, parameter :: n_boxes_max = 80000  ! 50*40*40
   integer            :: tt
-  real(fp), allocatable :: box_lon(:)    !first use one point to test
+  real(fp), allocatable :: box_lon(:)    
   real(fp), allocatable :: box_lat(:)
   real(fp), allocatable :: box_lev(:)
   real(fp), allocatable :: box_depth(:)
@@ -37,6 +37,10 @@ CONTAINS
     INTEGER                       :: i_box
     INTEGER                       :: ii, jj, kk
     CHARACTER(LEN=255)            :: FILENAME
+
+    WRITE(6,*)'--------------------------------------------------------'
+    WRITE(6,*)' Initial Lagrnage Module (Using Dynamic time step)'
+    WRITE(6,*)'--------------------------------------------------------'
 
     allocate(box_lon(n_boxes_max))
     allocate(box_lat(n_boxes_max))
@@ -94,10 +98,11 @@ CONTAINS
     USE State_Chm_Mod, ONLY : ChmState
     USE State_Met_Mod, ONLY : MetState
 
+    USE TIME_MOD,      ONLY : GET_TS_DYN
+
     ! choose XEDGE  
     USE GC_GRID_MOD,   ONLY : XEDGE, YEDGE, XMID, YMID                 
     USE CMN_SIZE_Mod,  ONLY : IIPAR, JJPAR, LLPAR, DLAT, DLON 
-    ! ??? DLAT_mid isdifferent from DLAT_edge ???
     ! DLAT( IIPAR, JJPAR, LLPAR ), DLON( IIPAR, JJPAR, LLPAR )
     ! XEDGE  ( IM+1, JM,   L ), YEDGE  ( IM,   JM+1, L ), IM=IIPAR, JM=JJPAR
 
@@ -106,7 +111,7 @@ CONTAINS
     TYPE(ChmState), intent(inout) :: State_Chm
     TYPE(OptInput), intent(in) :: Input_Opt
 
-    REAL :: Dt           = 600.0e+0_fp          
+    REAL :: Dt          ! = 600.0e+0_fp          
     ! TS_CONV is the time step we need here ? 
 
     integer :: i_box
@@ -133,7 +138,7 @@ CONTAINS
     real :: curr_v
     real :: curr_omeg
 
-    real(fp), pointer :: P_edge(:,:,:)
+    real(fp), pointer :: P_edge(:)
     real(fp), pointer :: P_mid(:)
 
     real :: Dx
@@ -143,12 +148,14 @@ CONTAINS
     real(fp), pointer :: X_mid(:)    
     real(fp), pointer :: Y_mid(:)       
 
+    Dt = GET_TS_DYN()
+
     ! Establish pointers
     u => State_Met%U   ! figure out state_met%U is based on lat/lon or modelgrid(i,j)
     v => State_Met%V   ! V [m s-1]
     omeg => State_Met%OMEGA  ! Updraft velocity [Pa/s]
 
-    P_edge => State_Met%PEDGE  ! Wet air press @ level edges [hPa]
+    P_edge => State_Met%PEDGE(1,1,:)  ! Wet air press @ level edges [hPa]
     P_mid => State_Met%PMID(1,1,:)  ! Pressure (w/r/t moist air) at level centers (hPa)
 
     Dx = DLON(1,1,1)
@@ -188,14 +195,14 @@ CONTAINS
        curr_pressure = box_lev(i_box)        ! hPa
 
 
-       i_lon = find_longitude(curr_lon, Dx, X_edge2)
-       i_lat = find_latitude(curr_lat, Dy, Y_edge2) 
-       i_lev = find_plev(curr_pressure,i_lon,i_lat,P_edge)
+       i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+       i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2) 
+       i_lev = Find_iPLev(curr_pressure,P_edge)
 
 
-       curr_u = interplt_wind(u,X_mid,Y_mid,P_mid,i_lon,i_lat,i_lev,curr_lon,curr_lat,curr_pressure)
-       curr_v = interplt_wind(v,X_mid,Y_mid,P_mid,i_lon,i_lat,i_lev,curr_lon,curr_lat,curr_pressure)
-       curr_omeg = interplt_wind(omeg,X_mid,Y_mid,P_mid,i_lon,i_lat,i_lev,curr_lon,curr_lat,curr_pressure)
+       curr_u    = Interplt_wind(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       curr_v    = Interplt_wind(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       curr_omeg = Interplt_wind(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
 
 
        dbox_lon = (Dt*curr_u) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
@@ -210,7 +217,7 @@ CONTAINS
        !grow_box(box_length(i_box),box_width(i_box),box_depth(i_box),i_lon,i_lat,i_lev)
     end do
 
-    ! WRITE(6,*)'-Lagrange(i_lev)->',i_lev,P_edge(i_lon,i_lat,i_lev),P_edge(i_lon,i_lat,i_lev+1)
+    ! WRITE(6,*)'-Lagrange(i_lev)->',i_lev,P_edge(i_lev),P_edge(i_lev+1)
 
     ! Everything is done, clean up pointers
     nullify(u)
@@ -223,38 +230,38 @@ CONTAINS
 !--------------------------------------------------------------------
 ! functions to find location (i,j,k) of boxes 
 
-  integer function find_longitude(curr_lon,  Dx,  X_edge2)
+  integer function Find_iLonLat(curr_xy,  Dxy,  XY_edge2)
     implicit none
-    real :: curr_lon, Dx, X_edge2
-    find_longitude = INT( (curr_lon - (X_edge2 - Dx)) / Dx )+1
+    real :: curr_xy, Dxy, XY_edge2
+    Find_iLonLat = INT( (curr_xy - (XY_edge2 - Dxy)) / Dxy )+1
     ! Notice the difference between INT(), FLOOR(), AINT()
     ! for lon: Xedge_Sec - Dx = Xedge_first
     return
   end function
 
 
-  integer function find_latitude(curr_lat, Dy, Y_edge2)
-    implicit none
-    real :: curr_lat, Dy, Y_edge2
-    find_latitude = INT( (curr_lat - (Y_edge2 - Dy)) / Dy )+1
-    ! for lat: (Yedge_Sec - Dy) may be different from Yedge_first
-    ! region for 4*5: (-89,-86:4:86,89))
-    return
-  end function
+  !integer function find_latitude(curr_lat, Dy, Y_edge2)
+  !  implicit none
+  !  real :: curr_lat, Dy, Y_edge2
+  !  find_latitude = INT( (curr_lat - (Y_edge2 - Dy)) / Dy )+1
+  !  ! for lat: (Yedge_Sec - Dy) may be different from Yedge_first
+  !  ! region for 4*5: (-89,-86:4:86,89))
+  !  return
+  !end function
 
 
-  integer function find_plev(curr_pressure,i_lon,i_lat,P_edge)
+  integer function Find_iPLev(curr_pressure,P_edge)
     implicit none
     real :: curr_pressure
-    real(fp), pointer :: P_edge(:,:,:)
+    real(fp), pointer :: P_edge(:)
     integer :: i_lon, i_lat
     integer :: locate(1)
-    locate = MINLOC(abs( P_edge(i_lon,i_lat,:)-curr_pressure ))
+    locate = MINLOC(abs( P_edge(:)-curr_pressure ))
 
-    if(P_edge(i_lon,i_lat,locate(1))-curr_pressure >= 0 )then
-       find_plev = locate(1)
+    if(P_edge(locate(1))-curr_pressure >= 0 )then
+       Find_iPLev = locate(1)
     else
-       find_plev = locate(1) - 1
+       Find_iPLev = locate(1) - 1
     endif
 
     return
@@ -264,7 +271,7 @@ CONTAINS
 ! functions to interpolate wind speed (u,v,omeg) 
 ! based on the surrounding 4 points.
 
-  real function interplt_wind(wind,X_mid,Y_mid,P_mid,i_lon,i_lat,i_lev,curr_lon,curr_lat,curr_pressure)
+  real function Interplt_wind(wind, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
     implicit none
     real :: curr_lon, curr_lat, curr_pressure
     real(fp), pointer :: wind(:,:,:)
@@ -279,31 +286,32 @@ CONTAINS
       do k=1,2,1
         ii = i + i_lon - 1
         kk = k + i_lev - 1
-        wind_lat(i,k) =  line_interplt( wind(ii,i_lat,kk), wind(ii,i_lat+1,k), Y_mid(i_lat), Y_mid(i_lat+1), curr_lat )
+        wind_lat(i,k) =  Line_Interplt( wind(ii,i_lat,kk), wind(ii,i_lat+1,kk), Y_mid(i_lat), Y_mid(i_lat+1), curr_lat )
       enddo
     enddo
+    
 
     ! second interpolate along longitude
     do k=1,2,1
-      wind_lat_lon(k) = line_interplt( wind_lat(1,k), wind_lat(2,k), X_mid(i_lon), X_mid(i_lon+1), curr_lon )
+      wind_lat_lon(k) = Line_Interplt( wind_lat(1,k), wind_lat(2,k), X_mid(i_lon), X_mid(i_lon+1), curr_lon )
       ! 
     enddo
 
     ! finally interpolate along pressure
-    wind_lat_lon_lev = line_interplt( wind_lat_lon(k), wind_lat_lon(k+1), P_mid(k), P_mid(k+1), curr_pressure )
+    wind_lat_lon_lev = Line_Interplt( wind_lat_lon(1), wind_lat_lon(2), P_mid(i_lev), P_mid(i_lev+1), curr_pressure )
 
-    interplt_wind = wind_lat_lon_lev
+    Interplt_wind = wind_lat_lon_lev
 
     return
   end function
 
   ! the linear interpolation function
-  real function line_interplt(wind1, wind2, L1, L2, Lx)
+  real function Line_Interplt(wind1, wind2, L1, L2, Lx)
     implicit none
     real(fp) :: wind1, wind2,  L1, L2
     real     :: Lx
 
-    line_interplt = wind1 + (wind2-wind1) / (L2-L1) * (Lx-L1)
+    Line_Interplt = wind1 + (wind2-wind1) / (L2-L1) * (Lx-L1)
        
     return
   end function
