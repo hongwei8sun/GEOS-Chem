@@ -146,14 +146,9 @@ CONTAINS
     real(fp), pointer :: X_mid(:)    
     real(fp), pointer :: Y_mid(:)       
 
-    real(fp), pointer :: P_I, R_e     
-
     Dt = GET_TS_DYN()
 
     ! Establish pointers
-    P_I = PI
-    R_e = Re
-
     u => State_Met%U   ! figure out state_met%U is based on lat/lon or modelgrid(i,j)
     v => State_Met%V   ! V [m s-1]
     omeg => State_Met%OMEGA  ! Updraft velocity [Pa/s]
@@ -203,9 +198,9 @@ CONTAINS
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
 
-       curr_u    = Interplt_wind(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure, P_I, R_e)
-       curr_v    = Interplt_wind(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure, P_I, R_e)
-       curr_omeg = Interplt_wind(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure, P_I, R_e)
+       curr_u    = Interplt_wind(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       curr_v    = Interplt_wind(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       curr_omeg = Interplt_wind(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
 
 
        dbox_lon = (Dt*curr_u) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
@@ -274,10 +269,9 @@ CONTAINS
 ! functions to interpolate wind speed (u,v,omeg) 
 ! based on the surrounding 4 points.
 
-  real function Interplt_wind(wind, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure, PI, Re)
+  real function Interplt_wind(wind, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
     implicit none
     real :: curr_lon, curr_lat, curr_pressure
-    real(fp), pointer :: PI, Re
     real(fp), pointer :: wind(:,:,:)
     real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
     integer :: i_lon, i_lat, i_lev
@@ -285,31 +279,29 @@ CONTAINS
     real(fp) :: wind_lat(2,2), wind_lat_lon(2), wind_lat_lon_lev
 
 
-    ! first interpolate horizontally
+    ! first interpolate along latitude
+    do i=1,2,1
+      do k=1,2,1
+        ii = i + i_lon - 1
+        kk = k + i_lev - 1
+        wind_lat(i,k) =  Line_Interplt( wind(ii,i_lat,kk), wind(ii,i_lat+1,kk), Y_mid(i_lat), Y_mid(i_lat+1), curr_lat )
+      enddo
+    enddo
     
 
+    ! second interpolate along longitude
+    do k=1,2,1
+      wind_lat_lon(k) = Line_Interplt( wind_lat(1,k), wind_lat(2,k), X_mid(i_lon), X_mid(i_lon+1), curr_lon )
+      ! 
+    enddo
 
-    ! second interpolate vertically
+    ! finally interpolate along pressure
     wind_lat_lon_lev = Line_Interplt( wind_lat_lon(1), wind_lat_lon(2), P_mid(i_lev), P_mid(i_lev+1), curr_pressure )
 
     Interplt_wind = wind_lat_lon_lev
 
     return
   end function
-
-
-  ! calculation the great-circle distance between two points on the earth surface
-  real function Distance_Circle(x1, y1, x2, y2, PI, Re)
-    implicit none
-    real     :: x1, y1, x2, y2  ! unit is degree
-    real(fp) :: PI, Re
-
-    Distance_Circle = Re * 2.0 * ASIN( (sin( (y1-y2)*PI/180.0 ))**2.0   & 
-                      + cos(x1*PI/180.0) * cos(x2*PI/180.0) * (sin( 0.5*(x1-x2)*PI/180.0 ))**2.0 )
-
-    return
-  end function
-
 
   ! the linear interpolation function
   real function Line_Interplt(wind1, wind2, L1, L2, Lx)
