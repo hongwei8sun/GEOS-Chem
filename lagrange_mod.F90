@@ -5,6 +5,7 @@
 MODULE Lagrange_Mod
 
   USE precision_mod
+  USE PhysConstants, ONLY : PI, Re 
 
   IMPLICIT NONE
 
@@ -92,7 +93,7 @@ CONTAINS
   SUBROUTINE lagrange_run(am_I_Root, State_Met, State_Chm, Input_Opt)
 
     USE Input_Opt_Mod, ONLY : OptInput
-    USE PhysConstants, ONLY : PI, Re 
+    ! USE PhysConstants, ONLY : PI, Re 
     ! Re    : Radius of Earth [m]
 
     USE State_Chm_Mod, ONLY : ChmState
@@ -118,29 +119,29 @@ CONTAINS
     integer :: i_lat
     integer :: i_lev
 
-    real :: curr_lon
-    real :: curr_lat
-    real :: curr_pressure
-    real :: X_edge2
-    real :: Y_edge2
+    real(fp) :: curr_lon
+    real(fp) :: curr_lat
+    real(fp) :: curr_pressure
+    real(fp) :: X_edge2
+    real(fp) :: Y_edge2
 
-    real :: dbox_lon
-    real :: dbox_lat
-    real :: dbox_lev
+    real(fp) :: dbox_lon
+    real(fp) :: dbox_lat
+    real(fp) :: dbox_lev
 
     real(fp), pointer :: u(:,:,:)
     real(fp), pointer :: v(:,:,:)
     real(fp), pointer :: omeg(:,:,:)
 
-    real :: curr_u
-    real :: curr_v
-    real :: curr_omeg
+    real(fp) :: curr_u
+    real(fp) :: curr_v
+    real(fp) :: curr_omeg
 
     real(fp), pointer :: P_edge(:)
     real(fp), pointer :: P_mid(:)
 
-    real :: Dx
-    real :: Dy
+    real(fp) :: Dx
+    real(fp) :: Dy
     real(fp), pointer :: X_edge(:)    
     real(fp), pointer :: Y_edge(:)       
     real(fp), pointer :: X_mid(:)    
@@ -151,8 +152,8 @@ CONTAINS
     Dt = GET_TS_DYN()
 
     ! Establish pointers
-    P_I = PI
-    R_e = Re
+    ! P_I = PI
+    ! R_e = Re
 
     u => State_Met%U   ! figure out state_met%U is based on lat/lon or modelgrid(i,j)
     v => State_Met%V   ! V [m s-1]
@@ -203,9 +204,9 @@ CONTAINS
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
 
-       curr_u    = Interplt_wind(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure, P_I, R_e)
-       curr_v    = Interplt_wind(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure, P_I, R_e)
-       curr_omeg = Interplt_wind(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure, P_I, R_e)
+       curr_u    = Interplt_wind(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       curr_v    = Interplt_wind(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       curr_omeg = Interplt_wind(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
 
 
        dbox_lon = (Dt*curr_u) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
@@ -226,7 +227,12 @@ CONTAINS
     nullify(u)
     nullify(v)
     nullify(omeg)
+    nullify(X_edge)
+    nullify(Y_edge)
     nullify(P_edge)
+    nullify(X_mid)
+    nullify(Y_mid)
+    nullify(P_mid)
 
   END SUBROUTINE lagrange_run
 
@@ -235,7 +241,7 @@ CONTAINS
 
   integer function Find_iLonLat(curr_xy,  Dxy,  XY_edge2)
     implicit none
-    real :: curr_xy, Dxy, XY_edge2
+    real(fp) :: curr_xy, Dxy, XY_edge2
     Find_iLonLat = INT( (curr_xy - (XY_edge2 - Dxy)) / Dxy )+1
     ! Notice the difference between INT(), FLOOR(), AINT()
     ! for lon: Xedge_Sec - Dx = Xedge_first
@@ -255,7 +261,7 @@ CONTAINS
 
   integer function Find_iPLev(curr_pressure,P_edge)
     implicit none
-    real :: curr_pressure
+    real(fp) :: curr_pressure
     real(fp), pointer :: P_edge(:)
     integer :: i_lon, i_lat
     integer :: locate(1)
@@ -274,53 +280,121 @@ CONTAINS
 ! functions to interpolate wind speed (u,v,omeg) 
 ! based on the surrounding 4 points.
 
-  real function Interplt_wind(wind, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure, PI, Re)
+  real function Interplt_wind(wind, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
     implicit none
-    real :: curr_lon, curr_lat, curr_pressure
-    real(fp), pointer :: PI, Re
+    real(fp)          :: curr_lon, curr_lat, curr_pressure
+    !real(fp), pointer :: PI, Re
     real(fp), pointer :: wind(:,:,:)
     real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
-    integer :: i_lon, i_lat, i_lev
-    integer :: i, ii, k, kk
-    real(fp) :: wind_lat(2,2), wind_lat_lon(2), wind_lat_lon_lev
+    integer           :: i_lon, i_lat, i_lev
+    integer           :: init_lon, init_lat, init_lev
+    integer           :: i, ii, j, jj, k, kk
+    real(fp)          ::  distance(2,2), Weight(2,2)
+    real(fp)          ::wind_lonlat(2), wind_lonlat_lev
+
+    ! Identify wether particle is exactly located on the grid point
+    if(curr_lon==X_mid(i_lon))then
+      if(curr_lat==Y_mid(i_lat))then
+        if(curr_pressure==P_mid(i_lev))then
+
+          Interplt_wind = wind(i_lon, i_lat, i_lev)
+          return
+
+        endif
+      endif
+    endif
 
 
-    ! first interpolate horizontally
+    ! first interpolate horizontally (Inverse Distance Weighting)
+
+    ! identify the grid point located in the southeast of the particle or under
+    ! the particle
+    if(curr_lon>=X_mid(i_lon))then
+      init_lon = i_lon
+    else
+      init_lon = i_lon - 1
+    endif
+
+    if(curr_lat>=Y_mid(i_lat))then
+      init_lat = i_lat
+    else
+      init_lat = i_lat - 1
+    endif
+
+    ! For pressure level, P_mid(1) is about surface pressure
+    if(curr_pressure<=P_mid(i_lev))then
+      init_lev = i_lev
+    else
+      init_lev = i_lev - 1
+    endif
+
+
+    ! calculate the distance between particle and grid point
+    do i = 1,2
+    do j = 1,2
+        ii = i + init_lon - 1
+        jj = j + init_lat - 1
+        distance(i,j) = Distance_Circle(curr_lon, curr_lat, X_mid(ii), Y_mid(jj))
+    enddo
+    enddo
+
+    ! Calculate the inverse distance weight
+    do i = 1,2
+    do j = 1,2
+        Weight(i,j) = 1.0/distance(i,j) / sum( 1.0/distance(:,:) )
+        WRITE(6,*) i, j, Weight(i,j)
+    enddo
+    enddo
     
 
+    do k = 1,2     
+      kk = k + init_lev - 1 
+      wind_lonlat(k) =  Weight(1,1) * wind(init_lon,init_lat,kk)   + Weight(1,2) * wind(init_lon,init_lat+1,kk)   &
+                      + Weight(2,1) * wind(init_lon+1,init_lat,kk) + Weight(2,2) * wind(init_lon+1,init_lat+1,kk)
+    enddo
 
-    ! second interpolate vertically
-    wind_lat_lon_lev = Line_Interplt( wind_lat_lon(1), wind_lat_lon(2), P_mid(i_lev), P_mid(i_lev+1), curr_pressure )
 
-    Interplt_wind = wind_lat_lon_lev
+    ! second interpolate vertically (Linear)
+
+    wind_lonlat_lev = wind_lonlat(1)    &
+                     + (wind_lonlat(2)-wind_lonlat(1)) / (P_mid(init_lev+1)-P_mid(init_lev)) * (curr_pressure-P_mid(init_lev))
+
+    !Line_Interplt( wind_lonlat(1), wind_lonlat(2), P_mid(i_lev), P_mid(i_lev+1), curr_pressure )
+
+    Interplt_wind = wind_lonlat_lev
 
     return
   end function
 
 
   ! calculation the great-circle distance between two points on the earth surface
-  real function Distance_Circle(x1, y1, x2, y2, PI, Re)
+  real function Distance_Circle(x1, y1, x2, y2)
     implicit none
-    real     :: x1, y1, x2, y2  ! unit is degree
-    real(fp) :: PI, Re
-
+    real(fp)     :: x1, y1, x2, y2  ! unit is degree
+    !real(fp) :: PI, Re
+    
+    ! Original equation, better for higher precision (double)
     Distance_Circle = Re * 2.0 * ASIN( (sin( (y1-y2)*PI/180.0 ))**2.0   & 
-                      + cos(x1*PI/180.0) * cos(x2*PI/180.0) * (sin( 0.5*(x1-x2)*PI/180.0 ))**2.0 )
+                      + cos(y1*PI/180.0) * cos(y2*PI/180.0) * (sin( 0.5*(x1-x2)*PI/180.0 ))**2.0 )
+
+    ! This equation is better for lower precision (float4)
+    !Distance_Circle = Re * ACOS( sin(y1*PI/180.0) * sin(y2*PI/180.0)   & 
+    !                  + cos(y1*PI/180.0) * cos(y2*PI/180.0) * cos( (x1-x2)*PI/180.0 ) )
 
     return
   end function
 
 
-  ! the linear interpolation function
-  real function Line_Interplt(wind1, wind2, L1, L2, Lx)
-    implicit none
-    real(fp) :: wind1, wind2,  L1, L2
-    real     :: Lx
-
-    Line_Interplt = wind1 + (wind2-wind1) / (L2-L1) * (Lx-L1)
-       
-    return
-  end function
+  ! the linear interpolation function for vertical direction
+  ! real function Line_Interplt(wind1, wind2, L1, L2, Lx)
+  !  implicit none
+  !  real(fp) :: wind1, wind2,  L1, L2
+  !  real     :: Lx
+  !
+  !    Line_Interplt = wind1 + (wind2-wind1) / (L2-L1) * (Lx-L1)
+  !       
+  !    return
+  !  end function
 
 !-------------------------------------------------------------------
 
