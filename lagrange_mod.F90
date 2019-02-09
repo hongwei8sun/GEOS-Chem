@@ -6,6 +6,7 @@ MODULE Lagrange_Mod
 
   USE precision_mod
   USE PhysConstants, ONLY : PI, Re 
+  USE CMN_SIZE_Mod,  ONLY : IIPAR, JJPAR, LLPAR
 
   IMPLICIT NONE
 
@@ -102,7 +103,8 @@ CONTAINS
     USE TIME_MOD,      ONLY : GET_TS_DYN
 
     USE GC_GRID_MOD,   ONLY : XEDGE, YEDGE, XMID, YMID                 
-    USE CMN_SIZE_Mod,  ONLY : IIPAR, JJPAR, LLPAR, DLAT, DLON 
+    USE CMN_SIZE_Mod,  ONLY : DLAT, DLON 
+    ! USE CMN_SIZE_Mod,  ONLY : IIPAR, JJPAR, LLPAR, DLAT, DLON 
     ! DLAT( IIPAR, JJPAR, LLPAR ), DLON( IIPAR, JJPAR, LLPAR )
     ! XEDGE  ( IM+1, JM,   L ), YEDGE  ( IM,   JM+1, L ), IM=IIPAR, JM=JJPAR
 
@@ -334,7 +336,16 @@ CONTAINS
     do j = 1,2
         ii = i + init_lon - 1
         jj = j + init_lat - 1
-        distance(i,j) = Distance_Circle(curr_lon, curr_lat, X_mid(ii), Y_mid(jj))
+
+        ! For some special circumstance:
+        if(ii==0)then
+          distance(i,j) = Distance_Circle(curr_lon+360.0, curr_lat, X_mid(ii+IIPAR), Y_mid(jj))
+        else if(ii==(IIPAR+1))then
+          distance(i,j) = Distance_Circle(curr_lon-360.0, curr_lat, X_mid(ii-IIPAR), Y_mid(jj))
+        else
+          distance(i,j) = Distance_Circle(curr_lon, curr_lat, X_mid(ii), Y_mid(jj))
+        endif
+
     enddo
     enddo
 
@@ -342,7 +353,6 @@ CONTAINS
     do i = 1,2
     do j = 1,2
         Weight(i,j) = 1.0/distance(i,j) / sum( 1.0/distance(:,:) )
-        WRITE(6,*) i, j, Weight(i,j)
     enddo
     enddo
     
