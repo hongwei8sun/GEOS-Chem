@@ -62,6 +62,7 @@
       ! Lagrange module
       !---------------------------------------------------
       USE Lagrange_Mod
+      USE Plume_Mod
 
       !-----------------------------------------------------------------
       ! GEOS-Chem chemistry modules
@@ -962,6 +963,7 @@
          ! Lagrange Module
          !===============================================
          CALL lagrange_init( am_I_root )
+         CALL plume_init( am_I_root )
 
 
       ! Start a new outer loop
@@ -981,7 +983,7 @@
 
       ! Get dynamic timestep in seconds
       N_DYN  = GET_TS_DYN()
-
+      WRITE(6,*)'==> test: ',N_DYN
 
       !=================================================================
       !     ***** D Y N A M I C   T I M E S T E P   L O O P *****
@@ -1040,7 +1042,9 @@
          !===============================================
          ! Lagrange Module
          !===============================================
-         CALL lagrange_run(am_I_Root, State_Met, State_Chm, Input_Opt)
+         CALL lagrange_run(am_I_Root, State_Met, Input_Opt)
+         CALL plume_run(am_I_Root, State_Met, Input_Opt)
+         
          CALL lagrange_write_std( am_I_Root, RC )
 
 
@@ -2398,6 +2402,7 @@
          ! Lagrange Module
          !===============================================
          CALL lagrange_cleanup()
+         CALL plume_cleanup()
 
 
 #if defined( USE_TIMERS )
