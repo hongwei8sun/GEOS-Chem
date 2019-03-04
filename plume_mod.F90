@@ -196,7 +196,14 @@ CONTAINS
 
        endif
 
-       box_alpha = ATAN( (curr_lat - next_lat) / (curr_lon - next_lon) )
+
+       if((curr_lon-next_lon).NE.0.0)then
+         box_alpha = ATAN( (next_lat - curr_lat) / (next_lon - curr_lon) )
+       else if((next_lat-curr_lat).LT.0.0)then
+         box_alpha = 0.5*PI
+       else if((next_lat-curr_lat).GT.0.0)then
+         box_alpha = -0.5*PI
+       endif
 
 
        i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
@@ -222,16 +229,22 @@ CONTAINS
        wind_s_shear = wind_shear(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
 
 
-       dbox_theta   = wind_s_shear * (COS(box_theta(i_box))**2) * Dt       
-       dbox_radius1 = box_radius1(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
-       dbox_radius2 = -1 * box_radius2(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
+       !dbox_theta   = wind_s_shear * (COS(box_theta(i_box))**2) * Dt
+       dbox_theta   = ATAN( TAN( box_theta(i_box) ) + Dt*wind_s_shear ) - box_theta(i_box)
+       if(box_theta(i_box)>=0.0)then
+         dbox_radius1 = box_radius1(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
+         dbox_radius2 = -1 * box_radius2(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
+       else
+         dbox_radius1 = -1.0 * box_radius1(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
+         dbox_radius2 = box_radius2(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
+       endif
 
-  
+
        box_theta(i_box)   = box_theta(i_box)   + dbox_theta
        box_radius1(i_box) = box_radius1(i_box) + dbox_radius1
        box_radius2(i_box) = box_radius2(i_box) + dbox_radius2
 
-       write(6,*)'= plume =>', box_theta(i_box), box_radius1(i_box), box_radius2(i_box)
+       write(6,*)'= plume =>', wind_s_shear, box_theta(i_box), box_radius1(i_box), box_radius2(i_box)
 
     end do
 
@@ -459,13 +472,18 @@ CONTAINS
 
       v_lonlat(k) =  Weight(1,1) * v(i_lon,i_lat,kk)   + Weight(1,2) * v(i_lon,i_lat+1,kk)   &
                        + Weight(2,1) * v(i_lon+1,i_lat,kk) + Weight(2,2) * v(i_lon+1,i_lat+1,kk)
+
+
+      if(box_alpha>=0.0)then
+        wind_s(k) = -1.0*u_lonlat(k)*SIN(box_alpha) + v_lonlat(k)*COS(box_alpha)
+      else 
+        wind_s(k) = u_lonlat(k)*SIN(box_alpha) + v_lonlat(k)*COS(box_alpha)
+      endif
+
     enddo
 
 
     ! second vertical shear of wind_s
-
-    wind_s(1) = u_lonlat(1)*SIN(box_alpha) + v_lonlat(1)*COS(box_alpha)
-    wind_s(2) = u_lonlat(2)*SIN(box_alpha) + v_lonlat(2)*COS(box_alpha)
 
     ! This code should be changed !!!
     ! Because it is the poressure center in [hPa] instead of height center in [m]
