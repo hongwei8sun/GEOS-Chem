@@ -226,21 +226,23 @@ CONTAINS
        !wind_s = curr_u*SIN(alpha) + curr_v*COS(alpha)
 
        ! calculate the wind_s shear along pressure direction
-       wind_s_shear = wind_shear(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
+       wind_s_shear = wind_shear(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
 
 
-       !dbox_theta   = wind_s_shear * (COS(box_theta(i_box))**2) * Dt
-       dbox_theta   = ATAN( TAN( box_theta(i_box) ) + Dt*wind_s_shear ) - box_theta(i_box)
+       ! dbox_theta   = wind_s_shear * (COS(box_theta(i_box))**2) * Dt
+       ! dbox_theta   = ATAN( TAN( box_theta(i_box) ) + Dt*wind_s_shear ) - box_theta(i_box)
+
+       box_theta(i_box)   = ATAN( TAN( box_theta(i_box) ) + Dt*wind_s_shear )
+
        if(box_theta(i_box)>=0.0)then
          dbox_radius1 = box_radius1(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
-         dbox_radius2 = -1 * box_radius2(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
+         dbox_radius2 = -1.0 * box_radius2(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
        else
          dbox_radius1 = -1.0 * box_radius1(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
          dbox_radius2 = box_radius2(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
        endif
 
-
-       box_theta(i_box)   = box_theta(i_box)   + dbox_theta
+       !box_theta(i_box)   = box_theta(i_box)   + dbox_theta
        box_radius1(i_box) = box_radius1(i_box) + dbox_radius1
        box_radius2(i_box) = box_radius2(i_box) + dbox_radius2
 
@@ -406,14 +408,14 @@ CONTAINS
 
   
   ! calculate the wind_s shear along pressure direction
-  real function Wind_shear(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+  real function Wind_shear(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, P_edge,  i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
     implicit none
     real(fp)          :: curr_lon, curr_lat, curr_pressure
     real(fp)          :: box_alpha
     !real(fp), pointer :: PI, Re
     real(fp), pointer :: u(:,:,:), v(:,:,:)
     real(fp), pointer :: P_BXHEIGHT(:,:,:)
-    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
+    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:), P_edge(:)
     integer           :: i_lon, i_lat, i_lev
     integer           :: init_lon, init_lat, init_lev
     integer           :: i, ii, j, jj, k, kk
@@ -487,7 +489,9 @@ CONTAINS
 
     ! This code should be changed !!!
     ! Because it is the poressure center in [hPa] instead of height center in [m]
-    Delt_height    = 0.5 * ( P_BXHEIGHT(i_lon,i_lat,init_lev) + P_BXHEIGHT(i_lon,i_lat,init_lev+1) )
+    ! Delt_height    = 0.5 * ( P_BXHEIGHT(init_lon,init_lat,init_lev) + P_BXHEIGHT(init_lon,init_lat,init_lev+1) )
+    Delt_height =  Pa2m( P_BXHEIGHT(init_lon,init_lat,init_lev), P_edge(init_lev), P_edge(init_lev+1), 1 )   &
+                 + Pa2m( P_BXHEIGHT(init_lon,init_lat,init_lev+1), P_edge(init_lev), P_edge(init_lev+1), 0 )
     ! find the z height of each pressure level in GEOS-Chem
 
     wind_shear = ( wind_s(2) - wind_s(1) ) / Delt_height
@@ -496,16 +500,24 @@ CONTAINS
   end function
 
 
-  ! the linear interpolation function for vertical direction
-  ! real function Line_Interplt(wind1, wind2, L1, L2, Lx)
-  !  implicit none
-  !  real(fp) :: wind1, wind2,  L1, L2
-  !  real     :: Lx
-  !
-  !    Line_Interplt = wind1 + (wind2-wind1) / (L2-L1) * (Lx-L1)
-  !       
-  !    return
-  !  end function
+  ! transform the pressure level [Pa] to the height level [m]
+  real function Pa2m(Box_height, P1, P2, Judge)  
+  ! Judge: 0 for bottom, 1 for top
+  ! 
+    implicit none
+    real(fp) :: Box_height, P1, P2
+    integer  :: Judge
+      
+      if(Judge==1)then
+        ! calculate the height of the top half of the grid box
+        Pa2m = Box_height * ( DLOG(P2) - DLOG(0.5*(P2+P1)) ) / ( DLOG(P2) - DLOG(P1) )
+      else
+        ! calculate the height of the bottom half of the grid box
+        Pa2m = Box_height * ( DLOG(0.5*(P2+P1)) - DLOG(P1) ) / ( DLOG(P2) - DLOG(P1) )
+      endif
+
+    return
+  end function
 
 !-------------------------------------------------------------------
 
