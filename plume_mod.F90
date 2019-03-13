@@ -120,9 +120,10 @@ CONTAINS
 
     real(fp) :: Dx, Dy
     real(fp) :: wind_s_shear
+    real(fp) :: theta_previous       
     real(fp) :: dbox_theta, dbox_radius1, dbox_radius2
     ! angle between travel direction and lon (-90 ~ 90 deg)
-    real(fp):: box_alpha        
+    real(fp) :: box_alpha        
 
     real(fp), pointer :: X_edge(:)    
     real(fp), pointer :: Y_edge(:)       
@@ -156,6 +157,9 @@ CONTAINS
 
     X_edge2       = X_edge(2)
     Y_edge2       = Y_edge(2)
+
+    ! S_ellipse  =        
+    ! the area of the cross-section ellipse, which should be a constant
 
     ! Run Plume advection HERE
     do i_box = 1,n_boxes_max
@@ -228,25 +232,41 @@ CONTAINS
        ! calculate the wind_s shear along pressure direction
        wind_s_shear = wind_shear(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
 
+       theta_previous   = box_theta(i_box)
+       box_theta(i_box) = ATAN( TAN(box_theta(i_box)) + wind_s_shear*Dt )
 
-       ! dbox_theta   = wind_s_shear * (COS(box_theta(i_box))**2) * Dt
-       ! dbox_theta   = ATAN( TAN( box_theta(i_box) ) + Dt*wind_s_shear ) - box_theta(i_box)
+       box_radius1(i_box) = box_radius1(i_box) * (box_theta(i_box)**2+1)**0.5 / (theta_previous**2+1)**0.5
+       box_radius2(i_box) = box_radius2(i_box) * (box_theta(i_box)**2+1)**(-0.5) / (theta_previous**2+1)**(-0.5)
 
-       box_theta(i_box)   = ATAN( TAN( box_theta(i_box) ) + Dt*wind_s_shear )
+       write(6,*)'= plume =>', wind_s_shear, box_theta(i_box), box_radius1(i_box), box_radius2(i_box),box_radius1(i_box)*box_radius2(i_box)
 
-       if(box_theta(i_box)>=0.0)then
-         dbox_radius1 = box_radius1(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
-         dbox_radius2 = -1.0 * box_radius2(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
-       else
-         dbox_radius1 = -1.0 * box_radius1(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
-         dbox_radius2 = box_radius2(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
-       endif
+       ! First method:
+
+       !dbox_theta   = wind_s_shear * (COS(box_theta(i_box))**2) * Dt
+
+       !if(box_theta(i_box)>=0.0)then
+       !  dbox_radius1 = box_radius1(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
+       !  dbox_radius2 = -1.0 * box_radius2(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
+       !else
+       !  dbox_radius1 = -1.0 * box_radius1(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
+       !  dbox_radius2 = box_radius2(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
+       !endif
 
        !box_theta(i_box)   = box_theta(i_box)   + dbox_theta
-       box_radius1(i_box) = box_radius1(i_box) + dbox_radius1
-       box_radius2(i_box) = box_radius2(i_box) + dbox_radius2
+       !box_radius1(i_box) = box_radius1(i_box) + dbox_radius1
+       !box_radius2(i_box) = box_radius2(i_box) + dbox_radius2
 
-       write(6,*)'= plume =>', wind_s_shear, box_theta(i_box), box_radius1(i_box), box_radius2(i_box)
+       ! Second method:
+
+       ! dbox_theta   = ATAN( TAN( box_theta(i_box) ) + Dt*wind_s_shear ) - box_theta(i_box)
+       ! theta_previous     = box_theta(i_box)
+       !box_theta(i_box)   = ATAN( TAN( box_theta(i_box) ) + Dt*wind_s_shear )
+
+       !radius1_previous   = box_radius1(i_box)
+       !box_radius1(i_box) = COS(box_theta(i_box)) / COS(theta_previous) * radius1_previous
+
+       !box_radius2(i_box) = S/box_radius1(i_box)
+
 
     end do
 
