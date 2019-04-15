@@ -14,6 +14,7 @@ MODULE Plume_Mod
   ! !PUBLIC MEMBER FUNCTIONS:
   PUBLIC :: plume_init
   PUBLIC :: plume_run
+  PUBLIC :: plume_write_std
   PUBLIC :: plume_cleanup
 
 
@@ -27,13 +28,21 @@ MODULE Plume_Mod
 
   ! Consider the box as a cylinder
 
-  ! vertical radius of the the cross-section
-  real(fp), allocatable :: box_radius1(:)  
-  ! horizontal radius of the the cross-section
-  real(fp), allocatable :: box_radius2(:)
+  ! box_radius(n_boxes_max,N_rings)
+  real(fp), allocatable :: box_radius1(:,:)   ! vertical radius
+  real(fp), allocatable :: box_radius2(:,:)   ! horizontal radius of the the cross-section
+
+
   ! Theta is the clockwise angle between z-axis (P) and vertical radius1
-  real(fp), allocatable :: box_theta(:)  ! 0 ~ 180 degree
+  real(fp), allocatable :: box_theta(:)    ! 0 ~ 180 degree
   real(fp), allocatable :: box_length(:)
+
+  ! D_radius should only be used at the beginning!
+  real(fp), parameter :: D_radius = 20     ! [m], the width of each ring
+  integer, parameter  :: n_rings_max = 10  ! Degine the number of rings in one box
+
+  ! medical concentration of each ring
+  real(fp), allocatable :: box_concnt(:,:)    ! [kg/m3], box_concnt(n_boxes_max,N_rings)
 
 CONTAINS
 
@@ -43,6 +52,10 @@ CONTAINS
   SUBROUTINE plume_init( am_I_root )
 
     LOGICAL,        INTENT(IN)    :: am_I_Root   ! Are we on the root CPU
+    integer                       :: i_ring
+
+    CHARACTER(LEN=255)            :: FILENAME2
+
 
     WRITE(6,'(a)') '--------------------------------------------------------'
     WRITE(6,'(a)') ' Initial Plume Module (Using Dynamic time step)'
@@ -52,8 +65,9 @@ CONTAINS
     allocate(box_lat(n_boxes_max))
     allocate(box_lev(n_boxes_max))
 
-    allocate(box_radius1(n_boxes_max))
-    allocate(box_radius2(n_boxes_max))
+    allocate(box_radius1(n_boxes_max,n_rings_max))
+    allocate(box_radius2(n_boxes_max,n_rings_max))
+
     allocate(box_theta(n_boxes_max))
     allocate(box_length(n_boxes_max))
 
@@ -62,10 +76,32 @@ CONTAINS
     box_lat    = (/4.0e+0_fp,  4.1e+0_fp,  4.2e+0_fp/)
     box_lev    = (/20.0e+0_fp, 20.0e+0_fp, 20.0e+0_fp/)      ! hPa
 
-    box_radius1  = (/100.0e+0_fp,  100.0e+0_fp,  100.0e+0_fp/)     ! m
-    box_radius2  = (/100.0e+0_fp,  100.0e+0_fp,  100.0e+0_fp/)     ! m
-    box_theta    = (/0.0e+0_fp,    0.0e+0_fp,    0.0e+0_fp/)             ! degree
-    box_length   = (/1000.0e+0_fp, 1000.0e+0_fp, 1000.0e+0_fp/)    ! m
+    box_radius1(:,1)  = (/10.0e+0_fp,  20.0e+0_fp,  30.0e+0_fp/)     ! the value of the innest ring for every box
+    box_radius2(:,1)  = (/10.0e+0_fp,  20.0e+0_fp,  30.0e+0_fp/)     ! m
+
+    ! Set the initial value of max/min radius for each ring
+    do i_ring=2,n_rings_max
+      box_radius1(:,i_ring) = box_radius1(:,i_ring-1) + D_radius
+      box_radius2(:,i_ring) = box_radius2(:,i_ring-1) + D_radius
+    enddo
+
+    box_theta         = (/0.0e+0_fp,    0.0e+0_fp,    0.0e+0_fp/)             ! degree
+    box_length        = (/1000.0e+0_fp, 1000.0e+0_fp, 1000.0e+0_fp/)    ! m
+
+    ! Set the initial concentration
+    box_concnt(:,1)  = (/10.0e+0_fp,  20.0e+0_fp,  30.0e+0_fp/)     ! [kg/m3]
+   
+
+    ! Create output file
+    FILENAME2   = 'Plume_theta_max_min_radius.txt'
+    tt = 0
+
+    OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE', &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+    Do i_ring = 1, n_rings_max
+       WRITE(262,'(I0.4,3(x,E16.5E4))') i_ring, box_theta(1), box_radius1(1,i_ring), box_radius2(1,i_ring)
+    End Do
 
 
   END SUBROUTINE plume_init
@@ -94,17 +130,14 @@ CONTAINS
 
     REAL :: Dt          ! = 600.0e+0_fp          
 
-    integer :: i_box
+    integer :: i_box, i_ring
 
-    integer :: i_lon
-    integer :: i_lat
-    integer :: i_lev
+    integer :: i_lon, i_lat, i_lev
 
     real(fp) :: curr_lon, curr_lat, curr_pressure
     real(fp) :: next_lon, next_lat, next_pressure
 
-    real(fp) :: X_edge2
-    real(fp) :: Y_edge2
+    real(fp) :: X_edge2, Y_edge2
 
     real(fp), pointer :: u(:,:,:)
     real(fp), pointer :: v(:,:,:)
@@ -132,11 +165,10 @@ CONTAINS
 
     real(fp), pointer :: P_I, R_e     
 
-    Dt = GET_TS_DYN()
+    real(fp) :: AA, BB, DD  ! used to calculate concentration distribution
+    real(fp) :: k2
 
-    ! Establish pointers
-    ! P_I = PI
-    ! R_e = Re
+    Dt = GET_TS_DYN()
 
     u => State_Met%U   ! figure out state_met%U is based on lat/lon or modelgrid(i,j)
     v => State_Met%V   ! V [m s-1]
@@ -158,8 +190,6 @@ CONTAINS
     X_edge2       = X_edge(2)
     Y_edge2       = Y_edge(2)
 
-    ! S_ellipse  =        
-    ! the area of the cross-section ellipse, which should be a constant
 
     ! Run Plume advection HERE
     do i_box = 1,n_boxes_max
@@ -200,7 +230,7 @@ CONTAINS
 
        endif
 
-
+       ! Judge the sign of box_alpha
        if((curr_lon-next_lon).NE.0.0)then
          box_alpha = ATAN( (next_lat - curr_lat) / (next_lon - curr_lon) )
        else if((next_lat-curr_lat).LT.0.0)then
@@ -223,11 +253,9 @@ CONTAINS
        i_lat = Find_iLonLat(next_lat, Dy, Y_edge2)
        i_lev = Find_iPLev(next_pressure,P_edge)
 
-
-       ! along the direction of airplane's movement
-       !wind_l = curr_u*COS(alpha) + curr_v*SIN(alpha)
-       ! horizontal direction inside the plume cross_section
-       !wind_s = curr_u*SIN(alpha) + curr_v*COS(alpha)
+       !!!!!!
+       ! For deformation of cross-section caused by wind shear:
+       !!!!!!
 
        ! calculate the wind_s shear along pressure direction
        wind_s_shear = wind_shear(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
@@ -235,42 +263,42 @@ CONTAINS
        theta_previous   = box_theta(i_box)
        box_theta(i_box) = ATAN( TAN(box_theta(i_box)) + wind_s_shear*Dt )
 
-       box_radius1(i_box) = box_radius1(i_box) * (box_theta(i_box)**2+1)**0.5 / (theta_previous**2+1)**0.5
-       box_radius2(i_box) = box_radius2(i_box) * (box_theta(i_box)**2+1)**(-0.5) / (theta_previous**2+1)**(-0.5)
 
-       write(6,*)'= plume =>', wind_s_shear, box_theta(i_box), box_radius1(i_box), box_radius2(i_box),box_radius1(i_box)*box_radius2(i_box)
+       do i_ring=1,n_rings_max
+       ! make sure use box_theta or TAN(box_theta)  ???
+       box_radius1(i_box,i_ring) = box_radius1(i_box,i_ring) * (TAN(box_theta(i_box))**2+1)**0.5    / (TAN(theta_previous)**2+1)**0.5
+       box_radius2(i_box,i_ring) = box_radius2(i_box,i_ring) * (TAN(box_theta(i_box))**2+1)**(-0.5) / (TAN(theta_previous)**2+1)**(-0.5)
+       enddo
 
-       ! First method:
+       write(6,*)'= plume =>', wind_s_shear, box_theta(i_box), box_radius1(i_box,1), box_radius2(i_box,1),box_radius1(i_box,1)*box_radius2(i_box,1)
 
-       !dbox_theta   = wind_s_shear * (COS(box_theta(i_box))**2) * Dt
+       !!!!!!
+       ! For the eddy diffusion:
+       ! box_concnt(n_boxes_max,N_rings)
+       !!!!!!
+      
+       
+       k2 = 0.005   ! correspond to box_radius2, [m/s]
+       !ka = 
 
-       !if(box_theta(i_box)>=0.0)then
-       !  dbox_radius1 = box_radius1(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
-       !  dbox_radius2 = -1.0 * box_radius2(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
-       !else
-       !  dbox_radius1 = -1.0 * box_radius1(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
-       !  dbox_radius2 = box_radius2(i_box) * wind_s_shear * SIN(box_theta(i_box)) * COS(box_theta(i_box)) * Dt
-       !endif
+       do i_ring = 1, n_rings_max
 
-       !box_theta(i_box)   = box_theta(i_box)   + dbox_theta
-       !box_radius1(i_box) = box_radius1(i_box) + dbox_radius1
-       !box_radius2(i_box) = box_radius2(i_box) + dbox_radius2
+       AA = 4.0*k2*box_radius1(i_box,i_ring)*box_length(i_box)*box_concnt(i_box,i_ring+1)   &
+           + 4.0*k2*box_radius1(i_box,i_ring-1)*box_length(i_box)*box_concnt(i_box,i_ring+1)
 
-       ! Second method:
+       BB = 8.0*k2*box_radius1(i_box,i_ring)*box_length(i_box) + 4.0*k2*box_length(i_box)*( box_radius1(i_box,i_ring)-box_radius1(i_box,i_ring-1) )
 
-       ! dbox_theta   = ATAN( TAN( box_theta(i_box) ) + Dt*wind_s_shear ) - box_theta(i_box)
-       ! theta_previous     = box_theta(i_box)
-       !box_theta(i_box)   = ATAN( TAN( box_theta(i_box) ) + Dt*wind_s_shear )
+       DD = PI*box_radius1(i_box,i_ring)*box_radius2(i_box,i_ring)   &
+           - PI*(box_radius1(i_box,i_ring-1))*box_radius2(i_box,i_ring-1)*box_length(i_box)
 
-       !radius1_previous   = box_radius1(i_box)
-       !box_radius1(i_box) = COS(box_theta(i_box)) / COS(theta_previous) * radius1_previous
+       box_concnt(i_box,i_ring) = DD/BB*( AA/DD - exp( log(AA/DD-BB/DD*box_concnt(i_box,i_ring)) - BB/DD*Dt ) )
 
-       !box_radius2(i_box) = S/box_radius1(i_box)
 
+       ! box_out_concnt for (i_ring) is box_in_concnt for (i_ring +1)
+
+       enddo
 
     end do
-
-    ! WRITE(6,*)'-Plume(i_lev)->',i_lev,P_edge(i_lev),P_edge(i_lev+1)
 
     ! Everything is done, clean up pointers
     nullify(u)
@@ -510,8 +538,8 @@ CONTAINS
     ! This code should be changed !!!
     ! Because it is the poressure center in [hPa] instead of height center in [m]
     ! Delt_height    = 0.5 * ( P_BXHEIGHT(init_lon,init_lat,init_lev) + P_BXHEIGHT(init_lon,init_lat,init_lev+1) )
-    Delt_height =  Pa2m( P_BXHEIGHT(init_lon,init_lat,init_lev), P_edge(init_lev), P_edge(init_lev+1), 1 )   &
-                 + Pa2m( P_BXHEIGHT(init_lon,init_lat,init_lev+1), P_edge(init_lev), P_edge(init_lev+1), 0 )
+    Delt_height =  Pa2meter( P_BXHEIGHT(init_lon,init_lat,init_lev), P_edge(init_lev), P_edge(init_lev+1), 1 )   &
+                 + Pa2meter( P_BXHEIGHT(init_lon,init_lat,init_lev+1), P_edge(init_lev), P_edge(init_lev+1), 0 )
     ! find the z height of each pressure level in GEOS-Chem
 
     wind_shear = ( wind_s(2) - wind_s(1) ) / Delt_height
@@ -521,7 +549,7 @@ CONTAINS
 
 
   ! transform the pressure level [Pa] to the height level [m]
-  real function Pa2m(Box_height, P1, P2, Judge)  
+  real function Pa2meter(Box_height, P1, P2, Judge) 
   ! Judge: 0 for bottom, 1 for top
   ! 
     implicit none
@@ -530,10 +558,10 @@ CONTAINS
       
       if(Judge==1)then
         ! calculate the height of the top half of the grid box
-        Pa2m = Box_height * ( DLOG(P2) - DLOG(0.5*(P2+P1)) ) / ( DLOG(P2) - DLOG(P1) )
+        Pa2meter = Box_height * ( DLOG(P2) - DLOG(0.5*(P2+P1)) ) / ( DLOG(P2) - DLOG(P1) )
       else
         ! calculate the height of the bottom half of the grid box
-        Pa2m = Box_height * ( DLOG(0.5*(P2+P1)) - DLOG(P1) ) / ( DLOG(P2) - DLOG(P1) )
+        Pa2meter = Box_height * ( DLOG(0.5*(P2+P1)) - DLOG(P1) ) / ( DLOG(P2) - DLOG(P1) )
       endif
 
     return
@@ -541,6 +569,67 @@ CONTAINS
 
 !-------------------------------------------------------------------
 
+  SUBROUTINE plume_write_std( am_I_Root, RC )
+
+
+    USE m_netCDF_io_define
+    USE m_netcdf_io_read
+    USE m_netcdf_io_open
+    USE Ncdf_Mod,            ONLY : NC_Open
+    USE Ncdf_Mod,            ONLY : NC_Read_Time
+    USE Ncdf_Mod,            ONLY : NC_Read_Arr
+    USE Ncdf_Mod,            ONLY : NC_Create
+    USE Ncdf_Mod,            ONLY : NC_Close
+    USE Ncdf_Mod,            ONLY : NC_Var_Def
+    USE Ncdf_Mod,            ONLY : NC_Var_Write
+    USE Ncdf_Mod,            ONLY : NC_Get_RefDateTime
+    USE CHARPAK_Mod,         ONLY : TRANLC
+    USE JulDay_Mod,          ONLY : JulDay
+
+    USE Input_Opt_Mod, ONLY : OptInput
+
+    ! Parameters for netCDF routines
+    include "netcdf.inc"
+
+
+    LOGICAL,          INTENT(IN   ) :: am_I_Root   ! root CPU?
+    INTEGER,          INTENT(INOUT) :: RC          ! Failure or success
+
+    REAL(f8), POINTER         :: Arr1D(:,:)
+    REAL(f8), POINTER         :: Arr2D(:,:)
+    REAL(f8), POINTER         :: Arr2DOld(:,:)
+    REAL(f4), POINTER         :: Arr3D(:,:)
+    REAL(f4), POINTER         :: Arr4D(:,:)
+    REAL*8,   POINTER         :: timeVec(:)
+    CHARACTER(LEN=255)        :: NcFile
+    CHARACTER(LEN=255)        :: Pfx, title, Reference, Contact
+    CHARACTER(LEN=255)        :: timeunit
+    INTEGER                   :: fId, lonId, latId, levId, TimeId
+    INTEGER                   :: VarCt
+    INTEGER                   :: nLon, nLat, nLev, nTime
+    INTEGER                   :: i_box, i_ring
+!    INTEGER                   :: L
+    LOGICAL                   :: IsOldFile
+
+    CHARACTER(LEN=255)            :: FILENAME2
+
+    FILENAME2   = 'Plume_theta_max_min_radius.txt'
+    tt = tt +1
+
+!    IF(mod(tt,6)==0)THEN     ! output once every hour
+    IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
+
+       OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='OLD', &
+             FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+       Do i_ring = 1, n_rings_max
+        WRITE(262,'(I0.4,3(x,E16.5E4))') i_ring, box_theta(2), box_radius1(2,i_ring), box_radius2(2,i_ring), box_concnt(2,i_ring)
+       End Do
+
+
+    ENDIF
+
+  END SUBROUTINE plume_write_std
 
 !---------------------------------------------------------------------
 
