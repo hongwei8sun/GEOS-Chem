@@ -1,11 +1,11 @@
 !------------------------------------------------------------------------------
-!                  GEOS-Chem Global Chemical Transport Model                  !
+!         GEOS-Chem Global Chemical Stratospherical Transport Model                  !
 !-----------------------------------------------------------------------------!
 
 MODULE Plume_Mod
 
   USE precision_mod
-  USE PhysConstants, ONLY : PI, Re 
+  USE PhysConstants, ONLY : PI, Re, g0
   USE CMN_SIZE_Mod,  ONLY : IIPAR, JJPAR, LLPAR
 
   IMPLICIT NONE
@@ -47,7 +47,9 @@ MODULE Plume_Mod
 CONTAINS
 
 
-!-----------------------------------------------------------------
+!---------------------------------------------------------------------
+!*********************************************************************
+!---------------------------------------------------------------------
 
   SUBROUTINE plume_init( am_I_root )
 
@@ -71,6 +73,8 @@ CONTAINS
     allocate(box_theta(n_boxes_max))
     allocate(box_length(n_boxes_max))
 
+    allocate(box_concnt(n_boxes_max,n_rings_max))
+
 
     box_lon    = (/5.0e+0_fp,  5.1e+0_fp,  5.2e+0_fp/)
     box_lat    = (/4.0e+0_fp,  4.1e+0_fp,  4.2e+0_fp/)
@@ -89,8 +93,11 @@ CONTAINS
     box_length        = (/1000.0e+0_fp, 1000.0e+0_fp, 1000.0e+0_fp/)    ! m
 
     ! Set the initial concentration
-    box_concnt(:,1)  = (/10.0e+0_fp,  20.0e+0_fp,  30.0e+0_fp/)     ! [kg/m3]
-   
+    box_concnt(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! [kg/m3]
+ 
+    do i_ring=2,n_rings_max
+      box_concnt(:,i_ring) = (/0.0e+0_fp,  0.0e+0_fp,  0.0e+0_fp/)
+    enddo  
 
     ! Create output file
     FILENAME2   = 'Plume_theta_max_min_radius.txt'
@@ -106,8 +113,10 @@ CONTAINS
 
   END SUBROUTINE plume_init
 
-!-----------------------------------------------------------------
-!=================================================================
+
+!---------------------------------------------------------------------
+!*********************************************************************
+!---------------------------------------------------------------------
 
   SUBROUTINE plume_run(am_I_Root, State_Met, Input_Opt)
 
@@ -143,10 +152,13 @@ CONTAINS
     real(fp), pointer :: v(:,:,:)
     real(fp), pointer :: omeg(:,:,:)
 
+    real(fp), pointer :: Ptemp(:,:,:)
+
     real(fp), pointer :: P_BXHEIGHT(:,:,:)
 
     real(fp) :: curr_u, curr_v, curr_omeg
-    real(fp) :: next_u, next_v, next_omeg
+
+    real(fp) :: curr_Ptemp, Ptemp_shear  ! potential temperature
 
     real(fp), pointer :: P_edge(:)
     real(fp), pointer :: P_mid(:)
@@ -166,13 +178,16 @@ CONTAINS
     real(fp), pointer :: P_I, R_e     
 
     real(fp) :: AA, BB, DD  ! used to calculate concentration distribution
-    real(fp) :: k2
+    real(fp) :: eddy_diff2, k2
+    real(fp) :: Cv, Omega_N
 
     Dt = GET_TS_DYN()
 
     u => State_Met%U   ! figure out state_met%U is based on lat/lon or modelgrid(i,j)
     v => State_Met%V   ! V [m s-1]
     omeg => State_Met%OMEGA  ! Updraft velocity [Pa/s]
+
+    Ptemp => State_Met%THETA  ! Updraft velocity [Pa/s]
 
     P_edge => State_Met%PEDGE(1,1,:)  ! Wet air press @ level edges [hPa]
     P_mid => State_Met%PMID(1,1,:)  ! Pressure (w/r/t moist air) at level centers (hPa)
@@ -248,57 +263,80 @@ CONTAINS
        curr_v    = Interplt_wind(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        curr_omeg = Interplt_wind(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
 
+       curr_Ptemp = Interplt_wind(Ptemp,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+
 
        i_lon = Find_iLonLat(next_lon, Dx, X_edge2)
        i_lat = Find_iLonLat(next_lat, Dy, Y_edge2)
        i_lev = Find_iPLev(next_pressure,P_edge)
 
        !!!!!!
-       ! For deformation of cross-section caused by wind shear:
+       ! For deformation of cross-section caused by wind shear (A.D.Naiman et al., 2010):
        !!!!!!
 
        ! calculate the wind_s shear along pressure direction
-       wind_s_shear = wind_shear(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
+       wind_s_shear = Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
 
        theta_previous   = box_theta(i_box)
        box_theta(i_box) = ATAN( TAN(box_theta(i_box)) + wind_s_shear*Dt )
 
 
        do i_ring=1,n_rings_max
-       ! make sure use box_theta or TAN(box_theta)  ???
+       ! make sure use box_theta or TAN(box_theta)  ??? 
        box_radius1(i_box,i_ring) = box_radius1(i_box,i_ring) * (TAN(box_theta(i_box))**2+1)**0.5    / (TAN(theta_previous)**2+1)**0.5
        box_radius2(i_box,i_ring) = box_radius2(i_box,i_ring) * (TAN(box_theta(i_box))**2+1)**(-0.5) / (TAN(theta_previous)**2+1)**(-0.5)
        enddo
 
-       write(6,*)'= plume =>', wind_s_shear, box_theta(i_box), box_radius1(i_box,1), box_radius2(i_box,1),box_radius1(i_box,1)*box_radius2(i_box,1)
 
        !!!!!!
-       ! For the eddy diffusion:
+       ! For the concentration change caused by eddy diffusion:
        ! box_concnt(n_boxes_max,N_rings)
        !!!!!!
-      
-       
-       k2 = 0.005   ! correspond to box_radius2, [m/s]
-       !ka = 
 
-       do i_ring = 1, n_rings_max
+       ! Calculate vertical eddy diffusivity:
+       Cv = 0.2
+       Omega_N = 0.1
+       Ptemp_shear = Vertical_shear(Ptemp, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
+       eddy_diff2 = Cv*Omega_N**2/(Ptemp_shear*g0/curr_Ptemp)
+       ! k2 = eddy_diff2/( box_radius1(i_box,i_ring)-box_radius1(i_box,i_ring-1) )   ! correspond to box_radius2, [m/s]
+       ! k2 = 0.005   ! Dv = 0.07~0.2
 
-       AA = 4.0*k2*box_radius1(i_box,i_ring)*box_length(i_box)*box_concnt(i_box,i_ring+1)   &
-           + 4.0*k2*box_radius1(i_box,i_ring-1)*box_length(i_box)*box_concnt(i_box,i_ring+1)
+       ! For the innest ring (i_ring = 1)
+       ! k2 should be rewrite in a more accurate equation !!!
+       k2 = eddy_diff2/box_radius2(i_box,1)
+       AA = 4.0*k2*box_radius2(i_box,1)*box_length(i_box)*box_concnt(i_box,2) 
+       BB = 4.0*k2*box_radius2(i_box,1)*box_length(i_box)
+       DD = PI*box_radius1(i_box,1)*box_radius2(i_box,1)*box_length(i_box)
 
-       BB = 8.0*k2*box_radius1(i_box,i_ring)*box_length(i_box) + 4.0*k2*box_length(i_box)*( box_radius1(i_box,i_ring)-box_radius1(i_box,i_ring-1) )
+       box_concnt(i_box,1) = DD/BB*( AA/DD + exp( log(BB/DD*box_concnt(i_box,1)-AA/DD) - BB/DD*Dt ) )
 
-       DD = PI*box_radius1(i_box,i_ring)*box_radius2(i_box,i_ring)   &
-           - PI*(box_radius1(i_box,i_ring-1))*box_radius2(i_box,i_ring-1)*box_length(i_box)
+       ! For rings from 2 to (n_rings_max - 1)
+       do i_ring = 2, n_rings_max-1
 
-       box_concnt(i_box,i_ring) = DD/BB*( AA/DD - exp( log(AA/DD-BB/DD*box_concnt(i_box,i_ring)) - BB/DD*Dt ) )
+       k2 = eddy_diff2/( box_radius2(i_box,i_ring)-box_radius2(i_box,i_ring-1) )
+       AA = 4.0*k2*box_radius2(i_box,i_ring)*box_length(i_box)*box_concnt(i_box,i_ring+1)   &
+           + 4.0*k2*box_radius2(i_box,i_ring-1)*box_length(i_box)*box_concnt(i_box,i_ring-1)
+       BB = 4.0*k2*box_radius2(i_box,i_ring)*box_length(i_box) + 4.0*k2*box_length(i_box)*box_radius2(i_box,i_ring-1)
+       DD = box_length(i_box)*PI   & 
+           *( box_radius2(i_box,i_ring)*box_radius1(i_box,i_ring) - (box_radius2(i_box,i_ring-1))*box_radius1(i_box,i_ring-1) )
 
-
-       ! box_out_concnt for (i_ring) is box_in_concnt for (i_ring +1)
+       box_concnt(i_box,i_ring) = DD/BB*( AA/DD + exp( log(BB/DD*box_concnt(i_box,i_ring)-AA/DD) - BB/DD*Dt ) )
+       write(6,*)'= AABBDD =>', i_ring, AA, BB, DD, box_concnt(i_box,i_ring), log(BB/DD*box_concnt(i_box,i_ring)-AA/DD)
 
        enddo
 
+       ! For outest ring (i_ring = n_rings_max)
+       k2 = eddy_diff2/( box_radius2(i_box,n_rings_max)-box_radius2(i_box,n_rings_max-1) )
+       AA = 4.0*k2*box_radius2(i_box,n_rings_max-1)*box_length(i_box)*box_concnt(i_box,n_rings_max-1)
+       BB = 4.0*k2*box_length(i_box)*box_radius2(i_box,n_rings_max-1)
+       DD = box_length(i_box)*PI   &   
+           *( box_radius2(i_box,n_rings_max)*box_radius1(i_box,n_rings_max) - (box_radius2(i_box,n_rings_max-1))*box_radius1(i_box,n_rings_max-1) )
+
+       box_concnt(i_box,n_rings_max) = DD/BB*( AA/DD - exp( log(BB/DD*box_concnt(i_box,n_rings_max)-AA/DD) - BB/DD*Dt ) )
+       
     end do
+
+    write(6,*)'= concentration =>', eddy_diff2, box_concnt(2,1), box_concnt(2,2)
 
     ! Everything is done, clean up pointers
     nullify(u)
@@ -313,6 +351,8 @@ CONTAINS
 
   END SUBROUTINE plume_run
 
+
+
 !--------------------------------------------------------------------
 ! functions to find location (i,j,k) of boxes 
 
@@ -326,6 +366,8 @@ CONTAINS
   end function
 
 
+
+!-------------------------------------------------------------------
   integer function Find_iPLev(curr_pressure,P_edge)
     implicit none
     real(fp) :: curr_pressure
@@ -344,7 +386,7 @@ CONTAINS
   end function
 
 !------------------------------------------------------------------
-! functions to interpolate wind speed (u,v,omeg) 
+! functions to interpolate wind speed (u,v,omeg) into a specific location (curr_lon, curr_lat, curr_pressure)
 ! based on the surrounding 4 points.
 
   real function Interplt_wind(wind, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
@@ -442,7 +484,10 @@ CONTAINS
   end function
 
 
+
+  !-------------------------------------------------------------------
   ! calculation the great-circle distance between two points on the earth surface
+
   real function Distance_Circle(x1, y1, x2, y2)
     implicit none
     real(fp)     :: x1, y1, x2, y2  ! unit is degree
@@ -450,13 +495,14 @@ CONTAINS
 
     Distance_Circle = Re * 2.0 * ASIN( (sin( (y1-y2)*PI/180.0 ))**2.0   & 
                       + cos(x1*PI/180.0) * cos(x2*PI/180.0) * (sin( 0.5*(x1-x2)*PI/180.0 ))**2.0 )
-
     return
   end function
 
-  
-  ! calculate the wind_s shear along pressure direction
-  real function Wind_shear(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, P_edge,  i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+
+  !-------------------------------------------------------------------  
+  ! calculate the wind_s (inside a plume sross-section) shear along pressure direction
+
+  real function Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, P_edge,  i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
     implicit none
     real(fp)          :: curr_lon, curr_lat, curr_pressure
     real(fp)          :: box_alpha
@@ -542,13 +588,15 @@ CONTAINS
                  + Pa2meter( P_BXHEIGHT(init_lon,init_lat,init_lev+1), P_edge(init_lev), P_edge(init_lev+1), 0 )
     ! find the z height of each pressure level in GEOS-Chem
 
-    wind_shear = ( wind_s(2) - wind_s(1) ) / Delt_height
+    Wind_shear_s = ( wind_s(2) - wind_s(1) ) / Delt_height
 
     return
   end function
 
 
+!-------------------------------------------------------------------
   ! transform the pressure level [Pa] to the height level [m]
+
   real function Pa2meter(Box_height, P1, P2, Judge) 
   ! Judge: 0 for bottom, 1 for top
   ! 
@@ -567,7 +615,94 @@ CONTAINS
     return
   end function
 
+
 !-------------------------------------------------------------------
+! Calculate eddy diffusivity in stratisphere. (U.Schumann, 2012)
+
+
+
+  !-------------------------------------------------------------------  
+  ! calculate the vertical shear for calculating eddy difussivity
+
+  real function Vertical_shear(var, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge,  i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+    implicit none
+    real(fp)          :: curr_lon, curr_lat, curr_pressure
+    !real(fp), pointer :: PI, Re
+    real(fp), pointer :: var(:,:,:)
+    real(fp), pointer :: P_BXHEIGHT(:,:,:)
+    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:), P_edge(:)
+    integer           :: i_lon, i_lat, i_lev
+    integer           :: init_lon, init_lat, init_lev
+    integer           :: i, ii, j, jj, k, kk
+    real(fp)          :: distance(2,2), Weight(2,2)
+    real(fp)          :: var_lonlat(2)
+    real(fp)          :: Delt_height
+
+
+    ! first interpolate horizontally (Inverse Distance Weighting)
+
+    ! identify the grid point located in the southeast of the particle or under
+    ! the particle
+    if(curr_lon>=X_mid(i_lon))then
+      init_lon = i_lon
+    else
+      init_lon = i_lon - 1
+    endif
+
+    if(curr_lat>=Y_mid(i_lat))then
+      init_lat = i_lat
+    else
+      init_lat = i_lat - 1
+    endif
+
+    ! For pressure level, P_mid(1) is about surface pressure
+    if(curr_pressure<=P_mid(i_lev))then
+      init_lev = i_lev
+    else
+      init_lev = i_lev - 1
+    endif
+
+
+    do i = 1,2
+      do j = 1,2
+
+        ii = i + init_lon - 1
+        jj = j + init_lat - 1
+        distance(i,j) = Distance_Circle(curr_lon, curr_lat, X_mid(ii),Y_mid(jj))
+
+      enddo
+    enddo
+
+    do i = 1,2
+      do j = 1,2
+        Weight(i,j) = 1.0/distance(i,j) / sum( 1.0/distance(:,:) )
+      enddo
+    enddo
+
+
+    do k = 1,2
+      kk            = k + init_lev - 1
+      var_lonlat(k) =  Weight(1,1) * var(i_lon,i_lat,kk)   + Weight(1,2) * var(i_lon,i_lat+1,kk)   &
+                       + Weight(2,1) * var(i_lon+1,i_lat,kk) + Weight(2,2) * var(i_lon+1,i_lat+1,kk)
+    enddo
+
+
+    ! second vertical shear of wind
+
+    Delt_height =  Pa2meter( P_BXHEIGHT(init_lon,init_lat,init_lev),P_edge(init_lev), P_edge(init_lev+1), 1 )   &
+                 + Pa2meter( P_BXHEIGHT(init_lon,init_lat,init_lev+1),P_edge(init_lev), P_edge(init_lev+1), 0 )
+    ! find the z height of each pressure level in GEOS-Chem
+
+    Vertical_shear = ( var_lonlat(2) - var_lonlat(1) ) / Delt_height
+
+    return
+  end function
+
+
+!-------------------------------------------------------------------
+!*********************************************************************
+!---------------------------------------------------------------------
+
 
   SUBROUTINE plume_write_std( am_I_Root, RC )
 
@@ -631,6 +766,8 @@ CONTAINS
 
   END SUBROUTINE plume_write_std
 
+!---------------------------------------------------------------------
+!*********************************************************************
 !---------------------------------------------------------------------
 
   subroutine plume_cleanup()
