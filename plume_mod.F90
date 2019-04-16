@@ -320,8 +320,8 @@ CONTAINS
        DD = box_length(i_box)*PI   & 
            *( box_radius2(i_box,i_ring)*box_radius1(i_box,i_ring) - (box_radius2(i_box,i_ring-1))*box_radius1(i_box,i_ring-1) )
 
-       box_concnt(i_box,i_ring) = DD/BB*( AA/DD + exp( log(BB/DD*box_concnt(i_box,i_ring)-AA/DD) - BB/DD*Dt ) )
-       write(6,*)'= AABBDD =>', i_ring, AA, BB, DD, box_concnt(i_box,i_ring), log(BB/DD*box_concnt(i_box,i_ring)-AA/DD)
+       box_concnt(i_box,i_ring) = DD/BB*( AA/DD - exp( log(AA/DD-BB/DD*box_concnt(i_box,i_ring)) - BB/DD*Dt ) )
+       write(6,*)'= AABBDD =>', i_ring, AA, BB, DD, box_concnt(i_box,i_ring), log(AA/DD-BB/DD*box_concnt(i_box,i_ring))
 
        enddo
 
