@@ -142,6 +142,8 @@ CONTAINS
     integer :: i_box, i_ring
 
     integer :: i_lon, i_lat, i_lev
+    
+    integer :: t1s
 
     real(fp) :: curr_lon, curr_lat, curr_pressure
     real(fp) :: next_lon, next_lat, next_pressure
@@ -192,7 +194,7 @@ CONTAINS
     P_edge => State_Met%PEDGE(1,1,:)  ! Wet air press @ level edges [hPa]
     P_mid => State_Met%PMID(1,1,:)  ! Pressure (w/r/t moist air) at level centers (hPa)
 
-    P_BXHEIGHT => State_Met%BXHEIGHT
+    P_BXHEIGHT => State_Met%BXHEIGHT  ![IIPAR,JJPAR,KKPAR]
 
     Dx = DLON(1,1,1)
     Dy = DLAT(1,2,1)  ! DLAT(1,1,1) is half of DLAT(1,2,1) !!!
@@ -293,50 +295,69 @@ CONTAINS
        ! box_concnt(n_boxes_max,N_rings)
        !!!!!!
 
-       ! Calculate vertical eddy diffusivity:
-       Cv = 0.2
-       Omega_N = 0.1
-       Ptemp_shear = Vertical_shear(Ptemp, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
-       eddy_diff2 = Cv*Omega_N**2/(Ptemp_shear*g0/curr_Ptemp)
-       ! k2 = eddy_diff2/( box_radius1(i_box,i_ring)-box_radius1(i_box,i_ring-1) )   ! correspond to box_radius2, [m/s]
-       ! k2 = 0.005   ! Dv = 0.07~0.2
+       do t1s=1,Int(Dt)
 
-       ! For the innest ring (i_ring = 1)
-       ! k2 should be rewrite in a more accurate equation !!!
-       k2 = eddy_diff2/box_radius2(i_box,1)
-       AA = 4.0*k2*box_radius2(i_box,1)*box_length(i_box)*box_concnt(i_box,2) 
-       BB = 4.0*k2*box_radius2(i_box,1)*box_length(i_box)
-       DD = PI*box_radius1(i_box,1)*box_radius2(i_box,1)*box_length(i_box)
+         ! Calculate vertical eddy diffusivity:
+         Cv = 0.2
+         Omega_N = 0.1
+         Ptemp_shear = Vertical_shear(Ptemp, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
+         eddy_diff2 = Cv*Omega_N**2/(Ptemp_shear*g0/curr_Ptemp)
+         ! k2 = eddy_diff2/( box_radius1(i_box,i_ring)-box_radius1(i_box,i_ring-1) )   ! correspond to box_radius2, [m/s]
+         ! k2 = 0.005   ! Dv = 0.07~0.2
+  
+         ! For the innest ring (i_ring = 1)
+         ! k2 should be rewrite in a more accurate equation !!!
+         k2 = eddy_diff2/box_radius2(i_box,1)
+         !AA = 4.0*k2*box_radius1(i_box,1)*box_length(i_box)*box_concnt(i_box,2) 
+         !BB = 4.0*k2*box_radius1(i_box,1)*box_length(i_box)
+         !DD = PI*box_radius1(i_box,1)*box_radius2(i_box,1)*box_length(i_box)
+         AA = 4.0*k2*box_radius1(i_box,1)*box_length(i_box)*( box_concnt(i_box,2) - box_concnt(i_box,1) )
+         BB = 0.0
+         DD = PI*box_radius1(i_box,1)*box_radius2(i_box,1)*box_length(i_box)
 
-       box_concnt(i_box,1) = DD/BB*( AA/DD + exp( log(BB/DD*box_concnt(i_box,1)-AA/DD) - BB/DD*Dt ) )
+         !box_concnt(i_box,1) = DD/BB*( AA/DD + exp( log(BB/DD*box_concnt(i_box,1)-AA/DD) - BB/DD*1.0 ) )
+         box_concnt(i_box,1) = box_concnt(i_box,1) + AA/DD*1.0
+           
 
-       ! For rings from 2 to (n_rings_max - 1)
-       do i_ring = 2, n_rings_max-1
+         ! For rings from 2 to (n_rings_max - 1)
+         do i_ring = 2, n_rings_max-1
+  
+         k2 = eddy_diff2/( box_radius2(i_box,i_ring)-box_radius2(i_box,i_ring-1) )
+         !AA = 4.0*k2*box_radius1(i_box,i_ring)*box_length(i_box)*box_concnt(i_box,i_ring+1)   &
+         !    + 4.0*k2*box_radius1(i_box,i_ring-1)*box_length(i_box)*box_concnt(i_box,i_ring-1)
+         !BB = 4.0*k2*box_radius1(i_box,i_ring)*box_length(i_box) + 4.0*k2*box_length(i_box)*box_radius1(i_box,i_ring-1)
+         !DD = box_length(i_box)*PI   & 
+         !     *( box_radius2(i_box,i_ring)*box_radius1(i_box,i_ring) - (box_radius2(i_box,i_ring-1))*box_radius1(i_box,i_ring-1) )
+         AA = 4.0*k2*box_radius1(i_box,i_ring)*box_length(i_box)*(box_concnt(i_box,i_ring+1)-box_concnt(i_box,i_ring) )  
+         BB = 4.0*k2*box_radius1(i_box,i_ring-1)*box_length(i_box)*(box_concnt(i_box,i_ring-1)-box_concnt(i_box,i_ring) )  
+         DD = box_length(i_box)*PI*( box_radius1(i_box,i_ring)*box_radius2(i_box,i_ring) - box_radius1(i_box,i_ring-1)*box_radius2(i_box,i_ring-1) )
 
-       k2 = eddy_diff2/( box_radius2(i_box,i_ring)-box_radius2(i_box,i_ring-1) )
-       AA = 4.0*k2*box_radius2(i_box,i_ring)*box_length(i_box)*box_concnt(i_box,i_ring+1)   &
-           + 4.0*k2*box_radius2(i_box,i_ring-1)*box_length(i_box)*box_concnt(i_box,i_ring-1)
-       BB = 4.0*k2*box_radius2(i_box,i_ring)*box_length(i_box) + 4.0*k2*box_length(i_box)*box_radius2(i_box,i_ring-1)
-       DD = box_length(i_box)*PI   & 
-           *( box_radius2(i_box,i_ring)*box_radius1(i_box,i_ring) - (box_radius2(i_box,i_ring-1))*box_radius1(i_box,i_ring-1) )
+         !box_concnt(i_box,i_ring) = DD/BB*( AA/DD - exp( log(AA/DD-BB/DD*box_concnt(i_box,i_ring)) - BB/DD*1.0 ) )
+         box_concnt(i_box,i_ring) = box_concnt(i_box,i_ring) + (AA+BB)/DD*1.0
 
-       box_concnt(i_box,i_ring) = DD/BB*( AA/DD - exp( log(AA/DD-BB/DD*box_concnt(i_box,i_ring)) - BB/DD*Dt ) )
-       write(6,*)'= AABBDD =>', i_ring, AA, BB, DD, box_concnt(i_box,i_ring), log(AA/DD-BB/DD*box_concnt(i_box,i_ring))
+         enddo
+ 
+         ! For outest ring (i_ring = n_rings_max)
+         k2 = eddy_diff2/( box_radius2(i_box,n_rings_max)-box_radius2(i_box,n_rings_max-1) )
+         !AA = 4.0*k2*box_radius1(i_box,n_rings_max-1)*box_length(i_box)*box_concnt(i_box,n_rings_max-1)
+         !BB = 4.0*k2*box_length(i_box)*box_radius1(i_box,n_rings_max-1)
+         !DD = box_length(i_box)*PI   &   
+         !    *( box_radius2(i_box,n_rings_max)*box_radius1(i_box,n_rings_max) - (box_radius2(i_box,n_rings_max-1))*box_radius1(i_box,n_rings_max-1) )
+         AA = 4.0*k2*box_radius1(i_box,n_rings_max)*box_length(i_box)*( 0 - box_concnt(i_box,n_rings_max) )  
+         BB = 4.0*k2*box_radius1(i_box,n_rings_max-1)*box_length(i_box)*(box_concnt(i_box,n_rings_max-1)-box_concnt(i_box,n_rings_max) )  
+         DD = box_length(i_box)*PI   &
+             *( box_radius1(i_box,n_rings_max)*box_radius2(i_box,n_rings_max) - box_radius1(i_box,n_rings_max-1)*box_radius2(i_box,n_rings_max-1) )
+
+         !box_concnt(i_box,n_rings_max) = DD/BB*( AA/DD - exp( log(BB/DD*box_concnt(i_box,n_rings_max)-AA/DD) - BB/DD*1.0 ) )
+         box_concnt(i_box,i_ring) = box_concnt(i_box,i_ring) + (AA+BB)/DD*1.0
+
+         write(6,*)'= i_box, t1s, eddy =>', i_box, t1s, eddy_diff2
+         write(6,*)'= concentration1 =>', box_concnt(i_box,1), box_concnt(i_box,2), box_concnt(i_box,3), box_concnt(i_box,4), box_concnt(i_box,5)
+         write(6,*)'= concentration2 =>', box_concnt(i_box,6), box_concnt(i_box,7), box_concnt(i_box,8), box_concnt(i_box,9), box_concnt(i_box,10)
 
        enddo
 
-       ! For outest ring (i_ring = n_rings_max)
-       k2 = eddy_diff2/( box_radius2(i_box,n_rings_max)-box_radius2(i_box,n_rings_max-1) )
-       AA = 4.0*k2*box_radius2(i_box,n_rings_max-1)*box_length(i_box)*box_concnt(i_box,n_rings_max-1)
-       BB = 4.0*k2*box_length(i_box)*box_radius2(i_box,n_rings_max-1)
-       DD = box_length(i_box)*PI   &   
-           *( box_radius2(i_box,n_rings_max)*box_radius1(i_box,n_rings_max) - (box_radius2(i_box,n_rings_max-1))*box_radius1(i_box,n_rings_max-1) )
-
-       box_concnt(i_box,n_rings_max) = DD/BB*( AA/DD - exp( log(BB/DD*box_concnt(i_box,n_rings_max)-AA/DD) - BB/DD*Dt ) )
-       
-    end do
-
-    write(6,*)'= concentration =>', eddy_diff2, box_concnt(2,1), box_concnt(2,2)
+    enddo
 
     ! Everything is done, clean up pointers
     nullify(u)
@@ -690,7 +711,7 @@ CONTAINS
     ! second vertical shear of wind
 
     Delt_height =  Pa2meter( P_BXHEIGHT(init_lon,init_lat,init_lev),P_edge(init_lev), P_edge(init_lev+1), 1 )   &
-                 + Pa2meter( P_BXHEIGHT(init_lon,init_lat,init_lev+1),P_edge(init_lev), P_edge(init_lev+1), 0 )
+                 + Pa2meter( P_BXHEIGHT(init_lon,init_lat,init_lev+1),P_edge(init_lev+1), P_edge(init_lev+2), 0 )
     ! find the z height of each pressure level in GEOS-Chem
 
     Vertical_shear = ( var_lonlat(2) - var_lonlat(1) ) / Delt_height
