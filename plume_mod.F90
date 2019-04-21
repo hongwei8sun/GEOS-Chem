@@ -38,8 +38,9 @@ MODULE Plume_Mod
   real(fp), allocatable :: box_length(:)
 
   ! D_radius should only be used at the beginning!
-  real(fp), parameter :: D_radius = 20     ! [m], the width of each ring
-  integer, parameter  :: n_rings_max = 10  ! Degine the number of rings in one box
+  real(fp), parameter :: Init_radius = 10.0e+0_fp     ! [m], the width of each ring
+  real(fp), parameter :: D_radius    = 20.0e+0_fp     ! [m], the width of each ring
+  integer, parameter  :: n_rings_max = 10          ! Degine the number of rings in one box
 
   ! medical concentration of each ring
   real(fp), allocatable :: box_concnt(:,:)    ! [kg/m3], box_concnt(n_boxes_max,N_rings)
@@ -84,8 +85,8 @@ CONTAINS
     box_lat    = (/4.0e+0_fp,  4.1e+0_fp,  4.2e+0_fp/)
     box_lev    = (/20.0e+0_fp, 20.0e+0_fp, 20.0e+0_fp/)      ! hPa
 
-    box_radius1(:,1)  = (/10.0e+0_fp,  20.0e+0_fp,  30.0e+0_fp/)     ! the value of the innest ring for every box
-    box_radius2(:,1)  = (/10.0e+0_fp,  20.0e+0_fp,  30.0e+0_fp/)     ! m
+    box_radius1(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! the value of the innest ring for every box
+    box_radius2(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! m
 
     ! Set the initial value of max/min radius for each ring
     do i_ring=2,n_rings_max
@@ -169,6 +170,7 @@ CONTAINS
     real(fp) :: curr_u, curr_v, curr_omeg
 
     real(fp) :: curr_Ptemp, Ptemp_shear  ! potential temperature
+    real(fp) :: U_shear, V_shear, UV_shear  
 
     real(fp), pointer :: P_edge(:)
     real(fp), pointer :: P_mid(:)
@@ -188,8 +190,8 @@ CONTAINS
     real(fp), pointer :: P_I, R_e     
 
     real(fp) :: AA, BB, DD  ! used to calculate concentration distribution
-    real(fp) :: eddy_diff2, k2
-    real(fp) :: Cv, Omega_N
+    real(fp) :: eddy_diff1, eddy_diff2, k1, k2
+    real(fp) :: Cv, Ch, Omega_N
 
     !real(fp) :: RK(4,n_rings_max)
     !real(fp) :: box_concnt_K(n_rings_max)
@@ -312,6 +314,13 @@ CONTAINS
          Ptemp_shear = Vertical_shear(Ptemp, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
          eddy_diff2 = Cv*Omega_N**2/(Ptemp_shear*g0/curr_Ptemp)
 
+         ! Calculate horizontal eddy diffusivity:
+         Ch = 0.1
+         U_shear = Vertical_shear(u, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
+         V_shear = Vertical_shear(v, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
+         UV_shear = sqrt( U_shear**2 + V_shear**2 )
+         eddy_diff1 = Ch*(Init_radius**2)*UV_shear
+         
 
        do t1s = 1,Int(Dt)
        ! Use classical Runge-Kutta method (RK4) to solve the diferential
@@ -320,7 +329,8 @@ CONTAINS
 
          ! For the innest ring (i_ring = 1)
          ! k2 should be rewrite in a more accurate equation !!!
-         k2 = eddy_diff2/box_radius2(i_box,1)
+         k2 = eddy_diff2 / ( (box_radius2(i_box,2)-0.0) / 2.0 )
+         k1 = eddy_diff1 / ( (box_radius1(i_box,2)-0.0) / 2.0 )
        
          if(Ki==1)then
            box_concnt_K(1) = box_concnt(i_box,1)
@@ -330,16 +340,21 @@ CONTAINS
            box_concnt_K(1) = box_concnt(i_box,1) + RK(Ki-1,1)*1.0*0.5 !Dt
          endif
  
-         AA = 4.0*k2*box_radius1(i_box,1)*( box_concnt_K(2) - box_concnt_K(1) )
+         AA = 4.0*k2*box_radius1(i_box,1)*( box_concnt_K(2) - box_concnt_K(1) )   &
+            + 4.0*k1*box_radius2(i_box,1)*( box_concnt_K(2) - box_concnt_K(1) )
+
          BB = 0.0
+
          DD = PI*box_radius1(i_box,1)*box_radius2(i_box,1)
+
          RK(Ki,1)          = AA/DD 
 
 
          ! For rings from 2 to (n_rings_max - 1)
          do i_ring = 2, n_rings_max-1
   
-         k2 = eddy_diff2/( box_radius2(i_box,i_ring)-box_radius2(i_box,i_ring-1) )
+         k2 = eddy_diff2 / ( (box_radius2(i_box,i_ring+1)-box_radius2(i_box,i_ring-1)) / 2.0 )
+         k1 = eddy_diff1 / ( (box_radius1(i_box,i_ring+1)-box_radius1(i_box,i_ring-1)) / 2.0 )
 
          if(Ki==1)then
            box_concnt_K(i_ring) = box_concnt(i_box,i_ring)
@@ -350,8 +365,12 @@ CONTAINS
          endif
 
 
-         AA = 4.0*k2*box_radius1(i_box,i_ring)*(box_concnt_K(i_ring+1)-box_concnt_K(i_ring) )  
-         BB = 4.0*k2*box_radius1(i_box,i_ring-1)*(box_concnt_K(i_ring-1)-box_concnt_K(i_ring) )  
+         AA = 4.0*k2*box_radius1(i_box,i_ring)*(box_concnt_K(i_ring+1)-box_concnt_K(i_ring) )  &
+            + 4.0*k1*box_radius2(i_box,i_ring)*(box_concnt_K(i_ring+1)-box_concnt_K(i_ring) )
+
+         BB = 4.0*k2*box_radius1(i_box,i_ring-1)*(box_concnt_K(i_ring-1)-box_concnt_K(i_ring) )  &
+            + 4.0*k1*box_radius2(i_box,i_ring-1)*(box_concnt_K(i_ring-1)-box_concnt_K(i_ring) )
+
          DD = PI*( box_radius1(i_box,i_ring)*box_radius2(i_box,i_ring) - box_radius1(i_box,i_ring-1)*box_radius2(i_box,i_ring-1) )
 
          RK(Ki,i_ring) = (AA+BB)/DD
@@ -360,6 +379,7 @@ CONTAINS
  
          ! For outest ring (i_ring = n_rings_max)
          k2 = eddy_diff2/( box_radius2(i_box,n_rings_max)-box_radius2(i_box,n_rings_max-1) )
+         k1 = eddy_diff1/( box_radius1(i_box,n_rings_max)-box_radius1(i_box,n_rings_max-1) )
 
          if(Ki==1)then
            box_concnt_K(n_rings_max) = box_concnt(i_box,n_rings_max)
@@ -369,8 +389,12 @@ CONTAINS
            box_concnt_K(n_rings_max) = box_concnt(i_box,n_rings_max) + RK(Ki-1,n_rings_max)*1.0*0.5 ! Dt
          endif
 
-         AA = 4.0*k2*box_radius1(i_box,n_rings_max)*( 0 - box_concnt_K(n_rings_max) )  
-         BB = 4.0*k2*box_radius1(i_box,n_rings_max-1)*(box_concnt_K(n_rings_max-1)-box_concnt_K(n_rings_max) )  
+         AA = 4.0*k2*box_radius1(i_box,n_rings_max)*( 0 - box_concnt_K(n_rings_max) )  &
+            + 4.0*k1*box_radius2(i_box,n_rings_max)*( 0 - box_concnt_K(n_rings_max) )
+
+         BB = 4.0*k2*box_radius1(i_box,n_rings_max-1)*(box_concnt_K(n_rings_max-1)-box_concnt_K(n_rings_max) )  &
+            + 4.0*k1*box_radius2(i_box,n_rings_max-1)*(box_concnt_K(n_rings_max-1)-box_concnt_K(n_rings_max) )
+
          DD = PI*( box_radius1(i_box,n_rings_max)*box_radius2(i_box,n_rings_max)   &
                    - box_radius1(i_box,n_rings_max-1)*box_radius2(i_box,n_rings_max-1) )
 
@@ -382,8 +406,10 @@ CONTAINS
        box_concnt(i_box,i_ring) = box_concnt(i_box,i_ring) + 1.0/6*(RK(1,i_ring)+2.0*RK(2,i_ring)+2.0*RK(3,i_ring)+RK(4,i_ring)) ! Dt
        enddo !i_ring
 
-       write(6,*)'= concentration1 =>', t1s, box_concnt(i_box,1), box_concnt(i_box,2), box_concnt(i_box,3), box_concnt(i_box,4), box_concnt(i_box,5)
-       write(6,*)'= concentration2 =>', i_box, box_concnt(i_box,6), box_concnt(i_box,7), box_concnt(i_box,8), box_concnt(i_box,9), box_concnt(i_box,10)
+       if(i_box==1)then
+        write(6,*)'= concentration1 =>', t1s, box_concnt(i_box,1), box_concnt(i_box,2), box_concnt(i_box,3), box_concnt(i_box,4), box_concnt(i_box,5)
+        write(6,*)'= concentration2 =>', i_box, box_concnt(i_box,6), box_concnt(i_box,7), box_concnt(i_box,8), box_concnt(i_box,9), box_concnt(i_box,10)
+       endif
 
        enddo ! t1s
 
