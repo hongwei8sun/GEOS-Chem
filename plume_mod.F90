@@ -39,8 +39,8 @@ MODULE Plume_Mod
 
   ! D_radius should only be used at the beginning!
   real(fp), parameter :: Init_radius = 10.0e+0_fp     ! [m], the width of each ring
-  real(fp), parameter :: D_radius    = 20.0e+0_fp     ! [m], the width of each ring
-  integer, parameter  :: n_rings_max = 10          ! Degine the number of rings in one box
+  real(fp), parameter :: D_radius    = 10.0e+0_fp     ! [m], the width of each ring
+  integer, parameter  :: n_rings_max = 20          ! Degine the number of rings in one box
 
   ! medical concentration of each ring
   real(fp), allocatable :: box_concnt(:,:)    ! [kg/m3], box_concnt(n_boxes_max,N_rings)
@@ -99,13 +99,12 @@ CONTAINS
 
 
     ! Set the initial concentration
-    box_concnt(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! [kg/m3]
-    box_concnt_K(1)  = 0.0e+0_fp     ! [kg/m3]
- 
-    do i_ring=2,n_rings_max
-      box_concnt(:,i_ring) = (/0.0e+0_fp,  0.0e+0_fp,  0.0e+0_fp/)
+    do i_ring=1,n_rings_max
+      box_concnt(:,i_ring) = (/0.0e+0_fp,  0.0e+0_fp,  0.0e+0_fp/)   ! [kg/m3]
       box_concnt_K(i_ring) = 0.0e+0_fp
     enddo  
+
+    box_concnt(:,5)  = (/100.0e+0_fp,  100.0e+0_fp,  100.0e+0_fp/)     ! [kg/m3]
 
 
     ! Create output file
@@ -190,7 +189,7 @@ CONTAINS
     real(fp), pointer :: P_I, R_e     
 
     real(fp) :: AA, BB, DD  ! used to calculate concentration distribution
-    real(fp) :: eddy_diff1, eddy_diff2, k1, k2
+    real(fp) :: eddy_v, eddy_h, eddy_diff1, eddy_diff2, k1, k2
     real(fp) :: Cv, Ch, Omega_N
 
     !real(fp) :: RK(4,n_rings_max)
@@ -312,15 +311,18 @@ CONTAINS
          Cv = 0.2
          Omega_N = 0.1
          Ptemp_shear = Vertical_shear(Ptemp, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
-         eddy_diff2 = Cv*Omega_N**2/(Ptemp_shear*g0/curr_Ptemp)
+         eddy_v = Cv*Omega_N**2/(Ptemp_shear*g0/curr_Ptemp)
 
          ! Calculate horizontal eddy diffusivity:
          Ch = 0.1
          U_shear = Vertical_shear(u, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
          V_shear = Vertical_shear(v, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
          UV_shear = sqrt( U_shear**2 + V_shear**2 )
-         eddy_diff1 = Ch*(Init_radius**2)*UV_shear
+         eddy_h = Ch*(Init_radius**2)*UV_shear
          
+         eddy_diff1 = eddy_v*cos(box_theta(i_box)) + eddy_h*sin(box_theta(i_box)) ! a
+         eddy_diff2 = eddy_v*sin(box_theta(i_box)) + eddy_h*cos(box_theta(i_box)) ! b
+
 
        do t1s = 1,Int(Dt)
        ! Use classical Runge-Kutta method (RK4) to solve the diferential
@@ -407,8 +409,10 @@ CONTAINS
        enddo !i_ring
 
        if(i_box==1)then
-        write(6,*)'= concentration1 =>', t1s, box_concnt(i_box,1), box_concnt(i_box,2), box_concnt(i_box,3), box_concnt(i_box,4), box_concnt(i_box,5)
-        write(6,*)'= concentration2 =>', i_box, box_concnt(i_box,6), box_concnt(i_box,7), box_concnt(i_box,8), box_concnt(i_box,9), box_concnt(i_box,10)
+        write(6,*)'=concentration1=>',t1s, box_concnt(i_box,1), box_concnt(i_box,2), box_concnt(i_box,3), box_concnt(i_box,4), box_concnt(i_box,5)
+        write(6,*)'=concentration2=>',i_box, box_concnt(i_box,6), box_concnt(i_box,7), box_concnt(i_box,8), box_concnt(i_box,9), box_concnt(i_box,10)
+        write(6,*)'=concentration3=>',eddy_v, box_concnt(i_box,11), box_concnt(i_box,12), box_concnt(i_box,13), box_concnt(i_box,14), box_concnt(i_box,15)
+        write(6,*)'=concentration4=>',eddy_h, box_concnt(i_box,16), box_concnt(i_box,17), box_concnt(i_box,18), box_concnt(i_box,19), box_concnt(i_box,20)
        endif
 
        enddo ! t1s
