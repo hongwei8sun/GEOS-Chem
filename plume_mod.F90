@@ -46,6 +46,9 @@ MODULE Plume_Mod
   real(fp), allocatable :: box_concnt(:,:)    ! [kg/m3], box_concnt(n_boxes_max,N_rings)
   real(fp), allocatable :: box_concnt_K(:)    ! [kg/m3], box_concnt_K(N_rings_max)
   real(fp), allocatable :: RK(:,:)  ! for Runge-Kutta method
+  real(fp), allocatable :: eddy_h(:)  ! 
+  real(fp), allocatable :: eddy_diff1(:)  ! 
+  real(fp), allocatable :: eddy_diff2(:)  ! 
 
 CONTAINS
 
@@ -79,10 +82,13 @@ CONTAINS
     allocate(box_concnt(n_boxes_max,n_rings_max))
     allocate(box_concnt_K(n_rings_max))
     allocate(RK(4,n_rings_max))
+    allocate(eddy_h(n_rings_max))
+    allocate(eddy_diff1(n_rings_max))
+    allocate(eddy_diff2(n_rings_max))
 
 
     box_lon    = (/5.0e+0_fp,  5.1e+0_fp,  5.2e+0_fp/)
-    box_lat    = (/4.0e+0_fp,  4.1e+0_fp,  4.2e+0_fp/)
+    box_lat    = (/4.0e+0_fp, 4.1e+0_fp, 4.2e+0_fp/)
     box_lev    = (/20.0e+0_fp, 20.0e+0_fp, 20.0e+0_fp/)      ! hPa
 
     box_radius1(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! the value of the innest ring for every box
@@ -189,7 +195,7 @@ CONTAINS
     real(fp), pointer :: P_I, R_e     
 
     real(fp) :: AA, BB, DD  ! used to calculate concentration distribution
-    real(fp) :: eddy_v, eddy_h, eddy_diff1, eddy_diff2, k1, k2
+    real(fp) :: eddy_v, k1, k2
     real(fp) :: Cv, Ch, Omega_N
 
     !real(fp) :: RK(4,n_rings_max)
@@ -307,22 +313,23 @@ CONTAINS
        ! box_concnt(n_boxes_max,N_rings)
        !!!!!!
 
-         ! Calculate vertical eddy diffusivity:
+         ! Calculate vertical eddy diffusivity (U.Schumann, 2012) :
          Cv = 0.2
          Omega_N = 0.1
          Ptemp_shear = Vertical_shear(Ptemp, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
-         eddy_v = Cv*Omega_N**2/(Ptemp_shear*g0/curr_Ptemp)
+         eddy_v = Cv * Omega_N**2 / sqrt( (Ptemp_shear*g0/curr_Ptemp) )
 
          ! Calculate horizontal eddy diffusivity:
          Ch = 0.1
-         U_shear = Vertical_shear(u, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
-         V_shear = Vertical_shear(v, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
+         U_shear = Vertical_shear(u, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+         V_shear = Vertical_shear(v, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
          UV_shear = sqrt( U_shear**2 + V_shear**2 )
-         eddy_h = Ch*(Init_radius**2)*UV_shear
-         
-         eddy_diff1 = eddy_v*cos(box_theta(i_box)) + eddy_h*sin(box_theta(i_box)) ! a
-         eddy_diff2 = eddy_v*sin(box_theta(i_box)) + eddy_h*cos(box_theta(i_box)) ! b
+         do i_ring=1,n_rings_max
+          eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
 
+          eddy_diff1(i_ring) = eddy_v*cos(box_theta(i_box)) + eddy_h(i_ring)*sin(box_theta(i_box)) ! a
+          eddy_diff2(i_ring) = eddy_v*sin(box_theta(i_box)) + eddy_h(i_ring)*cos(box_theta(i_box)) ! b
+         enddo
 
        do t1s = 1,Int(Dt)
        ! Use classical Runge-Kutta method (RK4) to solve the diferential
@@ -331,8 +338,8 @@ CONTAINS
 
          ! For the innest ring (i_ring = 1)
          ! k2 should be rewrite in a more accurate equation !!!
-         k2 = eddy_diff2 / ( (box_radius2(i_box,2)-0.0) / 2.0 )
-         k1 = eddy_diff1 / ( (box_radius1(i_box,2)-0.0) / 2.0 )
+         k2 = eddy_diff2(1) / ( (box_radius2(i_box,2)-0.0) / 2.0 )
+         k1 = eddy_diff1(1) / ( (box_radius1(i_box,2)-0.0) / 2.0 )
        
          if(Ki==1)then
            box_concnt_K(1) = box_concnt(i_box,1)
@@ -355,8 +362,8 @@ CONTAINS
          ! For rings from 2 to (n_rings_max - 1)
          do i_ring = 2, n_rings_max-1
   
-         k2 = eddy_diff2 / ( (box_radius2(i_box,i_ring+1)-box_radius2(i_box,i_ring-1)) / 2.0 )
-         k1 = eddy_diff1 / ( (box_radius1(i_box,i_ring+1)-box_radius1(i_box,i_ring-1)) / 2.0 )
+         k2 = eddy_diff2(i_ring) / ( (box_radius2(i_box,i_ring+1)-box_radius2(i_box,i_ring-1)) / 2.0 )
+         k1 = eddy_diff1(i_ring) / ( (box_radius1(i_box,i_ring+1)-box_radius1(i_box,i_ring-1)) / 2.0 )
 
          if(Ki==1)then
            box_concnt_K(i_ring) = box_concnt(i_box,i_ring)
@@ -380,8 +387,8 @@ CONTAINS
          enddo ! i_ring
  
          ! For outest ring (i_ring = n_rings_max)
-         k2 = eddy_diff2/( box_radius2(i_box,n_rings_max)-box_radius2(i_box,n_rings_max-1) )
-         k1 = eddy_diff1/( box_radius1(i_box,n_rings_max)-box_radius1(i_box,n_rings_max-1) )
+         k2 = eddy_diff2(n_rings_max)/( box_radius2(i_box,n_rings_max)-box_radius2(i_box,n_rings_max-1) )
+         k1 = eddy_diff1(n_rings_max)/( box_radius1(i_box,n_rings_max)-box_radius1(i_box,n_rings_max-1) )
 
          if(Ki==1)then
            box_concnt_K(n_rings_max) = box_concnt(i_box,n_rings_max)
