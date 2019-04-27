@@ -38,17 +38,20 @@ MODULE Plume_Mod
   real(fp), allocatable :: box_length(:)
 
   ! D_radius should only be used at the beginning!
-  real(fp), parameter :: Init_radius = 10.0e+0_fp     ! [m], the width of each ring
-  real(fp), parameter :: D_radius    = 10.0e+0_fp     ! [m], the width of each ring
-  integer, parameter  :: n_rings_max = 20          ! Degine the number of rings in one box
+  real(fp), parameter :: Init_radius = 100.0e+0_fp     ! [m], the width of each ring
+  real(fp), parameter :: D_radius    = 100.0e+0_fp     ! [m], the width of each ring
+  integer, parameter  :: n_rings_max = 5          ! Degine the number of rings in one box
 
   ! medical concentration of each ring
   real(fp), allocatable :: box_concnt(:,:)    ! [kg/m3], box_concnt(n_boxes_max,N_rings)
   real(fp), allocatable :: box_concnt_K(:)    ! [kg/m3], box_concnt_K(N_rings_max)
-  real(fp), allocatable :: RK(:,:)  ! for Runge-Kutta method
+  real(fp), allocatable :: RK(:,:), AA_env(:)  ! for Runge-Kutta method
   real(fp), allocatable :: eddy_h(:)  ! 
   real(fp), allocatable :: eddy_diff1(:)  ! 
   real(fp), allocatable :: eddy_diff2(:)  ! 
+  real(fp), allocatable :: k1(:), k2(:)  ! 
+
+  real(fp), allocatable :: env_amount(:)
 
 CONTAINS
 
@@ -82,9 +85,15 @@ CONTAINS
     allocate(box_concnt(n_boxes_max,n_rings_max))
     allocate(box_concnt_K(n_rings_max))
     allocate(RK(4,n_rings_max))
+    allocate(AA_env(4))
+
     allocate(eddy_h(n_rings_max))
     allocate(eddy_diff1(n_rings_max))
     allocate(eddy_diff2(n_rings_max))
+    allocate(k1(n_rings_max))
+    allocate(k2(n_rings_max))
+
+    allocate(env_amount(n_boxes_max))
 
 
     box_lon    = (/5.0e+0_fp,  5.1e+0_fp,  5.2e+0_fp/)
@@ -110,7 +119,9 @@ CONTAINS
       box_concnt_K(i_ring) = 0.0e+0_fp
     enddo  
 
-    box_concnt(:,5)  = (/100.0e+0_fp,  100.0e+0_fp,  100.0e+0_fp/)     ! [kg/m3]
+    box_concnt(:,3)  = (/100.0e+0_fp,  100.0e+0_fp,  100.0e+0_fp/)     ! [kg/m3]
+
+    env_amount = (/0.0e+0_fp, 0.0e+0_fp, 0.0e+0_fp/)
 
 
     ! Create output file
@@ -194,8 +205,8 @@ CONTAINS
 
     real(fp), pointer :: P_I, R_e     
 
-    real(fp) :: AA, BB, DD  ! used to calculate concentration distribution
-    real(fp) :: eddy_v, k1, k2
+    real(fp) :: AA(n_rings_max), BB(n_rings_max), DD(n_rings_max)  ! used to calculate concentration distribution
+    real(fp) :: eddy_v
     real(fp) :: Cv, Ch, Omega_N
 
     !real(fp) :: RK(4,n_rings_max)
@@ -331,95 +342,104 @@ CONTAINS
           eddy_diff2(i_ring) = eddy_v*sin(box_theta(i_box)) + eddy_h(i_ring)*cos(box_theta(i_box)) ! b
          enddo
 
-       do t1s = 1,Int(Dt)
+
+         ! For the innest ring (i_ring = 1)
+         ! k2 should be rewrite in a more accurate equation !!!
+         k2(1) = eddy_diff2(1) / ( (box_radius2(i_box,2)-0.0) / 2.0 )
+         k1(1) = eddy_diff1(1) / ( (box_radius1(i_box,2)-0.0) / 2.0 )
+
+         do i_ring = 2, n_rings_max-1
+
+         k2(i_ring) = eddy_diff2(i_ring) / ((box_radius2(i_box,i_ring+1)-box_radius2(i_box,i_ring-1)) / 2.0 )
+         k1(i_ring) = eddy_diff1(i_ring) / ((box_radius1(i_box,i_ring+1)-box_radius1(i_box,i_ring-1)) / 2.0 )
+
+         enddo ! i_ring
+
+         ! For outest ring (i_ring = n_rings_max)
+         k2(n_rings_max) = eddy_diff2(n_rings_max)/(box_radius2(i_box,n_rings_max)-box_radius2(i_box,n_rings_max-1) )
+         k1(n_rings_max) = eddy_diff1(n_rings_max)/(box_radius1(i_box,n_rings_max)-box_radius1(i_box,n_rings_max-1) )
+
+
+       do t1s=1,int(Dt)
+
        ! Use classical Runge-Kutta method (RK4) to solve the diferential
        ! equation
        do Ki = 1,4
 
-         ! For the innest ring (i_ring = 1)
-         ! k2 should be rewrite in a more accurate equation !!!
-         k2 = eddy_diff2(1) / ( (box_radius2(i_box,2)-0.0) / 2.0 )
-         k1 = eddy_diff1(1) / ( (box_radius1(i_box,2)-0.0) / 2.0 )
-       
-         if(Ki==1)then
-           box_concnt_K(1) = box_concnt(i_box,1)
-         else if(Ki==4)then
-           box_concnt_K(1) = box_concnt(i_box,1) + RK(3,1)*1.0 !Dt
-         else
-           box_concnt_K(1) = box_concnt(i_box,1) + RK(Ki-1,1)*1.0*0.5 !Dt
-         endif
+         do i_ring = 1, n_rings_max
+           if(Ki==1)then
+             box_concnt_K(i_ring) = box_concnt(i_box,i_ring)
+           else if(Ki==4)then
+             box_concnt_K(i_ring) = box_concnt(i_box,i_ring) + RK(3,i_ring)*1.0 !Dt
+           else
+             box_concnt_K(i_ring) = box_concnt(i_box,i_ring) + RK(Ki-1,i_ring)*1.0*0.5 !Dt
+           endif
+         enddo ! i_ring
+
  
-         AA = 4.0*k2*box_radius1(i_box,1)*( box_concnt_K(2) - box_concnt_K(1) )   &
-            + 4.0*k1*box_radius2(i_box,1)*( box_concnt_K(2) - box_concnt_K(1) )
+         AA(1) = 4.0*k2(1)*box_radius1(i_box,1)*( box_concnt_K(2) - box_concnt_K(1) )   &
+            + 4.0*k1(1)*box_radius2(i_box,1)*( box_concnt_K(2) - box_concnt_K(1) )
 
-         BB = 0.0
+         BB(1) = 0.0
 
-         DD = PI*box_radius1(i_box,1)*box_radius2(i_box,1)
+         DD(1) = PI*box_radius1(i_box,1)*box_radius2(i_box,1)
 
-         RK(Ki,1)          = AA/DD 
+         RK(Ki,1)          = AA(1)/DD(1)
 
 
          ! For rings from 2 to (n_rings_max - 1)
          do i_ring = 2, n_rings_max-1
-  
-         k2 = eddy_diff2(i_ring) / ( (box_radius2(i_box,i_ring+1)-box_radius2(i_box,i_ring-1)) / 2.0 )
-         k1 = eddy_diff1(i_ring) / ( (box_radius1(i_box,i_ring+1)-box_radius1(i_box,i_ring-1)) / 2.0 )
+           write(6,*)'= test =>', i_ring, k2(i_ring), box_radius1(i_box,i_ring), box_concnt_K(i_ring+1), box_concnt_K(i_ring)
+           AA(i_ring) = 4.0*k2(i_ring)*box_radius1(i_box,i_ring)*( box_concnt_K(i_ring+1)-box_concnt_K(i_ring) )  &
+              + 4.0*k1(i_ring)*box_radius2(i_box,i_ring)*(box_concnt_K(i_ring+1)-box_concnt_K(i_ring) )
 
-         if(Ki==1)then
-           box_concnt_K(i_ring) = box_concnt(i_box,i_ring)
-         else if(Ki==4)then
-           box_concnt_K(i_ring) = box_concnt(i_box,i_ring) + RK(3,i_ring)*1.0 !Dt
-         else
-           box_concnt_K(i_ring) = box_concnt(i_box,i_ring) + RK(Ki-1,i_ring)*1.0*0.5 !Dt
-         endif
+           BB(i_ring) = 4.0*k2(i_ring-1)*box_radius1(i_box,i_ring-1)*( box_concnt_K(i_ring-1)-box_concnt_K(i_ring) )  &
+              + 4.0*k1(i_ring-1)*box_radius2(i_box,i_ring-1)*(box_concnt_K(i_ring-1)-box_concnt_K(i_ring) )
 
+           DD(i_ring) = PI*( box_radius1(i_box,i_ring)*box_radius2(i_box,i_ring) - box_radius1(i_box,i_ring-1)*box_radius2(i_box,i_ring-1) )
 
-         AA = 4.0*k2*box_radius1(i_box,i_ring)*(box_concnt_K(i_ring+1)-box_concnt_K(i_ring) )  &
-            + 4.0*k1*box_radius2(i_box,i_ring)*(box_concnt_K(i_ring+1)-box_concnt_K(i_ring) )
-
-         BB = 4.0*k2*box_radius1(i_box,i_ring-1)*(box_concnt_K(i_ring-1)-box_concnt_K(i_ring) )  &
-            + 4.0*k1*box_radius2(i_box,i_ring-1)*(box_concnt_K(i_ring-1)-box_concnt_K(i_ring) )
-
-         DD = PI*( box_radius1(i_box,i_ring)*box_radius2(i_box,i_ring) - box_radius1(i_box,i_ring-1)*box_radius2(i_box,i_ring-1) )
-
-         RK(Ki,i_ring) = (AA+BB)/DD
+           RK(Ki,i_ring) = (AA(i_ring)+BB(i_ring))/DD(i_ring)
 
          enddo ! i_ring
  
-         ! For outest ring (i_ring = n_rings_max)
-         k2 = eddy_diff2(n_rings_max)/( box_radius2(i_box,n_rings_max)-box_radius2(i_box,n_rings_max-1) )
-         k1 = eddy_diff1(n_rings_max)/( box_radius1(i_box,n_rings_max)-box_radius1(i_box,n_rings_max-1) )
 
-         if(Ki==1)then
-           box_concnt_K(n_rings_max) = box_concnt(i_box,n_rings_max)
-         else if(Ki==4)then
-           box_concnt_K(n_rings_max) = box_concnt(i_box,n_rings_max) + RK(3,n_rings_max)*1.0 ! Dt
-         else
-           box_concnt_K(n_rings_max) = box_concnt(i_box,n_rings_max) + RK(Ki-1,n_rings_max)*1.0*0.5 ! Dt
-         endif
+         AA(n_rings_max) = 4.0*k2(n_rings_max)*box_radius1(i_box,n_rings_max)*( 0 - box_concnt_K(n_rings_max) )  &
+            + 4.0*k1(n_rings_max)*box_radius2(i_box,n_rings_max)*( 0 - box_concnt_K(n_rings_max) )
 
-         AA = 4.0*k2*box_radius1(i_box,n_rings_max)*( 0 - box_concnt_K(n_rings_max) )  &
-            + 4.0*k1*box_radius2(i_box,n_rings_max)*( 0 - box_concnt_K(n_rings_max) )
+         BB(n_rings_max) = 4.0*k2(n_rings_max-1)*box_radius1(i_box,n_rings_max-1)*(box_concnt_K(n_rings_max-1)-box_concnt_K(n_rings_max) )  &
+            + 4.0*k1(n_rings_max-1)*box_radius2(i_box,n_rings_max-1)*(box_concnt_K(n_rings_max-1)-box_concnt_K(n_rings_max) )
 
-         BB = 4.0*k2*box_radius1(i_box,n_rings_max-1)*(box_concnt_K(n_rings_max-1)-box_concnt_K(n_rings_max) )  &
-            + 4.0*k1*box_radius2(i_box,n_rings_max-1)*(box_concnt_K(n_rings_max-1)-box_concnt_K(n_rings_max) )
-
-         DD = PI*( box_radius1(i_box,n_rings_max)*box_radius2(i_box,n_rings_max)   &
+         DD(n_rings_max) = PI*( box_radius1(i_box,n_rings_max)*box_radius2(i_box,n_rings_max)   &
                    - box_radius1(i_box,n_rings_max-1)*box_radius2(i_box,n_rings_max-1) )
 
-         RK(Ki,n_rings_max) = (AA+BB)/DD
+         RK(Ki,n_rings_max) = (AA(n_rings_max)+BB(n_rings_max))/DD(n_rings_max)
+
+         AA_env(Ki) = -1.0*AA(n_rings_max)
+
+         if(i_box==1)then
+           write(6,*)'= t1s =>', t1s
+           write(6,*)'= box_concnt_K =>', box_concnt_K(:)
+           write(6,*)'= Ki, RK =>', Ki, RK(Ki,:)
+           write(6,*)'= AA =>', AA
+           write(6,*)'= BB =>', BB
+           write(6,*)'= DD =>', DD
+         endif
 
        enddo ! Ki
 
+
        do i_ring = 1,n_rings_max
-       box_concnt(i_box,i_ring) = box_concnt(i_box,i_ring) + 1.0/6*(RK(1,i_ring)+2.0*RK(2,i_ring)+2.0*RK(3,i_ring)+RK(4,i_ring)) ! Dt
+         box_concnt(i_box,i_ring) = box_concnt(i_box,i_ring) + 1.0*( RK(1,i_ring)+2.0*RK(2,i_ring)+2.0*RK(3,i_ring)+RK(4,i_ring) )/6.0 ! Dt
        enddo !i_ring
+         env_amount(i_box) = env_amount(i_box) + 1.0*( AA_env(1)+2.0*AA_env(2)+2.0*AA_env(3)+AA_env(4) )/6.0
+
 
        if(i_box==1)then
-        write(6,*)'=concentration1=>',t1s, box_concnt(i_box,1), box_concnt(i_box,2), box_concnt(i_box,3), box_concnt(i_box,4), box_concnt(i_box,5)
-        write(6,*)'=concentration2=>',i_box, box_concnt(i_box,6), box_concnt(i_box,7), box_concnt(i_box,8), box_concnt(i_box,9), box_concnt(i_box,10)
-        write(6,*)'=concentration3=>',eddy_v, box_concnt(i_box,11), box_concnt(i_box,12), box_concnt(i_box,13), box_concnt(i_box,14), box_concnt(i_box,15)
-        write(6,*)'=concentration4=>',eddy_h, box_concnt(i_box,16), box_concnt(i_box,17), box_concnt(i_box,18), box_concnt(i_box,19), box_concnt(i_box,20)
+         write(6,*)'= eddy =>', eddy_v, eddy_h(1), eddy_h(n_rings_max)
+         write(6,*)'= RK =>', RK(1,1), RK(2,1), RK(3,1), RK(4,1)
+         write(6,*)'= concentration =>', box_concnt(i_box,:)
+        
+         write(6,*)'= total amount =>', sum( box_concnt(i_box,:)*DD(:) ) + env_amount(i_box)
        endif
 
        enddo ! t1s
