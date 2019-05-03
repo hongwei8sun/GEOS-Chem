@@ -40,7 +40,7 @@ MODULE Plume_Mod
   ! D_radius should only be used at the beginning!
   real(fp), parameter :: Init_radius = 100.0e+0_fp     ! [m], the width of each ring
   real(fp), parameter :: D_radius    = 100.0e+0_fp     ! [m], the width of each ring
-  integer, parameter  :: n_rings_max = 5          ! Degine the number of rings in one box
+  integer, parameter  :: n_rings_max = 15          ! Degine the number of rings in one box
 
   ! medical concentration of each ring
   real(fp), allocatable :: box_concnt(:,:)    ! [kg/m3], box_concnt(n_boxes_max,N_rings)
@@ -100,8 +100,8 @@ CONTAINS
     box_lat    = (/4.0e+0_fp, 4.1e+0_fp, 4.2e+0_fp/)
     box_lev    = (/20.0e+0_fp, 20.0e+0_fp, 20.0e+0_fp/)      ! hPa
 
-    box_radius1(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! the value of the innest ring for every box
-    box_radius2(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! m
+    box_radius1(:,1)  = (/100.0e+0_fp,  100.0e+0_fp,  100.0e+0_fp/)     ! the value of the innest ring for every box
+    box_radius2(:,1)  = (/100.0e+0_fp,  100.0e+0_fp,  100.0e+0_fp/)     ! m
 
     ! Set the initial value of max/min radius for each ring
     do i_ring=2,n_rings_max
@@ -119,7 +119,7 @@ CONTAINS
       box_concnt_K(i_ring) = 0.0e+0_fp
     enddo  
 
-    box_concnt(:,3)  = (/100.0e+0_fp,  100.0e+0_fp,  100.0e+0_fp/)     ! [kg/m3]
+    box_concnt(:,1)  = (/100.0e+0_fp,  100.0e+0_fp,  100.0e+0_fp/)     ! [kg/m3]
 
     env_amount = (/0.0e+0_fp, 0.0e+0_fp, 0.0e+0_fp/)
 
@@ -336,7 +336,8 @@ CONTAINS
          V_shear = Vertical_shear(v, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
          UV_shear = sqrt( U_shear**2 + V_shear**2 )
          do i_ring=1,n_rings_max
-          eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
+          !eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
+          eddy_h(i_ring) = 5.0
 
           eddy_diff1(i_ring) = eddy_v*cos(box_theta(i_box)) + eddy_h(i_ring)*sin(box_theta(i_box)) ! a
           eddy_diff2(i_ring) = eddy_v*sin(box_theta(i_box)) + eddy_h(i_ring)*cos(box_theta(i_box)) ! b
@@ -389,7 +390,7 @@ CONTAINS
 
          ! For rings from 2 to (n_rings_max - 1)
          do i_ring = 2, n_rings_max-1
-           write(6,*)'= test =>', i_ring, k2(i_ring), box_radius1(i_box,i_ring), box_concnt_K(i_ring+1), box_concnt_K(i_ring)
+
            AA(i_ring) = 4.0*k2(i_ring)*box_radius1(i_box,i_ring)*( box_concnt_K(i_ring+1)-box_concnt_K(i_ring) )  &
               + 4.0*k1(i_ring)*box_radius2(i_box,i_ring)*(box_concnt_K(i_ring+1)-box_concnt_K(i_ring) )
 
@@ -416,14 +417,6 @@ CONTAINS
 
          AA_env(Ki) = -1.0*AA(n_rings_max)
 
-         if(i_box==1)then
-           write(6,*)'= t1s =>', t1s
-           write(6,*)'= box_concnt_K =>', box_concnt_K(:)
-           write(6,*)'= Ki, RK =>', Ki, RK(Ki,:)
-           write(6,*)'= AA =>', AA
-           write(6,*)'= BB =>', BB
-           write(6,*)'= DD =>', DD
-         endif
 
        enddo ! Ki
 
@@ -435,11 +428,10 @@ CONTAINS
 
 
        if(i_box==1)then
-         write(6,*)'= eddy =>', eddy_v, eddy_h(1), eddy_h(n_rings_max)
-         write(6,*)'= RK =>', RK(1,1), RK(2,1), RK(3,1), RK(4,1)
-         write(6,*)'= concentration =>', box_concnt(i_box,:)
-        
-         write(6,*)'= total amount =>', sum( box_concnt(i_box,:)*DD(:) ) + env_amount(i_box)
+         write(6,*)'= concentration 1-5 =>', box_concnt(i_box,1:5)
+         write(6,*)'= concentration 6-10 =>', box_concnt(i_box,6:10)
+         write(6,*)'= concentration 11-15 =>', box_concnt(i_box,11:15)
+         write(6,*)'= total amount =>', t1s, sum( box_concnt(i_box,:)*DD(:) ) + env_amount(i_box)
        endif
 
        enddo ! t1s
