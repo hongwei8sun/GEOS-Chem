@@ -18,7 +18,7 @@ MODULE Lagrange_Mod
   PUBLIC :: lagrange_cleanup
 
 
-  integer, parameter :: n_boxes_max = 80000  ! 50*40*40
+  integer, parameter :: n_boxes_max = 4800  ! 24*200*1 : lat*lon*lev
   integer            :: tt
   real(fp), allocatable :: box_lon(:)    
   real(fp), allocatable :: box_lat(:)
@@ -51,17 +51,28 @@ CONTAINS
     allocate(box_depth(n_boxes_max))
     allocate(box_length(n_boxes_max))
 
-    do ii=1,50,1
-    do jj=1,40,1
-    do kk=1,40,1
-        i_box=kk+(jj+(ii-1)*40-1)*40
-        box_lon(i_box) = -2.55e+0_fp + 0.1e+0_fp * ii   ! -2.45 : 2.45 : 0.1 degree
-        box_lat(i_box) = 12.05e+0_fp + 0.1e+0_fp * jj   ! 12.05N : 15.95N : 0.1
-!       box_lat(i_box) = -0.05e+0_fp + 0.1e+0_fp * jj   ! 0.05N : 3.95N : 0.1 deg
-        box_lev(i_box) = 23.8e+0_fp - 0.1e+0_fp * kk    ! 23.7hPa : 19.8hPa : -0.1
+    do jj = 1,24,1
+    do ii = 1,100,1
+
+      i_box   = ii+(jj-1)*200
+
+      box_lon(i_box) = -147.55e+0_fp + 0.1e+0_fp*ii
+      box_lat(i_box) = -12.5e+0_fp + 1.0e+0_fp*jj
+      box_lev(i_box) = 20.0e+0_fp
+
+    enddo
+
+    do ii = 101,200,1
+
+      i_box   = ii+(jj-1)*200
+
+      box_lon(i_box) = -137.45e+0_fp - 0.1e+0_fp*(ii-100)
+      box_lat(i_box) = -12.5e+0_fp + 1.0e+0_fp*jj + 0.01e+0_fp*(ii-100)
+      box_lev(i_box) = 20.0e+0_fp
+
     enddo
     enddo
-    enddo
+
 
 !    box_lon    = 0.0e+0_fp       ! (/0.0e+0_fp, 5.0e+0_fp, 10.0e+0_fp/)
 !    box_lat    = 0.0e+0_fp       ! (/0.0e+0_fp, 4.0e+0_fp, 8.0e+0_fp/)
@@ -91,13 +102,13 @@ CONTAINS
 !-----------------------------------------------------------------
 !=================================================================
 
-  SUBROUTINE lagrange_run(am_I_Root, State_Met, State_Chm, Input_Opt)
+  SUBROUTINE lagrange_run(am_I_Root, State_Met, Input_Opt)
 
     USE Input_Opt_Mod, ONLY : OptInput
     ! USE PhysConstants, ONLY : PI, Re 
     ! Re    : Radius of Earth [m]
 
-    USE State_Chm_Mod, ONLY : ChmState
+    !USE State_Chm_Mod, ONLY : ChmState
     USE State_Met_Mod, ONLY : MetState
 
     USE TIME_MOD,      ONLY : GET_TS_DYN
@@ -110,7 +121,7 @@ CONTAINS
 
     logical, intent(in) :: am_I_Root
     TYPE(MetState), intent(in) :: State_Met
-    TYPE(ChmState), intent(inout) :: State_Chm
+    !TYPE(ChmState), intent(inout) :: State_Chm
     TYPE(OptInput), intent(in) :: Input_Opt
 
     REAL :: Dt          ! = 600.0e+0_fp          
