@@ -18,7 +18,7 @@ MODULE Lagrange_Mod
   PUBLIC :: lagrange_cleanup
 
 
-  integer, parameter :: n_boxes_max = 4800  ! 24*200*1 : lat*lon*lev
+  integer, parameter :: n_boxes_max = 6000  ! 24*200*1 : lat*lon*lev
   integer            :: tt
   real(fp), allocatable :: box_lon(:)    
   real(fp), allocatable :: box_lat(:)
@@ -51,26 +51,13 @@ CONTAINS
     allocate(box_depth(n_boxes_max))
     allocate(box_length(n_boxes_max))
 
-    do jj = 1,24,1
-    do ii = 1,100,1
 
-      i_box   = ii+(jj-1)*200
-
-      box_lon(i_box) = -147.55e+0_fp + 0.1e+0_fp*ii
-      box_lat(i_box) = -12.5e+0_fp + 1.0e+0_fp*jj
-      box_lev(i_box) = 20.0e+0_fp
-
-    enddo
-
-    do ii = 101,200,1
-
-      i_box   = ii+(jj-1)*200
-
-      box_lon(i_box) = -137.45e+0_fp - 0.1e+0_fp*(ii-100)
-      box_lat(i_box) = -12.5e+0_fp + 1.0e+0_fp*jj + 0.01e+0_fp*(ii-100)
-      box_lev(i_box) = 20.0e+0_fp
-
-    enddo
+    do ii=1,n_boxes_max,1  ! change the value of 'n_boxes_max'
+        i_box = ii
+        box_lon(i_box) = -142.5e+0_fp                      ! -141.0W degree
+        !box_lat(i_box) = -30.05e+0_fp + 0.1e+0_fp * ii   ! -29.95S : 29.95N : 0.1
+        box_lat(i_box) = -30.005e+0_fp + 0.01e+0_fp * ii   ! -29.995S : 299.95N : 0.1
+        box_lev(i_box) = 21.761e+0_fp                        ! 20.0hPa!
     enddo
 
 
