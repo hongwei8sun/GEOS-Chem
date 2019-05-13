@@ -18,7 +18,7 @@ MODULE Lagrange_Mod
   PUBLIC :: lagrange_cleanup
 
 
-  integer, parameter :: n_boxes_max = 6000  ! 24*200*1 : lat*lon*lev
+  integer, parameter :: n_boxes_max = 3*6000  ! 24*200*1 : lat*lon*lev
   integer            :: tt
   real(fp), allocatable :: box_lon(:)    
   real(fp), allocatable :: box_lat(:)
@@ -52,14 +52,29 @@ CONTAINS
     allocate(box_length(n_boxes_max))
 
 
-    do ii=1,n_boxes_max,1  ! change the value of 'n_boxes_max'
+    do ii=1,6000,1  ! change the value of 'n_boxes_max'
         i_box = ii
-        box_lon(i_box) = -142.5e+0_fp                      ! -141.0W degree
-        !box_lat(i_box) = -30.05e+0_fp + 0.1e+0_fp * ii   ! -29.95S : 29.95N : 0.1
-        box_lat(i_box) = -30.005e+0_fp + 0.01e+0_fp * ii   ! -29.995S : 299.95N : 0.1
-        box_lev(i_box) = 21.761e+0_fp                        ! 20.0hPa!
+        box_lon(i_box)  = -145.01e+0_fp                      ! -141.0W degree
+        !box_lat(i_box) = -30.05e+0_fp + 0.1e+0_fp * ii     ! -29.95S : 29.95N : 0.1
+        box_lat(i_box)  = -30.005e+0_fp + 0.01e+0_fp * ii   ! -29.995S : 299.95N : 0.1
+        box_lev(i_box)  = 48.0e+0_fp                        ! 20.0hPa!
     enddo
 
+    do ii=6001,12000,1  ! change the value of 'n_boxes_max'
+        i_box = ii
+        box_lon(i_box)  = -145.02e+0_fp                           ! -141.0W degree
+        !box_lat(i_box) = -30.05e+0_fp + 0.1e+0_fp * ii           ! -29.95S : 29.95N :0.1
+        box_lat(i_box)  = -30.005e+0_fp + 0.01e+0_fp * (ii-6000)  ! -29.995S : 299.95N: 0.1
+        box_lev(i_box)  = 52.0e+0_fp                              ! 20.0hPa!
+    enddo
+
+    do ii=12001,n_boxes_max,1  ! change the value of 'n_boxes_max'
+        i_box = ii
+        box_lon(i_box)  = -145.03e+0_fp                            ! -141.0W degree
+        !box_lat(i_box) = -30.05e+0_fp + 0.1e+0_fp * ii            ! -29.95S : 29.95N : 0.1
+        box_lat(i_box)  = -30.005e+0_fp + 0.01e+0_fp * (ii-12000)  ! -29.995S : 299.95N : 0.1
+        box_lev(i_box)  = 56.0e+0_fp                               ! 20.0hPa!
+    enddo
 
 !    box_lon    = 0.0e+0_fp       ! (/0.0e+0_fp, 5.0e+0_fp, 10.0e+0_fp/)
 !    box_lat    = 0.0e+0_fp       ! (/0.0e+0_fp, 4.0e+0_fp, 8.0e+0_fp/)
@@ -293,15 +308,15 @@ CONTAINS
     real(fp)          ::wind_lonlat(2), wind_lonlat_lev
 
     ! Identify wether particle is exactly located on the grid point
+    if(curr_pressure==P_mid(i_lev))then
     if(curr_lon==X_mid(i_lon))then
-      if(curr_lat==Y_mid(i_lat))then
-        if(curr_pressure==P_mid(i_lev))then
+    if(curr_lat==Y_mid(i_lat))then
 
           Interplt_wind = wind(i_lon, i_lat, i_lev)
           return
 
-        endif
-      endif
+    endif
+    endif
     endif
 
 

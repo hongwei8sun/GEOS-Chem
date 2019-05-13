@@ -6,14 +6,14 @@
 #SBATCH -t 7-00:00:00          # Runtime in D-HH:MM, minimum of 10 minutes (DD-HH:MM:SS)
 #SBATCH -p general             # Partition to submit to
 ###SBATCH --mem-per-cpu=1500           # Memory (MB) pool for all cores (see also --mem-per-cpu)
-#SBATCH --mem=200000            # Memory (MB) pool for all cores (see also --mem-per-cpu)
+#SBATCH --mem=40000            # Memory (MB) pool for all cores (see also --mem-per-cpu)
 #SBATCH -o myoutput_%j.out     # File to which STDOUT will be written, %j inserts jobid
 #SBATCH -e myerrors_%j.err     # File to which STDERR will be written, %j inserts jobid
 
 # Use OpenMP, not MPI
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
-ulimit -s unlimited
-export OMP_STACKSIZE=100000000
+### ulimit -s unlimited
+export OMP_STACKSIZE=10000000
 ./geos.mp
 
 ##srun -n $SLURM_NTASKS --mpi=pmi2 ./geos.mp
