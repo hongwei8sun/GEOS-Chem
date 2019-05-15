@@ -11,7 +11,7 @@ import math
 # geos ------------------------------------------
 #------------------------------------------------
 #FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_tracer/'
-FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_SN30deg_faster/'
+FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_2x25_standard_SN30deg_faster/'
 
 geos_nc = Dataset(FILEDIR+'GEOSChem.SpeciesConc_inst.20160701_0000z.nc4','r',format='NETCDF4_CLASSIC')
 
@@ -162,8 +162,8 @@ plt.subplot(2, 1, 2)
 
 m = Basemap(projection='cyl',llcrnrlat=-90,urcrnrlat=90,llcrnrlon=-180,urcrnrlon=180)
 m.drawcoastlines()
-m.drawparallels(np.arange(-2.,91.,4.))
-m.drawmeridians(np.arange(-150.,181.,10.))
+m.drawparallels(np.arange(-90.,91.,30.))
+m.drawmeridians(np.arange(-180.,181.,60.))
 m.drawmapboundary(fill_color='white')
 
 parallels = np.arange(-90.,90,30.)

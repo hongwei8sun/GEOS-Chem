@@ -9,7 +9,7 @@ import math
 #pandas
 #------------------------------------------------
 #------------------------------------------------
-FILEDIR = '/n/home12/hongwei/GC_Python/Postdeal_lagrange_points/LAGR_GOES4x5/'
+FILEDIR = '/n/home12/hongwei/GC_Python/Postdeal_lagrange_points/LAGR_GOES2x25/'
 
 #NcFile = Dataset(FILEDIR+'Lagrange_Geos_Concentration_12deg.nc','r',format='NETCDF4_CLASSIC')
 NcFile   = Dataset(FILEDIR+'GEOSChem.SpeciesConc_inst.20160701_0000z.nc4','r',format='NETCDF4_CLASSIC')
