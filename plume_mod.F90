@@ -427,12 +427,12 @@ CONTAINS
          env_amount(i_box) = env_amount(i_box) + 1.0*( AA_env(1)+2.0*AA_env(2)+2.0*AA_env(3)+AA_env(4) )/6.0
 
 
-       if(i_box==1)then
-         write(6,*)'= concentration 1-5 =>', box_concnt(i_box,1:5)
-         write(6,*)'= concentration 6-10 =>', box_concnt(i_box,6:10)
-         write(6,*)'= concentration 11-15 =>', box_concnt(i_box,11:15)
-         write(6,*)'= total amount =>', t1s, sum( box_concnt(i_box,:)*DD(:) ) + env_amount(i_box)
-       endif
+       !if(i_box==1)then
+       !  write(6,*)'= concentration 1-5 =>', box_concnt(i_box,1:5)
+       !  write(6,*)'= concentration 6-10 =>', box_concnt(i_box,6:10)
+       !  write(6,*)'= concentration 11-15 =>', box_concnt(i_box,11:15)
+       !  write(6,*)'= total amount =>', t1s, sum( box_concnt(i_box,:)*DD(:) ) + env_amount(i_box)
+       !endif
 
        enddo ! t1s
 
