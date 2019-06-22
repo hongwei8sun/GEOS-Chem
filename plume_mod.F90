@@ -29,8 +29,8 @@ MODULE Plume_Mod
   ! Consider the box as a cylinder
 
   ! box_radius(n_boxes_max,N_rings)
-  real(fp), allocatable :: box_radius1(:,:)   ! vertical radius
-  real(fp), allocatable :: box_radius2(:,:)   ! horizontal radius of the the cross-section
+  real(fp), allocatable :: box_radius1(:,:)   ! a, vertical radius
+  real(fp), allocatable :: box_radius2(:,:)   ! b, horizontal radius of the the cross-section
 
 
   ! Theta is the clockwise angle between z-axis (P) and vertical radius1
@@ -290,6 +290,7 @@ CONTAINS
        i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2) 
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
+       ! Interprate wind speed from model grid into box location:
        curr_u    = Interplt_wind(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        curr_v    = Interplt_wind(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        curr_omeg = Interplt_wind(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
@@ -301,12 +302,15 @@ CONTAINS
        i_lat = Find_iLonLat(next_lat, Dy, Y_edge2)
        i_lev = Find_iPLev(next_pressure,P_edge)
 
-       !!!!!!
-       ! For deformation of cross-section caused by wind shear (A.D.Naiman et al., 2010):
-       !!!!!!
+       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+       ! For deformation of plume cross-section caused by wind shear (A.D.Naiman et al., 2010):
+       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
        ! calculate the wind_s shear along pressure direction
        wind_s_shear = Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
+       ! *** attention ***
+       ! set wind_s_sheat as a constant for testing:
+       wind_s_shear = 0.1
 
        theta_previous   = box_theta(i_box)
        box_theta(i_box) = ATAN( TAN(box_theta(i_box)) + wind_s_shear*Dt )
@@ -319,16 +323,20 @@ CONTAINS
        enddo
 
 
-       !!!!!!
+       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
        ! For the concentration change caused by eddy diffusion:
        ! box_concnt(n_boxes_max,N_rings)
-       !!!!!!
+       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
          ! Calculate vertical eddy diffusivity (U.Schumann, 2012) :
          Cv = 0.2
          Omega_N = 0.1
          Ptemp_shear = Vertical_shear(Ptemp, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
          eddy_v = Cv * Omega_N**2 / sqrt( (Ptemp_shear*g0/curr_Ptemp) )
+         ! *** Attention***
+         !set a constant for testing:
+         eddy_v = 0.1
+
 
          ! Calculate horizontal eddy diffusivity:
          Ch = 0.1
@@ -336,11 +344,11 @@ CONTAINS
          V_shear = Vertical_shear(v, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
          UV_shear = sqrt( U_shear**2 + V_shear**2 )
          do i_ring=1,n_rings_max
-          !eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
-          eddy_h(i_ring) = 5.0
-
-          eddy_diff1(i_ring) = eddy_v*cos(box_theta(i_box)) + eddy_h(i_ring)*sin(box_theta(i_box)) ! a
-          eddy_diff2(i_ring) = eddy_v*sin(box_theta(i_box)) + eddy_h(i_ring)*cos(box_theta(i_box)) ! b
+           !eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
+           eddy_h(i_ring) = 5.0
+ 
+           eddy_diff1(i_ring) = eddy_v*cos(box_theta(i_box)) + eddy_h(i_ring)*sin(box_theta(i_box)) ! a
+           eddy_diff2(i_ring) = eddy_v*sin(box_theta(i_box)) + eddy_h(i_ring)*cos(box_theta(i_box)) ! b
          enddo
 
 
@@ -427,12 +435,12 @@ CONTAINS
          env_amount(i_box) = env_amount(i_box) + 1.0*( AA_env(1)+2.0*AA_env(2)+2.0*AA_env(3)+AA_env(4) )/6.0
 
 
-       !if(i_box==1)then
-       !  write(6,*)'= concentration 1-5 =>', box_concnt(i_box,1:5)
-       !  write(6,*)'= concentration 6-10 =>', box_concnt(i_box,6:10)
-       !  write(6,*)'= concentration 11-15 =>', box_concnt(i_box,11:15)
-       !  write(6,*)'= total amount =>', t1s, sum( box_concnt(i_box,:)*DD(:) ) + env_amount(i_box)
-       !endif
+       if(i_box==1)then
+         write(6,*)'= concentration 1-5 =>', box_concnt(i_box,1:5)
+         write(6,*)'= concentration 6-10 =>', box_concnt(i_box,6:10)
+         write(6,*)'= concentration 11-15 =>', box_concnt(i_box,11:15)
+         write(6,*)'= total amount =>', t1s, sum( box_concnt(i_box,:)*DD(:) ) + env_amount(i_box)
+       endif
 
        enddo ! t1s
 
@@ -454,7 +462,7 @@ CONTAINS
 
 
 !--------------------------------------------------------------------
-! functions to find location (i,j,k) of boxes 
+! functions to find southern/western/bottom location (i,j,k) of boxes 
 
   integer function Find_iLonLat(curr_xy,  Dxy,  XY_edge2)
     implicit none
@@ -856,10 +864,11 @@ CONTAINS
 
        OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='OLD', &
              FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-       Do i_ring = 1, n_rings_max
-        WRITE(262,'(I0.4,3(x,E16.5E4))') i_ring, box_theta(2), box_radius1(2,i_ring), box_radius2(2,i_ring), box_concnt(2,i_ring)
-       End Do
+  
+       WRITE(262,*)'= box theta/radius 1,2 =>',box_theta(1), box_radius1(1,1), box_radius2(1,1), box_radius1(1,2), box_radius2(1,2)
+       write(262,*)'= concentration 1-5 =>',   box_concnt(1,1:5)
+       write(262,*)'= concentration 6-10 =>',  box_concnt(1,6:10)
+       write(262,*)'= concentration 11-15 =>', box_concnt(1,11:15)
 
 
     ENDIF
