@@ -18,7 +18,7 @@ MODULE Lagrange_Mod
   PUBLIC :: lagrange_cleanup
 
 
-  integer, parameter :: n_boxes_max = 3*6000  ! 24*200*1 : lat*lon*lev
+  integer, parameter :: n_boxes_max = 3600  ! 24*200*1 : lat*lon*lev
   integer            :: tt
   real(fp), allocatable :: box_lon(:)    
   real(fp), allocatable :: box_lat(:)
@@ -52,29 +52,14 @@ CONTAINS
     allocate(box_length(n_boxes_max))
 
 
-    do ii=1,6000,1  ! change the value of 'n_boxes_max'
+    do ii=1,3600,1  ! change the value of 'n_boxes_max'
         i_box = ii
         box_lon(i_box)  = -145.01e+0_fp                      ! -141.0W degree
         !box_lat(i_box) = -30.05e+0_fp + 0.1e+0_fp * ii     ! -29.95S : 29.95N : 0.1
-        box_lat(i_box)  = -30.005e+0_fp + 0.01e+0_fp * ii   ! -29.995S : 299.95N : 0.1
-        box_lev(i_box)  = 48.0e+0_fp                        ! 20.0hPa!
+        box_lat(i_box)  = 50.005e+0_fp + 0.01e+0_fp * ii   ! -29.995S : 299.95N : 0.1
+        box_lev(i_box)  = 52.0e+0_fp                        ! 20.0hPa!
     enddo
 
-    do ii=6001,12000,1  ! change the value of 'n_boxes_max'
-        i_box = ii
-        box_lon(i_box)  = -145.02e+0_fp                           ! -141.0W degree
-        !box_lat(i_box) = -30.05e+0_fp + 0.1e+0_fp * ii           ! -29.95S : 29.95N :0.1
-        box_lat(i_box)  = -30.005e+0_fp + 0.01e+0_fp * (ii-6000)  ! -29.995S : 299.95N: 0.1
-        box_lev(i_box)  = 52.0e+0_fp                              ! 20.0hPa!
-    enddo
-
-    do ii=12001,n_boxes_max,1  ! change the value of 'n_boxes_max'
-        i_box = ii
-        box_lon(i_box)  = -145.03e+0_fp                            ! -141.0W degree
-        !box_lat(i_box) = -30.05e+0_fp + 0.1e+0_fp * ii            ! -29.95S : 29.95N : 0.1
-        box_lat(i_box)  = -30.005e+0_fp + 0.01e+0_fp * (ii-12000)  ! -29.995S : 299.95N : 0.1
-        box_lev(i_box)  = 56.0e+0_fp                               ! 20.0hPa!
-    enddo
 
 !    box_lon    = 0.0e+0_fp       ! (/0.0e+0_fp, 5.0e+0_fp, 10.0e+0_fp/)
 !    box_lat    = 0.0e+0_fp       ! (/0.0e+0_fp, 4.0e+0_fp, 8.0e+0_fp/)
@@ -140,17 +125,16 @@ CONTAINS
     real(fp) :: X_edge2
     real(fp) :: Y_edge2
 
-    real(fp) :: dbox_lon
-    real(fp) :: dbox_lat
-    real(fp) :: dbox_lev
+    real(fp) :: dbox_lon, dbox_lat, dbox_lev
+    real(fp) :: dbox_x_PS, dbox_y_PS
+    real(fp) :: box_x_PS, box_y_PS
 
     real(fp), pointer :: u(:,:,:)
     real(fp), pointer :: v(:,:,:)
     real(fp), pointer :: omeg(:,:,:)
 
-    real(fp) :: curr_u
-    real(fp) :: curr_v
-    real(fp) :: curr_omeg
+    real(fp) :: curr_u, curr_v, curr_omeg
+    real(fp) :: curr_u_PS, curr_v_PS
 
     real(fp), pointer :: P_edge(:)
     real(fp), pointer :: P_mid(:)
@@ -181,7 +165,7 @@ CONTAINS
     Dy = DLAT(1,2,1)  ! DLAT(1,1,1) is half of DLAT(1,2,1) !!!
     X_edge => XEDGE(:,1,1)   ! IIPAR+1
     Y_edge => YEDGE(1,:,1)  
-    X_mid => XMID(:,1,1)   ! IIPAR+1
+    X_mid => XMID(:,1,1)   ! IIPAR
     Y_mid => YMID(1,:,1)  
     ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
 
@@ -218,25 +202,58 @@ CONTAINS
        i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2) 
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
-
-       curr_u    = Interplt_wind(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
-       curr_v    = Interplt_wind(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
-       curr_omeg = Interplt_wind(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
-
-
-       dbox_lon = (Dt*curr_u) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
-       dbox_lat = (Dt*curr_v) / (PI*Re) * 180.0
+       ! For vertical direction:
+       ! pay attention for the polar region * * *
+       curr_omeg = Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        dbox_lev = Dt * curr_omeg / 100.0     ! Pa => hPa
-
-       box_lon(i_box) = box_lon(i_box) + dbox_lon
-       box_lat(i_box) = box_lat(i_box) + dbox_lat
        box_lev(i_box) = box_lev(i_box) + dbox_lev
 
+
+       if(abs(curr_lat)<72.0)then
+       ! Regualr Longitude-Latitude Mesh:
+
+         curr_u    = Interplt_wind_RLL(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+         curr_v    = Interplt_wind_RLL(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+
+         dbox_lon = (Dt*curr_u) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
+         dbox_lat = (Dt*curr_v) / (PI*Re) * 180.0
+
+         box_lon(i_box) = box_lon(i_box) + dbox_lon
+         box_lat(i_box) = box_lat(i_box) + dbox_lat
+
+       else
+       ! Polar Stereographic plane (Dong and Wang, 2012):
+
+         curr_u_PS = Interplt_uv_PS(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
+         curr_v_PS = Interplt_uv_PS(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
+      
+         dbox_x_PS = Dt*curr_u_PS
+         dbox_y_PS = Dt*curr_v_PS
+
+         ! change from (lon,lat) in RLL to (x,y) in PS: 
+         if(curr_lat>0)then
+           box_x_PS = -1.0* Re* cos(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+           box_y_PS = -1.0* Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+         else
+           box_x_PS = Re* cos(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+           box_y_PS = Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+         endif
+
+         box_x_PS  = box_x_PS + dbox_x_PS
+         box_y_PS  = box_y_PS + dbox_y_PS
+
+         box_lon(i_box) = atan( box_y_PS / box_x_PS ) 
+         if(box_lat(i_box)>0)then
+           box_lat(i_box) = -1 * atan( Re / sqrt(box_x_PS**2+box_y_PS**2) )
+         else
+           box_lat(i_box) = atan( Re / sqrt(box_x_PS**2+box_y_PS**2) ) 
+         endif
+
+       endif
        !call
        !grow_box(box_length(i_box),box_width(i_box),box_depth(i_box),i_lon,i_lat,i_lev)
     end do
 
-    ! WRITE(6,*)'-Lagrange(i_lev)->',i_lev,P_edge(i_lev),P_edge(i_lev+1)
 
     ! Everything is done, clean up pointers
     nullify(u)
@@ -252,7 +269,7 @@ CONTAINS
   END SUBROUTINE lagrange_run
 
 !--------------------------------------------------------------------
-! functions to find location (i,j,k) of boxes 
+! functions to find the grid point (i,j,k) which is nearest to location of boxes 
 
   integer function Find_iLonLat(curr_xy,  Dxy,  XY_edge2)
     implicit none
@@ -295,7 +312,7 @@ CONTAINS
 ! functions to interpolate wind speed (u,v,omeg) 
 ! based on the surrounding 4 points.
 
-  real function Interplt_wind(wind, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+  real function Interplt_wind_RLL(wind, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
     implicit none
     real(fp)          :: curr_lon, curr_lat, curr_pressure
     !real(fp), pointer :: PI, Re
@@ -312,7 +329,7 @@ CONTAINS
     if(curr_lon==X_mid(i_lon))then
     if(curr_lat==Y_mid(i_lat))then
 
-          Interplt_wind = wind(i_lon, i_lat, i_lev)
+          Interplt_wind_RLL = wind(i_lon, i_lat, i_lev)
           return
 
     endif
@@ -322,7 +339,7 @@ CONTAINS
 
     ! first interpolate horizontally (Inverse Distance Weighting)
 
-    ! identify the grid point located in the southeast of the particle or under
+    ! identify the grid point located in the southwest of the particle or under
     ! the particle
     if(curr_lon>=X_mid(i_lon))then
       init_lon = i_lon
@@ -384,7 +401,156 @@ CONTAINS
 
     !Line_Interplt( wind_lonlat(1), wind_lonlat(2), P_mid(i_lev), P_mid(i_lev+1), curr_pressure )
 
-    Interplt_wind = wind_lonlat_lev
+    Interplt_wind_RLL = wind_lonlat_lev
+
+    return
+  end function
+
+
+!------------------------------------------------------------------
+! functions to interpolate wind speed (u,v,omeg) 
+! based on the surrounding 4 points.
+
+  real function Interplt_uv_PS(i_uv, u_RLL, v_RLL, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+
+    implicit none
+
+    real(fp)          :: curr_lon, curr_lat, curr_pressure
+    real(fp)          :: curr_x, curr_y
+    real(fp), pointer :: u_RLL(:,:,:), v_RLL(:,:,:)
+    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
+
+    integer           :: i_uv
+    integer           :: i_lon, i_lat, i_lev
+    integer           :: init_lon, init_lat, init_lev
+    integer           :: i, ii, j, jj, k, kk
+
+    real(fp)          :: x_PS(2,2), y_PS(2,2)
+    real(fp)          :: uv_PS(2,2,2)
+    real(fp)          :: distance_PS(2,2), Weight_PS(2,2)
+    real(fp)          :: uv_xy(2), uv_xy_lev
+
+
+    ! first interpolate horizontally (Inverse Distance Weighting)
+
+    ! identify the grid point located in the southwest of the particle or under
+    ! the particle
+    if(curr_lon>=X_mid(i_lon))then
+      init_lon = i_lon
+    else
+      init_lon = i_lon - 1
+    endif
+
+    if(curr_lat>=Y_mid(i_lat))then
+      init_lat = i_lat
+    else
+      init_lat = i_lat - 1
+    endif
+
+    ! For pressure level, P_mid(1) is about surface pressure
+    if(curr_pressure<=P_mid(i_lev))then
+      init_lev = i_lev
+    else
+      init_lev = i_lev - 1
+    endif
+
+    
+    ! change from (lon,lat) in RLL to (x,y) in PS: 
+    if(curr_lat>0)then
+      curr_x = -1.0* Re* cos(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+      curr_y = -1.0* Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+    else
+      curr_x = Re* cos(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+      curr_y = Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+    endif
+
+    do i=1,2
+    do j=1,2
+
+      ii = i + init_lon - 1
+      jj = j + init_lat - 1
+
+      ! Get the right ii and jj for interpolation at polar point:
+      ! For South Polar Point:
+      if(jj<1)then
+        jj = jj+1
+        if(X_mid(ii)<0)then
+        ii = ii+int(IIPAR/2)
+        else
+        ii = ii-int(IIPAR/2)
+        endif
+      endif
+
+      ! For North Polar Point:
+      if(jj>JJPAR)then
+        jj = jj-1
+        if(X_mid(ii)<0)then
+        ii = ii+int(IIPAR/2)
+        else
+        ii = ii-int(IIPAR/2)
+        endif
+      endif
+
+      ! Interpolate location and wind into Polar Stereographic Plane
+      if(Y_mid(jj)>0)then
+
+        x_PS(i,j) = -1.0* Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)  
+        y_PS(i,j) = -1.0* Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+          
+        do k=1,2
+        kk = k + init_lev - 1
+        if(i_uv==1)then ! i_ux==1 for u
+          uv_PS(i,j,k) = -1.0* ( u_RLL(init_lon,init_lat,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(init_lon,init_lat,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
+        else ! for v
+          uv_PS(i,j,k) = u_RLL(init_lon,init_lat,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) - v_RLL(init_lon,init_lat,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+        endif
+        enddo
+
+      else
+
+        x_PS(i,j) = Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+        y_PS(i,j) = Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+
+        do k=1,2
+        kk = k + init_lev - 1
+        if(i_uv==1)then
+          uv_PS(i,j,k) = u_RLL(init_lon,init_lat,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(init_lon,init_lat,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+        else
+          uv_PS(i,j,k) = -1* u_RLL(init_lon,init_lat,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(init_lon,init_lat,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+        endif
+        enddo
+
+      endif
+
+    enddo
+    enddo
+
+    ! calculate the distance between particle and grid point
+    do i = 1,2
+    do j = 1,2
+          distance_PS(i,j) = sqrt( (x_PS(i,j)-curr_x)**2.0 + (y_PS(i,j)-curr_y)**2.0 )
+    enddo
+    enddo
+
+    ! Calculate the inverse distance weight
+    do i = 1,2
+    do j = 1,2
+        Weight_PS(i,j) = 1.0/distance_PS(i,j) / sum( 1.0/distance_PS(:,:) )
+    enddo
+    enddo
+
+
+    do k = 1,2
+      uv_xy(k) =  Weight_PS(1,1) * uv_PS(1,1,k)   + Weight_PS(1,2) * uv_PS(1,2,k)   &
+                 + Weight_PS(2,1) * uv_PS(2,1,k) + Weight_PS(2,2) * uv_PS(2,2,k)
+    enddo
+
+
+    ! second interpolate vertically (Linear)
+
+    uv_xy_lev = uv_xy(1)+ (uv_xy(2)-uv_xy(1)) / (P_mid(init_lev+1)-P_mid(init_lev)) * (curr_pressure-P_mid(init_lev))
+
+    Interplt_uv_PS = uv_xy_lev
 
     return
   end function
@@ -419,7 +585,10 @@ CONTAINS
   !    return
   !  end function
 
-!-------------------------------------------------------------------
+  !-------------------------------------------------------------------
+  !=================================================================
+  ! LAGRANGE_WRITE_STD begins here!
+  !=================================================================
 
   SUBROUTINE lagrange_write_std( am_I_Root, RC )
     

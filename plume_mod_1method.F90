@@ -347,8 +347,8 @@ CONTAINS
            !eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
            eddy_h(i_ring) = 5.0
  
-           eddy_diff1(i_ring) = eddy_v*cos(box_theta(i_box)) + eddy_h(i_ring)*sin(box_theta(i_box)) ! a
-           eddy_diff2(i_ring) = eddy_v*sin(box_theta(i_box)) + eddy_h(i_ring)*cos(box_theta(i_box)) ! b
+           eddy_diff1(i_ring) = eddy_v*cos(abs(box_theta(i_box))) + eddy_h(i_ring)*sin(abs(box_theta(i_box))) ! a
+           eddy_diff2(i_ring) = eddy_v*sin(abs(box_theta(i_box))) + eddy_h(i_ring)*cos(abs(box_theta(i_box))) ! b
          enddo
 
 
