@@ -209,14 +209,14 @@ CONTAINS
        box_lev(i_box) = box_lev(i_box) + dbox_lev
 
 
-       if(abs(curr_lat)<72.0)then
+       if(abs(curr_lat)<65.0)then
        ! Regualr Longitude-Latitude Mesh:
 
          curr_u    = Interplt_wind_RLL(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
          curr_v    = Interplt_wind_RLL(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
 
-         dbox_lon = (Dt*curr_u) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
-         dbox_lat = (Dt*curr_v) / (PI*Re) * 180.0
+         dbox_lon = 0.0 ! (Dt*curr_u) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
+         dbox_lat = 0.0 ! (Dt*curr_v) / (PI*Re) * 180.0
 
          box_lon(i_box) = box_lon(i_box) + dbox_lon
          box_lat(i_box) = box_lat(i_box) + dbox_lat
@@ -227,11 +227,11 @@ CONTAINS
          curr_u_PS = Interplt_uv_PS(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
          curr_v_PS = Interplt_uv_PS(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
       
-         dbox_x_PS = Dt*curr_u_PS
-         dbox_y_PS = Dt*curr_v_PS
+         dbox_x_PS = 0.0 ! Dt*curr_u_PS
+         dbox_y_PS = 0.0 ! Dt*curr_v_PS
 
          ! change from (lon,lat) in RLL to (x,y) in PS: 
-         if(curr_lat>0)then
+         if(curr_lat<0)then
            box_x_PS = -1.0* Re* cos(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
            box_y_PS = -1.0* Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
          else
@@ -242,11 +242,19 @@ CONTAINS
          box_x_PS  = box_x_PS + dbox_x_PS
          box_y_PS  = box_y_PS + dbox_y_PS
 
-         box_lon(i_box) = atan( box_y_PS / box_x_PS ) 
-         if(box_lat(i_box)>0)then
-           box_lat(i_box) = -1 * atan( Re / sqrt(box_x_PS**2+box_y_PS**2) )
+         if(box_x_PS<0.0)then
+           box_lon(i_box) = atan( box_y_PS / box_x_PS )*180.0/PI 
+         elseif(box_y_PS<=0.0)then
+           box_lon(i_box) = atan( box_y_PS / box_x_PS )*180.0/PI +180.0
          else
-           box_lat(i_box) = atan( Re / sqrt(box_x_PS**2+box_y_PS**2) ) 
+           box_lon(i_box) = atan( box_y_PS / box_x_PS )*180.0/PI -180.0
+         endif
+           
+
+         if(box_lat(i_box)<0)then
+           box_lat(i_box) = -1 * atan( Re / sqrt(box_x_PS**2+box_y_PS**2)) *180.0/PI
+         else
+           box_lat(i_box) = atan( Re / sqrt(box_x_PS**2+box_y_PS**2) ) *180.0/PI
          endif
 
        endif
@@ -456,7 +464,7 @@ CONTAINS
 
     
     ! change from (lon,lat) in RLL to (x,y) in PS: 
-    if(curr_lat>0)then
+    if(curr_lat<0)then
       curr_x = -1.0* Re* cos(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
       curr_y = -1.0* Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
     else
@@ -492,7 +500,7 @@ CONTAINS
       endif
 
       ! Interpolate location and wind into Polar Stereographic Plane
-      if(Y_mid(jj)>0)then
+      if(Y_mid(jj)<0)then
 
         x_PS(i,j) = -1.0* Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)  
         y_PS(i,j) = -1.0* Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
@@ -563,7 +571,7 @@ CONTAINS
     !real(fp) :: PI, Re
     
     ! Original equation, better for higher precision (double)
-    Distance_Circle = Re * 2.0 * ASIN( (sin( (y1-y2)*PI/180.0 ))**2.0   & 
+    Distance_Circle = Re * 2.0 * asin( (sin( (y1-y2)*PI/180.0 ))**2.0   & 
                       + cos(y1*PI/180.0) * cos(y2*PI/180.0) * (sin( 0.5*(x1-x2)*PI/180.0 ))**2.0 )
 
     ! This equation is better for lower precision (float4)
