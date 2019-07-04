@@ -56,7 +56,7 @@ CONTAINS
         i_box = ii
         box_lon(i_box)  = -145.01e+0_fp                      ! -141.0W degree
         !box_lat(i_box) = -30.05e+0_fp + 0.1e+0_fp * ii     ! -29.95S : 29.95N : 0.1
-        box_lat(i_box)  = 50.005e+0_fp + 0.01e+0_fp * ii   ! -29.995S : 299.95N : 0.1
+        box_lat(i_box)  = 30.005e+0_fp + 0.01e+0_fp * ii   ! -29.995S : 299.95N : 0.1
         box_lev(i_box)  = 52.0e+0_fp                        ! 20.0hPa!
     enddo
 
@@ -209,14 +209,14 @@ CONTAINS
        box_lev(i_box) = box_lev(i_box) + dbox_lev
 
 
-       if(abs(curr_lat)<65.0)then
+       if(abs(curr_lat)<66.1)then
        ! Regualr Longitude-Latitude Mesh:
 
          curr_u    = Interplt_wind_RLL(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
          curr_v    = Interplt_wind_RLL(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
 
-         dbox_lon = 0.0 ! (Dt*curr_u) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
-         dbox_lat = 0.0 ! (Dt*curr_v) / (PI*Re) * 180.0
+         dbox_lon = (Dt*curr_u) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
+         dbox_lat = (Dt*curr_v) / (PI*Re) * 180.0
 
          box_lon(i_box) = box_lon(i_box) + dbox_lon
          box_lat(i_box) = box_lat(i_box) + dbox_lat
@@ -227,8 +227,8 @@ CONTAINS
          curr_u_PS = Interplt_uv_PS(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
          curr_v_PS = Interplt_uv_PS(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
       
-         dbox_x_PS = 0.0 ! Dt*curr_u_PS
-         dbox_y_PS = 0.0 ! Dt*curr_v_PS
+         dbox_x_PS = 100.0 !Dt*curr_u_PS
+         dbox_y_PS = 0.1 !Dt*curr_v_PS
 
          ! change from (lon,lat) in RLL to (x,y) in PS: 
          if(curr_lat<0)then
@@ -250,8 +250,7 @@ CONTAINS
            box_lon(i_box) = atan( box_y_PS / box_x_PS )*180.0/PI -180.0
          endif
            
-
-         if(box_lat(i_box)<0)then
+         if(box_lat(i_box)<0.0)then
            box_lat(i_box) = -1 * atan( Re / sqrt(box_x_PS**2+box_y_PS**2)) *180.0/PI
          else
            box_lat(i_box) = atan( Re / sqrt(box_x_PS**2+box_y_PS**2) ) *180.0/PI
