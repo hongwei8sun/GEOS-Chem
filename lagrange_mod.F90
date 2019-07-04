@@ -244,9 +244,11 @@ CONTAINS
 
          if(box_x_PS<0.0)then
            box_lon(i_box) = atan( box_y_PS / box_x_PS )*180.0/PI 
-         elseif(box_y_PS<=0.0)then
+         endif
+         if(box_x_PS>0.0 .and. box_y_PS<=0.0)then
            box_lon(i_box) = atan( box_y_PS / box_x_PS )*180.0/PI +180.0
-         else
+         endif
+         if(box_x_PS>0.0 .and. box_y_PS>0.0)then
            box_lon(i_box) = atan( box_y_PS / box_x_PS )*180.0/PI -180.0
          endif
            
