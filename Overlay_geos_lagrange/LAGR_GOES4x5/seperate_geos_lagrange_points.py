@@ -11,7 +11,8 @@ import math
 # geos ------------------------------------------
 #------------------------------------------------
 #FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_tracer/'
-FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_SN30deg_faster/'
+FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_gc_timing/'
+nbox = 3600
 
 geos_nc = Dataset(FILEDIR+'GEOSChem.SpeciesConc_inst.20160701_0000z.nc4','r',format='NETCDF4_CLASSIC')
 
@@ -30,7 +31,7 @@ del pasv1
 lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_1day_box_i_lon_lat_lev.txt')
 
 print(len(lagrange_txt)) # 
-nbox = 18000
+# nbox = 6000
 ntimes = math.floor(len(lagrange_txt)/nbox)
 
 x1 = np.zeros( (ntimes, nbox) )
@@ -113,11 +114,11 @@ while i<Nt:
 	
 	m = Basemap(projection='cyl',llcrnrlat=-90,urcrnrlat=90,llcrnrlon=-180,urcrnrlon=180)
 	m.drawcoastlines()
-	m.drawparallels(np.arange(-90.,91.,30.))
+	m.drawparallels(np.arange(-90.,91.,10.))
 	m.drawmeridians(np.arange(-180.,181.,60.))
 	m.drawmapboundary(fill_color='white')
 	
-	parallels = np.arange(-90.,90,30.)
+	parallels = np.arange(-90.,90,10.)
 	m.drawparallels(parallels,labels=[1,0,0,0],fontsize=8)
 	meridians = np.arange(-180.,180.,60.)
 	m.drawmeridians(meridians,labels=[0,0,0,1],fontsize=8)
@@ -125,12 +126,14 @@ while i<Nt:
 	
 	i=i+1   # because there is no origin data in GEOS file
 	sValue = x1[0,:]*0.0+0.8
-	# plt.scatter(x1[i,:],y1[i,:],s=sValue,c='r',marker='.',zorder=10)
-	plt.scatter(x1[i,0:5999],y1[i,0:5999],s=sValue,c='r',marker='.',zorder=10)
-	sValue = x1[0,:]*0.0+0.6
-	plt.scatter(x1[i,6000:11999],y1[i,6000:11999],s=sValue,c='g',marker='.',zorder=10)
-	sValue = x1[0,:]*0.0+0.4
-	plt.scatter(x1[i,12000:17999],y1[i,12000:17999],s=sValue,c='b',marker='.',zorder=10)	
+
+	plt.scatter(x1[i,:],y1[i,:],s=sValue,c='r',marker='.',zorder=10)
+
+	#plt.scatter(x1[i,0:5999],y1[i,0:5999],s=sValue,c='r',marker='.',zorder=10)
+	#sValue = x1[0,:]*0.0+0.6
+	#plt.scatter(x1[i,6000:11999],y1[i,6000:11999],s=sValue,c='g',marker='.',zorder=10)
+	#sValue = x1[0,:]*0.0+0.4
+	#plt.scatter(x1[i,12000:17999],y1[i,12000:17999],s=sValue,c='b',marker='.',zorder=10)	
 	
 	
 	plt.title('Lagrange (air parcels)', fontsize=10)
@@ -205,22 +208,23 @@ plt.subplot(2, 1, 1)
 
 m = Basemap(projection='cyl',llcrnrlat=-90,urcrnrlat=90,llcrnrlon=-180,urcrnrlon=180)
 m.drawcoastlines()
-m.drawparallels(np.arange(-90.,91.,30.))
+m.drawparallels(np.arange(-90.,91.,10.))
 m.drawmeridians(np.arange(-180.,181.,60.))
 m.drawmapboundary(fill_color='white')
 
-parallels = np.arange(-90.,90,30.)
+parallels = np.arange(-90.,90,10.)
 m.drawparallels(parallels,labels=[1,0,0,0],fontsize=8)
 meridians = np.arange(-180.,180.,60.)
 m.drawmeridians(meridians,labels=[0,0,0,1],fontsize=8)
 
 sValue = x1[0,:]*0.0+0.8
-# plt.scatter(x1[0,:],y1[0,:],s=sValue,c='r',marker='.',zorder=10)
-plt.scatter(x1[0,0:5999],y1[0,0:5999],s=sValue,c='r',marker='.',zorder=10)
-sValue = x1[0,6000:11999]*0.0+0.6
-plt.scatter(x1[0,6000:11999],y1[0,6000:11999],s=sValue,c='g',marker='.',zorder=10)
-sValue = x1[0,12000:17999]*0.0+0.4
-plt.scatter(x1[0,12000:17999],y1[0,12000:17999],s=sValue,c='b',marker='.',zorder=10)
+plt.scatter(x1[0,:],y1[0,:],s=sValue,c='r',marker='.',zorder=10)
+
+#plt.scatter(x1[0,0:5999],y1[0,0:5999],s=sValue,c='r',marker='.',zorder=10)
+#sValue = x1[0,6000:11999]*0.0+0.6
+#plt.scatter(x1[0,6000:11999],y1[0,6000:11999],s=sValue,c='g',marker='.',zorder=10)
+#sValue = x1[0,12000:17999]*0.0+0.4
+#plt.scatter(x1[0,12000:17999],y1[0,12000:17999],s=sValue,c='b',marker='.',zorder=10)
 
 plt.title('Lagrange (air parcels)', fontsize=10)
 
