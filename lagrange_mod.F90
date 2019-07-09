@@ -53,10 +53,10 @@ CONTAINS
 
 
     do i_box=1,n_boxes_max,1  ! change the value of 'n_boxes_max'
-        box_lon(i_box)  = -145.01e+0_fp                      ! -141.0W degree
-        !box_lat(i_box) = -30.05e+0_fp + 0.1e+0_fp * ii     ! -29.95S : 29.95N : 0.1
-        box_lat(i_box)  = 53.905e+0_fp + 0.01e+0_fp * i_box   ! -29.995S : 299.95N : 0.1
-        box_lev(i_box)  = 52.0e+0_fp                        ! 20.0hPa!
+        box_lon(i_box)  = -180.09e+0_fp +0.1e+0_fp * i_box         ! -141.0W degree
+        !box_lat(i_box) = -30.05e+0_fp + 0.1e+0_fp * ii            ! -29.95S : 29.95N : 0.1
+        box_lat(i_box)  = 85.00e+0_fp                              ! -29.995S : 299.95N : 0.1
+        box_lev(i_box)  = 52.0e+0_fp                               ! 20.0hPa!
     enddo
 
 
@@ -487,7 +487,7 @@ CONTAINS
 
       ! Get the right ii and jj for interpolation at polar point:
       ! For South Polar Point:
-      if(jj<1)then
+      if(jj==0)then
         jj = jj+1
         if(X_mid(ii)<0)then
         ii = ii+int(IIPAR/2)
@@ -497,13 +497,14 @@ CONTAINS
       endif
 
       ! For North Polar Point:
-      if(jj>JJPAR)then
+      if(jj==JJPAR+1)then
         jj = jj-1
         if(X_mid(ii)<0)then
         ii = ii+int(IIPAR/2)
         else
         ii = ii-int(IIPAR/2)
         endif
+        write(6,*)'= polar =>', ii, X_mid(ii), jj, Y_mid(jj)
       endif
 
       ! Interpolate location and wind into Polar Stereographic Plane
