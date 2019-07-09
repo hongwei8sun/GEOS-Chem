@@ -52,11 +52,10 @@ CONTAINS
     allocate(box_length(n_boxes_max))
 
 
-    do ii=1,3600,1  ! change the value of 'n_boxes_max'
-        i_box = ii
+    do i_box=1,n_boxes_max,1  ! change the value of 'n_boxes_max'
         box_lon(i_box)  = -145.01e+0_fp                      ! -141.0W degree
         !box_lat(i_box) = -30.05e+0_fp + 0.1e+0_fp * ii     ! -29.95S : 29.95N : 0.1
-        box_lat(i_box)  = 30.005e+0_fp + 0.01e+0_fp * ii   ! -29.995S : 299.95N : 0.1
+        box_lat(i_box)  = 53.905e+0_fp + 0.01e+0_fp * i_box   ! -29.995S : 299.95N : 0.1
         box_lev(i_box)  = 52.0e+0_fp                        ! 20.0hPa!
     enddo
 
@@ -204,12 +203,12 @@ CONTAINS
 
        ! For vertical direction:
        ! pay attention for the polar region * * *
-       curr_omeg = Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       curr_omeg = 0.0 ! Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        dbox_lev = Dt * curr_omeg / 100.0     ! Pa => hPa
        box_lev(i_box) = box_lev(i_box) + dbox_lev
 
 
-       if(abs(curr_lat)<66.1)then
+       if(abs(curr_lat)<=72.0)then
        ! Regualr Longitude-Latitude Mesh:
 
          curr_u    = Interplt_wind_RLL(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
@@ -220,15 +219,19 @@ CONTAINS
 
          box_lon(i_box) = box_lon(i_box) + dbox_lon
          box_lat(i_box) = box_lat(i_box) + dbox_lat
+ 
+         ! write(6,*)'= RLL =>', i_box, dbox_lon, curr_lon, box_lon(i_box)
+         ! write(6,*)'= RLL =>', dbox_lat, curr_lat, box_lat(i_box)
+      endif
 
-       else
+       if(abs(curr_lat)>72.0)then
        ! Polar Stereographic plane (Dong and Wang, 2012):
 
          curr_u_PS = Interplt_uv_PS(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
          curr_v_PS = Interplt_uv_PS(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
       
-         dbox_x_PS = 100.0 !Dt*curr_u_PS
-         dbox_y_PS = 0.1 !Dt*curr_v_PS
+         dbox_x_PS = Dt*curr_u_PS
+         dbox_y_PS = Dt*curr_v_PS
 
          ! change from (lon,lat) in RLL to (x,y) in PS: 
          if(curr_lat<0)then
@@ -242,21 +245,24 @@ CONTAINS
          box_x_PS  = box_x_PS + dbox_x_PS
          box_y_PS  = box_y_PS + dbox_y_PS
 
-         if(box_x_PS<0.0)then
+         if(box_x_PS>0.0)then
            box_lon(i_box) = atan( box_y_PS / box_x_PS )*180.0/PI 
          endif
-         if(box_x_PS>0.0 .and. box_y_PS<=0.0)then
-           box_lon(i_box) = atan( box_y_PS / box_x_PS )*180.0/PI +180.0
-         endif
-         if(box_x_PS>0.0 .and. box_y_PS>0.0)then
+         if(box_x_PS<0.0 .and. box_y_PS<=0.0)then
            box_lon(i_box) = atan( box_y_PS / box_x_PS )*180.0/PI -180.0
          endif
+         if(box_x_PS<0.0 .and. box_y_PS>0.0)then
+           box_lon(i_box) = atan( box_y_PS / box_x_PS )*180.0/PI +180.0
+         endif
            
-         if(box_lat(i_box)<0.0)then
+         if(curr_lat<0.0)then
            box_lat(i_box) = -1 * atan( Re / sqrt(box_x_PS**2+box_y_PS**2)) *180.0/PI
          else
            box_lat(i_box) = atan( Re / sqrt(box_x_PS**2+box_y_PS**2) ) *180.0/PI
          endif
+
+         ! write(6,*)'= PS =>', i_box, curr_lon, box_lon(i_box), dbox_x_PS, box_x_PS
+         ! write(6,*)'= PS =>', curr_lat, box_lat(i_box), dbox_x_PS, box_x_PS
 
        endif
        !call
@@ -501,10 +507,10 @@ CONTAINS
       endif
 
       ! Interpolate location and wind into Polar Stereographic Plane
-      if(Y_mid(jj)<0)then
+      if(Y_mid(jj)>0)then
 
-        x_PS(i,j) = -1.0* Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)  
-        y_PS(i,j) = -1.0* Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+        x_PS(i,j) = Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)  
+        y_PS(i,j) = Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
           
         do k=1,2
         kk = k + init_lev - 1
@@ -517,8 +523,8 @@ CONTAINS
 
       else
 
-        x_PS(i,j) = Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
-        y_PS(i,j) = Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+        x_PS(i,j) = -1.0* Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+        y_PS(i,j) = -1.0* Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
 
         do k=1,2
         kk = k + init_lev - 1
