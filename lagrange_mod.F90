@@ -256,7 +256,7 @@ CONTAINS
          endif
            
          if(curr_lat<0.0)then
-           box_lat(i_box) = -1 * atan( Re / sqrt(box_x_PS**2+box_y_PS**2)) *180.0/PI
+           box_lat(i_box) = -1 * atan( Re / sqrt(box_x_PS**2+box_y_PS**2) ) *180.0/PI
          else
            box_lat(i_box) = atan( Re / sqrt(box_x_PS**2+box_y_PS**2) ) *180.0/PI
          endif
@@ -499,12 +499,13 @@ CONTAINS
       ! For North Polar Point:
       if(jj==JJPAR+1)then
         jj = jj-1
+        write(6,*)'= polar0 =>', ii, X_mid(ii), jj, Y_mid(jj),u_RLL(ii,jj,kk), v_RLL(ii,jj,kk),sum(v_RLL(:,jj-1,kk))/IIPAR
         if(X_mid(ii)<0)then
         ii = ii+int(IIPAR/2)
         else
         ii = ii-int(IIPAR/2)
         endif
-        write(6,*)'= polar =>', ii, X_mid(ii), jj, Y_mid(jj)
+        write(6,*)'= polar1 =>', ii, X_mid(ii),jj, Y_mid(jj),u_RLL(ii,jj,kk),v_RLL(ii,jj,kk),sum(u_RLL(:,jj-1,kk))/IIPAR
       endif
 
       ! Interpolate location and wind into Polar Stereographic Plane
@@ -515,10 +516,13 @@ CONTAINS
           
         do k=1,2
         kk = k + init_lev - 1
+
         if(i_uv==1)then ! i_ux==1 for u
-          uv_PS(i,j,k) = -1.0* ( u_RLL(init_lon,init_lat,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(init_lon,init_lat,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
-        else ! for v
-          uv_PS(i,j,k) = u_RLL(init_lon,init_lat,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) - v_RLL(init_lon,init_lat,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+          uv_PS(i,j,k) = -1.0* ( u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
+        endif
+
+        if(i_uv==0)then ! for v
+          uv_PS(i,j,k) = u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) - v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
         endif
         enddo
 
@@ -530,9 +534,11 @@ CONTAINS
         do k=1,2
         kk = k + init_lev - 1
         if(i_uv==1)then
-          uv_PS(i,j,k) = u_RLL(init_lon,init_lat,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(init_lon,init_lat,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
-        else
-          uv_PS(i,j,k) = -1* u_RLL(init_lon,init_lat,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(init_lon,init_lat,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+          uv_PS(i,j,k) = u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+        endif
+
+        if(i_uv==0)then
+          uv_PS(i,j,k) = -1* u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
         endif
         enddo
 
