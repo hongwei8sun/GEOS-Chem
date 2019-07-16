@@ -118,6 +118,8 @@ CONTAINS
     integer :: i_lat
     integer :: i_lev
 
+    integer :: ii, jj, kk
+
     real(fp) :: curr_lon
     real(fp) :: curr_lat
     real(fp) :: curr_pressure
@@ -208,7 +210,34 @@ CONTAINS
        box_lev(i_box) = box_lev(i_box) + dbox_lev
 
 
-       if(abs(curr_lat)<=72.0)then
+       ! test:==================================================================
+       do ii=1,IIPAR,1
+       do kk=1,LLPAR,1
+
+        u(ii,1,kk) = u(ii,2,kk)
+        v(ii,1,kk) = v(ii,2,kk)
+
+        u(ii,JJPAR,kk) = u(ii,JJPAR-1,kk)
+        v(ii,JJPAR,kk) = v(ii,JJPAR-1,kk)
+
+       enddo
+       enddo
+
+       ! test:===================================================================
+       do ii=1,IIPAR,1
+       do jj=1,JJPAR,1
+       do kk=i_lev-2,i_lev+2,1
+
+        u(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0) *( -1.0*sin(X_mid(ii)*PI/180.0)*3.0 +cos(X_mid(ii)*PI/180.0)*0.0 )
+        v(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0)**2 *( -1.0*cos(X_mid(ii)*PI/180.0)*3.0 +sin(X_mid(ii)*PI/180.0)*0.0 )
+
+       enddo
+       enddo
+       enddo
+       ! test:====================================================================
+
+
+       if(abs(curr_lat)<=86.0)then
        ! Regualr Longitude-Latitude Mesh:
 
          curr_u    = Interplt_wind_RLL(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
@@ -224,7 +253,7 @@ CONTAINS
          ! write(6,*)'= RLL =>', dbox_lat, curr_lat, box_lat(i_box)
       endif
 
-       if(abs(curr_lat)>72.0)then
+       if(abs(curr_lat)>86.0)then
        ! Polar Stereographic plane (Dong and Wang, 2012):
 
          curr_u_PS = Interplt_uv_PS(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
@@ -482,30 +511,39 @@ CONTAINS
     do i=1,2
     do j=1,2
 
+      ! Use second largest latitude for the polar cape region:
+      if(init_lat==0)then
+        init_lat = init_lat + 1
+      endif
+
+      if(init_lat==JJPAR)then
+        init_lat = init_lat - 1
+      endif
+
       ii = i + init_lon - 1
       jj = j + init_lat - 1
 
       ! Get the right ii and jj for interpolation at polar point:
       ! For South Polar Point:
-      if(jj==0)then
+      if(jj==1)then
         jj = jj+1
-        if(X_mid(ii)<0)then
-        ii = ii+int(IIPAR/2)
-        else
-        ii = ii-int(IIPAR/2)
-        endif
+        !if(X_mid(ii)<0)then
+        !ii = ii+int(IIPAR/2)
+        !else
+        !ii = ii-int(IIPAR/2)
+        !endif
       endif
 
       ! For North Polar Point:
-      if(jj==JJPAR+1)then
+      if(jj==JJPAR)then
         jj = jj-1
-        write(6,*)'= polar0 =>', ii, X_mid(ii), jj, Y_mid(jj),u_RLL(ii,jj,kk), v_RLL(ii,jj,kk),sum(v_RLL(:,jj-1,kk))/IIPAR
-        if(X_mid(ii)<0)then
-        ii = ii+int(IIPAR/2)
-        else
-        ii = ii-int(IIPAR/2)
-        endif
-        write(6,*)'= polar1 =>', ii, X_mid(ii),jj, Y_mid(jj),u_RLL(ii,jj,kk),v_RLL(ii,jj,kk),sum(u_RLL(:,jj-1,kk))/IIPAR
+      !  write(6,*)'= polar0 =>', ii, X_mid(ii), jj, Y_mid(jj),u_RLL(ii,jj,kk), v_RLL(ii,jj,kk),sum(v_RLL(:,jj-1,kk))/IIPAR
+      !  if(X_mid(ii)<0)then
+      !  ii = ii+int(IIPAR/2)
+      !  else
+      !  ii = ii-int(IIPAR/2)
+      !  endif
+      !  write(6,*)'= polar1 =>', ii, X_mid(ii),jj, Y_mid(jj),u_RLL(ii,jj,kk),v_RLL(ii,jj,kk),sum(u_RLL(:,jj-1,kk))/IIPAR
       endif
 
       ! Interpolate location and wind into Polar Stereographic Plane
