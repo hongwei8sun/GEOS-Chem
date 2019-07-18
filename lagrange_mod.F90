@@ -18,7 +18,7 @@ MODULE Lagrange_Mod
   PUBLIC :: lagrange_cleanup
 
 
-  integer, parameter :: n_boxes_max = 3600  ! 24*200*1 : lat*lon*lev
+  integer, parameter :: n_boxes_max = 360*4  ! 24*200*1 : lat*lon*lev
   integer            :: tt
   real(fp), allocatable :: box_lon(:)    
   real(fp), allocatable :: box_lat(:)
@@ -52,13 +52,15 @@ CONTAINS
     allocate(box_length(n_boxes_max))
 
 
-    do i_box=1,n_boxes_max,1  ! change the value of 'n_boxes_max'
-        box_lon(i_box)  = -180.09e+0_fp +0.1e+0_fp * i_box         ! -141.0W degree
+    do ii=1,4,1
+    do jj=1,360,1  ! change the value of 'n_boxes_max'
+        i_box = (ii-1)*360 + jj
+        box_lon(i_box)  = -180.09e+0_fp +1.0e+0_fp * jj         ! -141.0W degree
         !box_lat(i_box) = -30.05e+0_fp + 0.1e+0_fp * ii            ! -29.95S : 29.95N : 0.1
-        box_lat(i_box)  = 85.00e+0_fp                              ! -29.995S : 299.95N : 0.1
+        box_lat(i_box)  = 75.00e+0_fp + 3.0e+0_fp * ii             ! -29.995S : 299.95N : 0.1
         box_lev(i_box)  = 52.0e+0_fp                               ! 20.0hPa!
     enddo
-
+    enddo
 
 !    box_lon    = 0.0e+0_fp       ! (/0.0e+0_fp, 5.0e+0_fp, 10.0e+0_fp/)
 !    box_lat    = 0.0e+0_fp       ! (/0.0e+0_fp, 4.0e+0_fp, 8.0e+0_fp/)
@@ -210,34 +212,34 @@ CONTAINS
        box_lev(i_box) = box_lev(i_box) + dbox_lev
 
 
-       ! test:==================================================================
+       ! test: replace the same wind around polar with adjacent different values =======================
        do ii=1,IIPAR,1
        do kk=1,LLPAR,1
 
-        u(ii,1,kk) = u(ii,2,kk)
-        v(ii,1,kk) = v(ii,2,kk)
+        u(ii,1,kk) = u(ii,2,kk)*0.6
+        v(ii,1,kk) = v(ii,2,kk)*0.6
 
-        u(ii,JJPAR,kk) = u(ii,JJPAR-1,kk)
-        v(ii,JJPAR,kk) = v(ii,JJPAR-1,kk)
-
-       enddo
-       enddo
-
-       ! test:===================================================================
-       do ii=1,IIPAR,1
-       do jj=1,JJPAR,1
-       do kk=i_lev-2,i_lev+2,1
-
-        u(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0) *( -1.0*sin(X_mid(ii)*PI/180.0)*3.0 +cos(X_mid(ii)*PI/180.0)*0.0 )
-        v(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0)**2 *( -1.0*cos(X_mid(ii)*PI/180.0)*3.0 +sin(X_mid(ii)*PI/180.0)*0.0 )
+        u(ii,JJPAR,kk) = u(ii,JJPAR-1,kk)*0.6
+        v(ii,JJPAR,kk) = v(ii,JJPAR-1,kk)*0.6
 
        enddo
        enddo
-       enddo
+
+       ! test for solid-body rotation ===================================================================
+!       do ii=1,IIPAR,1
+!       do jj=1,JJPAR,1
+!       do kk=i_lev-2,i_lev+2,1
+
+!        u(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0) *( -1.0*sin(X_mid(ii)*PI/180.0)*0.0 +cos(X_mid(ii)*PI/180.0)*3.0 )
+!        v(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0)**2 *( -1.0*cos(X_mid(ii)*PI/180.0)*0.0 -sin(X_mid(ii)*PI/180.0)*3.0 )
+
+!       enddo
+!       enddo
+!       enddo
        ! test:====================================================================
 
 
-       if(abs(curr_lat)<=86.0)then
+       if(abs(curr_lat)<=89.99)then
        ! Regualr Longitude-Latitude Mesh:
 
          curr_u    = Interplt_wind_RLL(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
@@ -253,7 +255,7 @@ CONTAINS
          ! write(6,*)'= RLL =>', dbox_lat, curr_lat, box_lat(i_box)
       endif
 
-       if(abs(curr_lat)>86.0)then
+       if(abs(curr_lat)>89.99)then
        ! Polar Stereographic plane (Dong and Wang, 2012):
 
          curr_u_PS = Interplt_uv_PS(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
@@ -511,40 +513,28 @@ CONTAINS
     do i=1,2
     do j=1,2
 
-      ! Use second largest latitude for the polar cape region:
-      if(init_lat==0)then
-        init_lat = init_lat + 1
-      endif
-
-      if(init_lat==JJPAR)then
-        init_lat = init_lat - 1
-      endif
-
       ii = i + init_lon - 1
       jj = j + init_lat - 1
 
       ! Get the right ii and jj for interpolation at polar point:
       ! For South Polar Point:
-      if(jj==1)then
+      if(jj==0)then
         jj = jj+1
-        !if(X_mid(ii)<0)then
-        !ii = ii+int(IIPAR/2)
-        !else
-        !ii = ii-int(IIPAR/2)
-        !endif
+      endif
+      ! For North Polar Point:
+      if(jj==JJPAR+1)then
+        jj = jj-1
       endif
 
-      ! For North Polar Point:
-      if(jj==JJPAR)then
-        jj = jj-1
-      !  write(6,*)'= polar0 =>', ii, X_mid(ii), jj, Y_mid(jj),u_RLL(ii,jj,kk), v_RLL(ii,jj,kk),sum(v_RLL(:,jj-1,kk))/IIPAR
-      !  if(X_mid(ii)<0)then
-      !  ii = ii+int(IIPAR/2)
-      !  else
-      !  ii = ii-int(IIPAR/2)
-      !  endif
-      !  write(6,*)'= polar1 =>', ii, X_mid(ii),jj, Y_mid(jj),u_RLL(ii,jj,kk),v_RLL(ii,jj,kk),sum(u_RLL(:,jj-1,kk))/IIPAR
+    
+      ! For lon=180 deg:
+      if(ii==IIPAR+1)then
+        ii = 1
       endif
+      if(ii==0)then
+        ii = IIPAR
+      endif
+
 
       ! Interpolate location and wind into Polar Stereographic Plane
       if(Y_mid(jj)>0)then

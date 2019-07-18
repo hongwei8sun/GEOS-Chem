@@ -47,9 +47,9 @@ MODULE Plume_Mod
   real(fp), allocatable :: box_length(:)
 
   ! D_radius should only be used at the beginning!
-  real(fp), parameter :: Init_radius = 100.0e+0_fp      ! [m], the width of each ring
-  real(fp), parameter :: D_radius    = 100.0e+0_fp      ! [m], the width of each ring
-  integer, parameter  :: n_rings_max = 15               ! Degine the number of rings in one box
+  real(fp), parameter :: Init_radius = 10.0e+0_fp      ! [m], the width of each ring
+  real(fp), parameter :: D_radius    = 10.0e+0_fp      ! [m], the width of each ring
+  integer, parameter  :: n_rings_max = 100               ! Degine the number of rings in one box
 
   ! medical concentration of each ring
   real(fp), allocatable :: box_concnt(:,:)      ! [kg/m3], box_concnt(n_boxes_max,N_rings)
@@ -121,8 +121,8 @@ CONTAINS
     box_lat    = (/4.0e+0_fp, 4.1e+0_fp, 4.2e+0_fp/)
     box_lev    = (/20.0e+0_fp, 20.0e+0_fp, 20.0e+0_fp/)      ! hPa
 
-    box_radius1(:,1)  = (/100.0e+0_fp,  100.0e+0_fp,  100.0e+0_fp/)     ! the value of the innest ring for every box
-    box_radius2(:,1)  = (/100.0e+0_fp,  100.0e+0_fp,  100.0e+0_fp/)     ! m
+    box_radius1(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! the value of the innest ring for every box
+    box_radius2(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! m
 
     ! Set the initial value of max/min radius for each ring
     do i_ring=2,n_rings_max
@@ -140,21 +140,26 @@ CONTAINS
       box_concnt_K(i_ring) = 0.0e+0_fp
     enddo  
 
-    box_concnt(:,1)  = (/100.0e+0_fp,  100.0e+0_fp,  100.0e+0_fp/)     ! [kg/m3]
+    box_concnt(:,1)  = (/ 3.89400e+1_fp,  3.89400e+1_fp,  3.89400e+1_fp/)     ! [kg/m3]
+    box_concnt(:,2)  = (/ 5.26996e+0_fp,  5.26996e+0_fp,  5.26996e+0_fp/)     ! [kg/m3]
+    box_concnt(:,3)  = (/ 9.65227e-2_fp,  9.65227e-2_fp,  9.65227e-2_fp/)     ! [kg/m3]
+    box_concnt(:,4)  = (/ 2.39256e-4_fp,  2.39256e-4_fp,  2.39256e-4_fp/)     ! [kg/m3]
+    box_concnt(:,5)  = (/ 8.02614e-8_fp,  8.02614e-8_fp,  8.02614e-8_fp/)     ! [kg/m3]
+    box_concnt(:,6)  = (/3.64386e-12_fp, 3.64386e-12_fp, 3.64386e-12_fp/)     ! [kg/m3]
 
     env_amount = (/0.0e+0_fp, 0.0e+0_fp, 0.0e+0_fp/)
 
 
     ! Create output file
-    FILENAME2   = 'Plume_theta_max_min_radius.txt'
-    tt = 0
+    ! FILENAME2   = 'Plume_theta_max_min_radius.txt'
+    ! tt = 0
 
-    OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE', &
-          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+    ! OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE', &
+    !       FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-    Do i_ring = 1, n_rings_max
-       WRITE(262,'(I0.4,3(x,E16.5E4))') i_ring, box_theta(1), box_radius1(1,i_ring), box_radius2(1,i_ring)
-    End Do
+    ! Do i_ring = 1, n_rings_max
+    !    WRITE(262,'(I0.4,3(x,E16.5E4))') i_ring, box_theta(1), box_radius1(1,i_ring), box_radius2(1,i_ring)
+    ! End Do
 
 
   END SUBROUTINE plume_init
@@ -232,6 +237,11 @@ CONTAINS
 
     !real(fp) :: RK(4,n_rings_max)
     !real(fp) :: box_concnt_K(n_rings_max)
+
+    CHARACTER(LEN=255)            :: FILENAME2
+
+    FILENAME2   = 'Plume_theta_max_min_radius.txt'
+
 
     Dt = GET_TS_DYN()
 
@@ -331,11 +341,11 @@ CONTAINS
        wind_s_shear = Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
        ! *** attention ***
        ! set wind_s_sheat as a constant for testing:
-       ! wind_s_shear = 0.005
+       wind_s_shear = 0.0
 
        theta_previous   = box_theta(i_box)
        box_theta(i_box) = ATAN( TAN(box_theta(i_box)) + wind_s_shear*Dt )
-
+       
 
        do i_ring=1,n_rings_max
        ! make sure use box_theta or TAN(box_theta)  ??? 
@@ -356,7 +366,7 @@ CONTAINS
          eddy_v = Cv * Omega_N**2 / sqrt( (Ptemp_shear*g0/curr_Ptemp) )
          ! *** Attention***
          !set a constant for testing:
-         eddy_v = 0.1
+         eddy_v = 1.0
 
 
          ! Calculate horizontal eddy diffusivity:
@@ -366,11 +376,12 @@ CONTAINS
          UV_shear = sqrt( U_shear**2 + V_shear**2 )
          do i_ring=1,n_rings_max
            !eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
-           eddy_h(i_ring) = 5.0
+           eddy_h(i_ring) = 1.0
  
-           eddy_diff1(i_ring) = eddy_v*cos(box_theta(i_box)) + eddy_h(i_ring)*sin(box_theta(i_box)) ! a
-           eddy_diff2(i_ring) = eddy_v*sin(box_theta(i_box)) + eddy_h(i_ring)*cos(box_theta(i_box)) ! b
+           eddy_diff1(i_ring) = eddy_v*cos(box_theta(i_box)) + eddy_h(i_ring)*sin(abs(box_theta(i_box))) ! a
+           eddy_diff2(i_ring) = eddy_v*sin(abs(box_theta(i_box))) + eddy_h(i_ring)*cos(box_theta(i_box)) ! b
          enddo
+
 
          !===========================================================================
          ! Calculate the interaction/teansporting between adjacent rings
@@ -399,6 +410,9 @@ CONTAINS
 
          enddo
 
+         !if(i_box==1)then
+         !  write(6,*)'First volumn/radius/eddy_diff =>', box_Dvolumn_small(i_box,1), box_radius1_small(i_box,1), box_radius2_small(i_box,1), eddy_diff1(1), eddy_diff2(1)
+         !endif
 
          ! For inest ring (i_ring=1):
          box_concnt(i_box,1) = box_concnt_old(i_box,1) &
@@ -408,12 +422,12 @@ CONTAINS
          ! For the ring between 2 and n_rings_max:
          do i_ring = 2, n_rings_max-1
            box_concnt(i_box,i_ring) = box_concnt_old(i_box,i_ring) &
-                              ! input from i_ring+1 to i_ring:
-                              + box_concnt_old(i_box,i_ring+1)*box_volumn(i_box,i_ring+1)/box_volumn_new(i_box,i_ring+1)*box_Dvolumn_small(i_box,i_ring)/box_volumn(i_box,i_ring) &
-                              ! input from i_ring-1 to i_ring:
-                              + box_concnt_old(i_box,i_ring-1)*box_volumn(i_box,i_ring-1)/box_volumn_new(i_box,i_ring-1)*box_Dvolumn_big(i_box,i_ring-1)/box_volumn(i_box,i_ring) &
-                              ! output from i_ring to i_ring-1 and i_ring+1:
-                              - box_concnt_old(i_box,i_ring)*box_volumn(i_box,i_ring)/box_volumn_new(i_box,i_ring)*( box_Dvolumn_big(i_box,i_ring) + box_Dvolumn_small(i_box,i_ring-1) )/box_volumn(i_box,i_ring)
+                   ! input from i_ring+1 to i_ring:
+                   + box_concnt_old(i_box,i_ring+1)*box_volumn(i_box,i_ring+1)/box_volumn_new(i_box,i_ring+1)*box_Dvolumn_small(i_box,i_ring)/box_volumn(i_box,i_ring) &
+                   ! input from i_ring-1 to i_ring:
+                   + box_concnt_old(i_box,i_ring-1)*box_volumn(i_box,i_ring-1)/box_volumn_new(i_box,i_ring-1)*box_Dvolumn_big(i_box,i_ring-1)/box_volumn(i_box,i_ring) &
+                   ! output from i_ring to i_ring-1 and i_ring+1:
+                   - box_concnt_old(i_box,i_ring)*box_volumn(i_box,i_ring)/box_volumn_new(i_box,i_ring)*( box_Dvolumn_big(i_box,i_ring) + box_Dvolumn_small(i_box,i_ring-1) )/box_volumn(i_box,i_ring)
          enddo
 
          ! For outest ring:
@@ -425,12 +439,23 @@ CONTAINS
 
          env_amount(i_box) = env_amount(i_box) + box_concnt(i_box,n_rings_max)*box_volumn(i_box,n_rings_max)/box_volumn_new(i_box,n_rings_max)*box_Dvolumn_big(i_box,n_rings_max)
 
-         if(i_box==1)then
-           write(6,*)'= concentration 1-5 =>', box_concnt(i_box,1:5)
-           !write(6,*)'= concentration 6-10 =>', box_concnt(i_box,6:10)
-           !write(6,*)'= concentration 11-15 =>', box_concnt(i_box,11:15)
-           write(6,*)'= total amount =>', t1s, sum( box_concnt(i_box,:)* box_volumn(i_box,:) ) + env_amount(i_box)
-         endif
+         !if(i_box==1)then
+         !  write(6,*)'= concentration 1-5 =>', box_concnt(i_box,1:5)
+         !  write(6,*)'= concentration 6-10 =>', box_concnt(i_box,6:10)
+         !  write(6,*)'= concentration 11-15 =>', box_concnt(i_box,11:15)
+         !  write(6,*)'= total amount =>', t1s, sum( box_concnt(i_box,:)* box_volumn(i_box,:) ) + env_amount(i_box)
+         !endif
+
+
+
+         OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='OLD', &
+               FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+         WRITE(262,*)'= theta/radius 1,2 =>', box_theta(1), box_radius1(1,1), box_radius2(1,1), box_radius1(1,2), box_radius2(1,2)
+         write(262,*)'= concent 1-6 =>', box_concnt(1,1:6)
+
+
+
 
        enddo ! t1s
 
@@ -591,8 +616,7 @@ CONTAINS
     real(fp)     :: x1, y1, x2, y2  ! unit is degree
     !real(fp) :: PI, Re
 
-    Distance_Circle = Re * 2.0 * ASIN( (sin( (y1-y2)*PI/180.0 ))**2.0   & 
-                      + cos(x1*PI/180.0) * cos(x2*PI/180.0) * (sin( 0.5*(x1-x2)*PI/180.0 ))**2.0 )
+    Distance_Circle = Re * 2.0 * ASIN( (sin( (y1-y2)*PI/180.0 ))**2.0 + cos(x1*PI/180.0) * cos(x2*PI/180.0) * (sin( 0.5*(x1-x2)*PI/180.0 ))**2.0 )
     return
   end function
 
@@ -850,18 +874,14 @@ CONTAINS
     tt = tt +1
 
 !    IF(mod(tt,6)==0)THEN     ! output once every hour
-    IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
+!    IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
 
-       OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='OLD', &
-             FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-  
-       WRITE(262,*)'= box theta/radius 1,2 =>',box_theta(1), box_radius1(1,1), box_radius2(1,1), box_radius1(1,2), box_radius2(1,2)
-       write(262,*)'= concentration 1-5 =>',   box_concnt(1,1:5)
-       write(262,*)'= concentration 6-10 =>',  box_concnt(1,6:10)
-       write(262,*)'= concentration 11-15 =>', box_concnt(1,11:15)
+!       OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='OLD', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+!  
+!       WRITE(262,*)'= theta/radius 1,2 =>', box_theta(1), box_radius1(1,1), box_radius2(1,1), box_radius1(1,2), box_radius2(1,2)
+!       write(262,*)'= concent 1-6 =>', box_concnt(1,1:6)
 
-
-    ENDIF
+!    ENDIF
 
   END SUBROUTINE plume_write_std
 
