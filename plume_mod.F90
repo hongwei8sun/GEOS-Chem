@@ -29,37 +29,27 @@ MODULE Plume_Mod
   ! Consider the box as a cylinder
 
   ! box_radius(n_boxes_max,N_rings)
-  real(fp), allocatable :: box_radius1(:,:)   ! a, vertical radius
-  real(fp), allocatable :: box_radius2(:,:)   ! b, horizontal radius of the the cross-section
+  real(fp), allocatable :: box_radiusA(:,:)   ! vertical radius
+  real(fp), allocatable :: box_radiusB(:,:)   ! horizontal radius of the the cross-section
 
-  real(fp), allocatable :: box_radius1_big(:,:) 
-  real(fp), allocatable :: box_radius2_big(:,:)
-  real(fp), allocatable :: box_radius1_small(:,:)
-  real(fp), allocatable :: box_radius2_small(:,:)
 
-  real(fp), allocatable :: box_Dvolumn_big(:,:)
-  real(fp), allocatable :: box_Dvolumn_small(:,:)
-  real(fp), allocatable :: box_volumn(:,:)
-  real(fp), allocatable :: box_volumn_new(:,:)
-
-  ! Theta is the clockwise angle between z-axis (P) and vertical radius1
+  ! Theta is the clockwise angle between z-axis (P) and vertical radiusA
   real(fp), allocatable :: box_theta(:)    ! 0 ~ 180 degree
   real(fp), allocatable :: box_length(:)
 
   ! D_radius should only be used at the beginning!
-  real(fp), parameter :: Init_radius = 10.0e+0_fp      ! [m], the width of each ring
-  real(fp), parameter :: D_radius    = 10.0e+0_fp      ! [m], the width of each ring
-  integer, parameter  :: n_rings_max = 100               ! Degine the number of rings in one box
+  real(fp), parameter :: Init_radius = 10.0e+0_fp     ! [m], the width of each ring
+  real(fp), parameter :: D_radius    = 10.0e+0_fp     ! [m], the width of each ring
+  integer, parameter  :: n_rings_max = 100          ! Degine the number of rings in one box
 
   ! medical concentration of each ring
-  real(fp), allocatable :: box_concnt(:,:)      ! [kg/m3], box_concnt(n_boxes_max,N_rings)
-  real(fp), allocatable :: box_concnt_old(:,:)  ! [kg/m3], box_concnt(n_boxes_max,N_rings)
-  real(fp), allocatable :: box_concnt_K(:)      ! [kg/m3], box_concnt_K(N_rings_max)
-  real(fp), allocatable :: RK(:,:), AA_env(:)   ! for Runge-Kutta method
+  real(fp), allocatable :: box_concnt(:,:)    ! [kg/m3], box_concnt(n_boxes_max,N_rings)
+  real(fp), allocatable :: box_concnt_K(:)    ! [kg/m3], box_concnt_K(N_rings_max)
+  real(fp), allocatable :: RK(:,:), AA_env(:)  ! for Runge-Kutta method
   real(fp), allocatable :: eddy_h(:)  ! 
-  real(fp), allocatable :: eddy_diff1(:)  ! 
-  real(fp), allocatable :: eddy_diff2(:)  ! 
-  real(fp), allocatable :: k1(:), k2(:)  ! 
+  real(fp), allocatable :: eddy_diffA(:)  ! 
+  real(fp), allocatable :: eddy_diffB(:)  ! 
+  real(fp), allocatable :: kA(:), kB(:)  ! 
 
   real(fp), allocatable :: env_amount(:)
 
@@ -86,33 +76,22 @@ CONTAINS
     allocate(box_lat(n_boxes_max))
     allocate(box_lev(n_boxes_max))
 
-    allocate(box_radius1(n_boxes_max,n_rings_max))
-    allocate(box_radius2(n_boxes_max,n_rings_max))
-
-    allocate(box_radius1_big(n_boxes_max,n_rings_max))
-    allocate(box_radius2_big(n_boxes_max,n_rings_max))
-    allocate(box_radius1_small(n_boxes_max,n_rings_max))
-    allocate(box_radius2_small(n_boxes_max,n_rings_max))
-
-    allocate(box_Dvolumn_big(n_boxes_max,n_rings_max))
-    allocate(box_Dvolumn_small(n_boxes_max,n_rings_max))
-    allocate(box_volumn(n_boxes_max,n_rings_max))
-    allocate(box_volumn_new(n_boxes_max,n_rings_max))
+    allocate(box_radiusA(n_boxes_max,n_rings_max))
+    allocate(box_radiusB(n_boxes_max,n_rings_max))
 
     allocate(box_theta(n_boxes_max))
     allocate(box_length(n_boxes_max))
 
     allocate(box_concnt(n_boxes_max,n_rings_max))
-    allocate(box_concnt_old(n_boxes_max,n_rings_max))
     allocate(box_concnt_K(n_rings_max))
     allocate(RK(4,n_rings_max))
     allocate(AA_env(4))
 
     allocate(eddy_h(n_rings_max))
-    allocate(eddy_diff1(n_rings_max))
-    allocate(eddy_diff2(n_rings_max))
-    allocate(k1(n_rings_max))
-    allocate(k2(n_rings_max))
+    allocate(eddy_diffA(n_rings_max))
+    allocate(eddy_diffB(n_rings_max))
+    allocate(kA(n_rings_max))
+    allocate(kB(n_rings_max))
 
     allocate(env_amount(n_boxes_max))
 
@@ -121,13 +100,13 @@ CONTAINS
     box_lat    = (/4.0e+0_fp, 4.1e+0_fp, 4.2e+0_fp/)
     box_lev    = (/20.0e+0_fp, 20.0e+0_fp, 20.0e+0_fp/)      ! hPa
 
-    box_radius1(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! the value of the innest ring for every box
-    box_radius2(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! m
+    box_radiusA(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! the value of the innest ring for every box
+    box_radiusB(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! m
 
     ! Set the initial value of max/min radius for each ring
     do i_ring=2,n_rings_max
-      box_radius1(:,i_ring) = box_radius1(:,i_ring-1) + D_radius
-      box_radius2(:,i_ring) = box_radius2(:,i_ring-1) + D_radius
+      box_radiusA(:,i_ring) = box_radiusA(:,i_ring-1) + D_radius
+      box_radiusB(:,i_ring) = box_radiusB(:,i_ring-1) + D_radius
     enddo
 
     box_theta         = (/0.0e+0_fp,    0.0e+0_fp,    0.0e+0_fp/)             ! degree
@@ -140,26 +119,28 @@ CONTAINS
       box_concnt_K(i_ring) = 0.0e+0_fp
     enddo  
 
-    box_concnt(:,1)  = (/ 3.89400e+1_fp,  3.89400e+1_fp,  3.89400e+1_fp/)     ! [kg/m3]
-    box_concnt(:,2)  = (/ 5.26996e+0_fp,  5.26996e+0_fp,  5.26996e+0_fp/)     ! [kg/m3]
-    box_concnt(:,3)  = (/ 9.65227e-2_fp,  9.65227e-2_fp,  9.65227e-2_fp/)     ! [kg/m3]
-    box_concnt(:,4)  = (/ 2.39256e-4_fp,  2.39256e-4_fp,  2.39256e-4_fp/)     ! [kg/m3]
-    box_concnt(:,5)  = (/ 8.02614e-8_fp,  8.02614e-8_fp,  8.02614e-8_fp/)     ! [kg/m3]
+
+    box_concnt(:,1)  = (/ 3.89400e+1_fp,  3.89400e+1_fp,  3.89400e+1_fp/)     !
+    box_concnt(:,2)  = (/ 5.26996e+0_fp,  5.26996e+0_fp,  5.26996e+0_fp/)     !
+    box_concnt(:,3)  = (/ 9.65227e-2_fp,  9.65227e-2_fp,  9.65227e-2_fp/)     !
+    box_concnt(:,4)  = (/ 2.39256e-4_fp,  2.39256e-4_fp,  2.39256e-4_fp/)     !
+    box_concnt(:,5)  = (/ 8.02614e-8_fp,  8.02614e-8_fp,  8.02614e-8_fp/)     !
     box_concnt(:,6)  = (/3.64386e-12_fp, 3.64386e-12_fp, 3.64386e-12_fp/)     ! [kg/m3]
+
 
     env_amount = (/0.0e+0_fp, 0.0e+0_fp, 0.0e+0_fp/)
 
 
     ! Create output file
-    ! FILENAME2   = 'Plume_theta_max_min_radius.txt'
-    ! tt = 0
+    FILENAME2   = 'Plume_theta_max_min_radius.txt'
+    tt = 0
 
-    ! OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE', &
-    !       FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+    OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE', &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-    ! Do i_ring = 1, n_rings_max
-    !    WRITE(262,'(I0.4,3(x,E16.5E4))') i_ring, box_theta(1), box_radius1(1,i_ring), box_radius2(1,i_ring)
-    ! End Do
+    Do i_ring = 1, n_rings_max
+       WRITE(262,'(I0.4,3(x,E16.5E4))') i_ring, box_theta(1), box_radiusA(1,i_ring), box_radiusB(1,i_ring)
+    End Do
 
 
   END SUBROUTINE plume_init
@@ -220,7 +201,7 @@ CONTAINS
     real(fp) :: Dx, Dy
     real(fp) :: wind_s_shear
     real(fp) :: theta_previous       
-    real(fp) :: dbox_theta, dbox_radius1, dbox_radius2
+    real(fp) :: dbox_theta, dbox_radiusA, dbox_radiusB
     ! angle between travel direction and lon (-90 ~ 90 deg)
     real(fp) :: box_alpha        
 
@@ -321,7 +302,6 @@ CONTAINS
        i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2) 
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
-       ! Interprate wind speed from model grid into box location:
        curr_u    = Interplt_wind(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        curr_v    = Interplt_wind(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        curr_omeg = Interplt_wind(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
@@ -333,39 +313,39 @@ CONTAINS
        i_lat = Find_iLonLat(next_lat, Dy, Y_edge2)
        i_lev = Find_iPLev(next_pressure,P_edge)
 
-       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-       ! For deformation of plume cross-section caused by wind shear (A.D.Naiman et al., 2010):
-       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+       !!!!!!
+       ! For deformation of cross-section caused by wind shear (A.D.Naiman et al., 2010):
+       !!!!!!
 
        ! calculate the wind_s shear along pressure direction
        wind_s_shear = Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
-       ! *** attention ***
-       ! set wind_s_sheat as a constant for testing:
+       ! attention ***
        wind_s_shear = 0.0
+
 
        theta_previous   = box_theta(i_box)
        box_theta(i_box) = ATAN( TAN(box_theta(i_box)) + wind_s_shear*Dt )
-       
+
 
        do i_ring=1,n_rings_max
        ! make sure use box_theta or TAN(box_theta)  ??? 
-       box_radius1(i_box,i_ring) = box_radius1(i_box,i_ring) * (TAN(box_theta(i_box))**2+1)**0.5    / (TAN(theta_previous)**2+1)**0.5
-       box_radius2(i_box,i_ring) = box_radius2(i_box,i_ring) * (TAN(box_theta(i_box))**2+1)**(-0.5) / (TAN(theta_previous)**2+1)**(-0.5)
+       box_radiusA(i_box,i_ring) = box_radiusA(i_box,i_ring) * (TAN(box_theta(i_box))**2+1)**0.5    / (TAN(theta_previous)**2+1)**0.5
+       box_radiusB(i_box,i_ring) = box_radiusB(i_box,i_ring) * (TAN(box_theta(i_box))**2+1)**(-0.5) / (TAN(theta_previous)**2+1)**(-0.5)
        enddo
 
 
-       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+       !!!!!!
        ! For the concentration change caused by eddy diffusion:
        ! box_concnt(n_boxes_max,N_rings)
-       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+       !!!!!!
 
          ! Calculate vertical eddy diffusivity (U.Schumann, 2012) :
          Cv = 0.2
          Omega_N = 0.1
          Ptemp_shear = Vertical_shear(Ptemp, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
          eddy_v = Cv * Omega_N**2 / sqrt( (Ptemp_shear*g0/curr_Ptemp) )
-         ! *** Attention***
-         !set a constant for testing:
+
+         ! attenttion ***
          eddy_v = 1.0
 
 
@@ -375,87 +355,110 @@ CONTAINS
          V_shear = Vertical_shear(v, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
          UV_shear = sqrt( U_shear**2 + V_shear**2 )
          do i_ring=1,n_rings_max
-           !eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
-           eddy_h(i_ring) = 1.0
- 
-           eddy_diff1(i_ring) = eddy_v*cos(box_theta(i_box)) + eddy_h(i_ring)*sin(abs(box_theta(i_box))) ! a
-           eddy_diff2(i_ring) = eddy_v*sin(abs(box_theta(i_box))) + eddy_h(i_ring)*cos(box_theta(i_box)) ! b
+          !eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
+          ! attention ***
+          eddy_h(i_ring) = 1.0
+
+
+          eddy_diffA(i_ring) = eddy_v*cos(box_theta(i_box)) + eddy_h(i_ring)*sin(abs(box_theta(i_box))) ! a
+          eddy_diffB(i_ring) = eddy_v*sin(abs(box_theta(i_box))) + eddy_h(i_ring)*cos(box_theta(i_box)) ! b
          enddo
 
 
-         !===========================================================================
-         ! Calculate the interaction/teansporting between adjacent rings
-         !===========================================================================
+         ! For the innest ring (i_ring = 1)
+         ! kB should be rewrite in a more accurate equation !!!
+         kB(1) = eddy_diffB(1) / ( (box_radiusB(i_box,2)-0.0) / 2.0 )
+         kA(1) = eddy_diffA(1) / ( (box_radiusA(i_box,2)-0.0) / 2.0 )
+
+         do i_ring = 2, n_rings_max-1
+
+         kB(i_ring) = eddy_diffB(i_ring) / ((box_radiusB(i_box,i_ring+1)-box_radiusB(i_box,i_ring-1)) / 2.0 )
+         kA(i_ring) = eddy_diffA(i_ring) / ((box_radiusA(i_box,i_ring+1)-box_radiusA(i_box,i_ring-1)) / 2.0 )
+
+         enddo ! i_ring
+
+         ! For outest ring (i_ring = n_rings_max)
+         kB(n_rings_max) = eddy_diffB(n_rings_max)/(box_radiusB(i_box,n_rings_max)-box_radiusB(i_box,n_rings_max-1) )
+         kA(n_rings_max) = eddy_diffA(n_rings_max)/(box_radiusA(i_box,n_rings_max)-box_radiusA(i_box,n_rings_max-1) )
+
 
        do t1s=1,int(Dt)
 
+       ! Use classical Runge-Kutta method (RK4) to solve the diferential
+       ! equation
+       do Ki = 1,4
+
          do i_ring = 1, n_rings_max
-           box_radius1_big(i_box,i_ring)   = sqrt(box_radius1(i_box,i_ring)**2.0+2.0*eddy_diff1(i_ring)*1.0)
-           box_radius1_small(i_box,i_ring) = sqrt(box_radius1(i_box,i_ring)**2.0-2.0*eddy_diff1(i_ring)*1.0)
-           box_radius2_big(i_box,i_ring)   = sqrt(box_radius2(i_box,i_ring)**2.0+2.0*eddy_diff2(i_ring)*1.0)
-           box_radius2_small(i_box,i_ring) = sqrt(box_radius2(i_box,i_ring)**2.0-2.0*eddy_diff2(i_ring)*1.0)
-
-           box_Dvolumn_big(i_box,i_ring)   = PI*( box_radius1_big(i_box,i_ring)*box_radius2_big(i_box,i_ring) - box_radius1(i_box,i_ring)*box_radius2(i_box,i_ring) )
-           box_Dvolumn_small(i_box,i_ring) = PI*( box_radius1(i_box,i_ring)*box_radius2(i_box,i_ring) - box_radius1_small(i_box,i_ring)*box_radius2_small(i_box,i_ring) )
-
-           if(i_ring==1)then
-             box_volumn(i_box,i_ring)     = PI * box_radius1(i_box,i_ring) * box_radius2(i_box,i_ring)
-             box_volumn_new(i_box,i_ring) = PI * box_radius1_big(i_box,i_ring) * box_radius2_big(i_box,i_ring)
+           if(Ki==1)then
+             box_concnt_K(i_ring) = box_concnt(i_box,i_ring)
+           else if(Ki==4)then
+             box_concnt_K(i_ring) = box_concnt(i_box,i_ring) + RK(3,i_ring)*1.0 !Dt
            else
-             box_volumn(i_box,i_ring)     = PI*( box_radius1(i_box,i_ring)*box_radius2(i_box,i_ring) - box_radius1(i_box,i_ring-1)*box_radius2(i_box,i_ring-1) )
-             box_volumn_new(i_box,i_ring) = PI*( box_radius1_big(i_box,i_ring)*box_radius2_big(i_box,i_ring) - box_radius1_small(i_box,i_ring-1)*box_radius2_small(i_box,i_ring-1))
+             box_concnt_K(i_ring) = box_concnt(i_box,i_ring) + RK(Ki-1,i_ring)*1.0*0.5 !Dt
            endif
+         enddo ! i_ring
 
-           box_concnt_old(i_box,i_ring) = box_concnt(i_box,i_ring)
+ 
+         AA(1) = ( kB(1)*box_radiusA(i_box,1) + kA(1)*box_radiusB(i_box,1) ) * ( box_concnt_K(2) - box_concnt_K(1) )
 
-         enddo
+         BB(1) = 0.0
 
-         !if(i_box==1)then
-         !  write(6,*)'First volumn/radius/eddy_diff =>', box_Dvolumn_small(i_box,1), box_radius1_small(i_box,1), box_radius2_small(i_box,1), eddy_diff1(1), eddy_diff2(1)
-         !endif
+         DD(1) = box_radiusA(i_box,1) * box_radiusB(i_box,1)
 
-         ! For inest ring (i_ring=1):
-         box_concnt(i_box,1) = box_concnt_old(i_box,1) &
-                             + box_concnt_old(i_box,2)*box_volumn(i_box,2)/box_volumn_new(i_box,2) * box_Dvolumn_small(i_box,1)/box_volumn(i_box,1) &
-                             - box_concnt_old(i_box,1)*box_volumn(i_box,1)/box_volumn_new(i_box,1) * box_Dvolumn_big(i_box,1)/box_volumn(i_box,1)
+         RK(Ki,1)          = AA(1)/DD(1)
 
-         ! For the ring between 2 and n_rings_max:
+
+         ! For rings from 2 to (n_rings_max - 1)
          do i_ring = 2, n_rings_max-1
-           box_concnt(i_box,i_ring) = box_concnt_old(i_box,i_ring) &
-                   ! input from i_ring+1 to i_ring:
-                   + box_concnt_old(i_box,i_ring+1)*box_volumn(i_box,i_ring+1)/box_volumn_new(i_box,i_ring+1)*box_Dvolumn_small(i_box,i_ring)/box_volumn(i_box,i_ring) &
-                   ! input from i_ring-1 to i_ring:
-                   + box_concnt_old(i_box,i_ring-1)*box_volumn(i_box,i_ring-1)/box_volumn_new(i_box,i_ring-1)*box_Dvolumn_big(i_box,i_ring-1)/box_volumn(i_box,i_ring) &
-                   ! output from i_ring to i_ring-1 and i_ring+1:
-                   - box_concnt_old(i_box,i_ring)*box_volumn(i_box,i_ring)/box_volumn_new(i_box,i_ring)*( box_Dvolumn_big(i_box,i_ring) + box_Dvolumn_small(i_box,i_ring-1) )/box_volumn(i_box,i_ring)
-         enddo
 
-         ! For outest ring:
-         box_concnt(i_box,n_rings_max) = box_concnt_old(i_box,n_rings_max) &
-         ! input from n_rings_max-1 to n_rings_max:
-         + box_concnt_old(i_box,n_rings_max-1)*box_volumn(i_box,n_rings_max-1)/box_volumn_new(i_box,n_rings_max-1)*box_Dvolumn_big(i_box,n_rings_max-1)/box_volumn(i_box,n_rings_max) &
-         ! output from n_rings_max to n_rings_max-1 and environment:
-         - box_concnt_old(i_box,n_rings_max)*box_volumn(i_box,n_rings_max)/box_volumn_new(i_box,n_rings_max)*(box_Dvolumn_big(i_box,n_rings_max)+box_Dvolumn_small(i_box,n_rings_max-1))/box_volumn(i_box,n_rings_max)
+           AA(i_ring) = ( kB(i_ring)*box_radiusA(i_box,i_ring) + kA(i_ring)*box_radiusB(i_box,i_ring) ) * ( box_concnt_K(i_ring+1) - box_concnt_K(i_ring) )
 
-         env_amount(i_box) = env_amount(i_box) + box_concnt(i_box,n_rings_max)*box_volumn(i_box,n_rings_max)/box_volumn_new(i_box,n_rings_max)*box_Dvolumn_big(i_box,n_rings_max)
+           BB(i_ring) = ( kB(i_ring-1)*box_radiusA(i_box,i_ring-1) + kA(i_ring-1)*box_radiusB(i_box,i_ring-1) ) * ( box_concnt_K(i_ring-1) - box_concnt_K(i_ring) ) 
 
-         !if(i_box==1)then
-         !  write(6,*)'= concentration 1-5 =>', box_concnt(i_box,1:5)
-         !  write(6,*)'= concentration 6-10 =>', box_concnt(i_box,6:10)
-         !  write(6,*)'= concentration 11-15 =>', box_concnt(i_box,11:15)
-         !  write(6,*)'= total amount =>', t1s, sum( box_concnt(i_box,:)* box_volumn(i_box,:) ) + env_amount(i_box)
-         !endif
+           DD(i_ring) = box_radiusA(i_box,i_ring)*box_radiusB(i_box,i_ring) - box_radiusA(i_box,i_ring-1)*box_radiusB(i_box,i_ring-1)
+
+           RK(Ki,i_ring) = (AA(i_ring)+BB(i_ring))/DD(i_ring)
+
+         enddo ! i_ring
+ 
+
+         AA(n_rings_max) = ( kB(n_rings_max)*box_radiusA(i_box,n_rings_max) + kA(n_rings_max)*box_radiusB(i_box,n_rings_max) ) * ( 0 - box_concnt_K(n_rings_max) ) 
+
+         BB(n_rings_max) = ( kB(n_rings_max-1)*box_radiusA(i_box,n_rings_max-1) + kA(n_rings_max-1)*box_radiusB(i_box,n_rings_max-1) ) * ( box_concnt_K(n_rings_max-1) - box_concnt_K(n_rings_max) ) 
+
+         DD(n_rings_max) = box_radiusA(i_box,n_rings_max)*box_radiusB(i_box,n_rings_max)   &
+                   - box_radiusA(i_box,n_rings_max-1)*box_radiusB(i_box,n_rings_max-1)
+
+         RK(Ki,n_rings_max) = (AA(n_rings_max)+BB(n_rings_max))/DD(n_rings_max)
+
+         AA_env(Ki) = -1.0*AA(n_rings_max)
 
 
+       enddo ! Ki
+
+
+       do i_ring = 1,n_rings_max
+         box_concnt(i_box,i_ring) = box_concnt(i_box,i_ring) + 1.0*( RK(1,i_ring)+2.0*RK(2,i_ring)+2.0*RK(3,i_ring)+RK(4,i_ring) )/6.0 ! Dt
+       enddo !i_ring
+         env_amount(i_box) = env_amount(i_box) + 1.0*( AA_env(1)+2.0*AA_env(2)+2.0*AA_env(3)+AA_env(4) )/6.0
+
+
+       !if(i_box==1)then
+       !  write(6,*)'= concentration 1-5 =>', box_concnt(i_box,1:5)
+       !  write(6,*)'= concentration 6-10 =>', box_concnt(i_box,6:10)
+       !  write(6,*)'= concentration 11-15 =>', box_concnt(i_box,11:15)
+       !  write(6,*)'= total amount =>', t1s, sum( box_concnt(i_box,:)*DD(:) ) + env_amount(i_box)
+       !endif
+
+        if(i_box==1)then
 
          OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='OLD', &
                FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-         WRITE(262,*)'= theta/radius 1,2 =>', box_theta(1), box_radius1(1,1), box_radius2(1,1), box_radius1(1,2), box_radius2(1,2)
+         WRITE(262,*)'= theta/radius 1,2 =>', box_theta(1), box_radiusA(1,1), box_radiusB(1,1), box_radiusA(1,2), box_radiusB(1,2)
          write(262,*)'= concent 1-6 =>', box_concnt(1,1:6)
 
-
-
+        endif
 
        enddo ! t1s
 
@@ -477,7 +480,7 @@ CONTAINS
 
 
 !--------------------------------------------------------------------
-! functions to find southern/western/bottom location (i,j,k) of boxes 
+! functions to find location (i,j,k) of boxes 
 
   integer function Find_iLonLat(curr_xy,  Dxy,  XY_edge2)
     implicit none
@@ -616,7 +619,8 @@ CONTAINS
     real(fp)     :: x1, y1, x2, y2  ! unit is degree
     !real(fp) :: PI, Re
 
-    Distance_Circle = Re * 2.0 * ASIN( (sin( (y1-y2)*PI/180.0 ))**2.0 + cos(x1*PI/180.0) * cos(x2*PI/180.0) * (sin( 0.5*(x1-x2)*PI/180.0 ))**2.0 )
+    Distance_Circle = Re * 2.0 * ASIN( (sin( (y1-y2)*PI/180.0 ))**2.0   & 
+                      + cos(x1*PI/180.0) * cos(x2*PI/180.0) * (sin( 0.5*(x1-x2)*PI/180.0 ))**2.0 )
     return
   end function
 
@@ -876,10 +880,13 @@ CONTAINS
 !    IF(mod(tt,6)==0)THEN     ! output once every hour
 !    IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
 
-!       OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='OLD', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-!  
-!       WRITE(262,*)'= theta/radius 1,2 =>', box_theta(1), box_radius1(1,1), box_radius2(1,1), box_radius1(1,2), box_radius2(1,2)
-!       write(262,*)'= concent 1-6 =>', box_concnt(1,1:6)
+!       OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='OLD', &
+!             FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+!       Do i_ring = 1, n_rings_max
+!        WRITE(262,'(I0.4,3(x,E16.5E4))') i_ring, box_theta(2), box_radiusA(2,i_ring), box_radiusB(2,i_ring), box_concnt(2,i_ring)
+!       End Do
+
 
 !    ENDIF
 
@@ -895,8 +902,8 @@ CONTAINS
     if (allocated(box_lat))      deallocate(box_lat)
     if (allocated(box_lev))      deallocate(box_lev)
     if (allocated(box_length))   deallocate(box_length)
-    if (allocated(box_radius1))  deallocate(box_radius1)
-    if (allocated(box_radius2))  deallocate(box_radius2)
+    if (allocated(box_radiusA))  deallocate(box_radiusA)
+    if (allocated(box_radiusB))  deallocate(box_radiusB)
     if (allocated(box_theta))    deallocate(box_theta)
 
     WRITE(6,'(a)') '--> Plume Module Cleanup <--'
