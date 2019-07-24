@@ -122,17 +122,35 @@ CONTAINS
       box_concnt_K(i_ring) = 0.0e+0_fp
     enddo  
 
+    
+    box_concnt(1,1:50) = (/49.875156119873004, 48.88756185966682                               &
+               ,46.97065314067379, 44.23529524717418, 40.83432412990554, 36.94842441294721     &
+               ,32.770312716342026, 28.48914123654615, 24.276844757703973, 20.27772525316603   &
+               ,16.60199726723303, 13.323414890676204, 10.48056935755489, 8.081059623266963    &
+               ,6.1075334769995, 4.524572083184796, 3.2855136613751426, 2.338531119197949      &
+               ,1.6315377996448017, 1.11574573884832, 0.7479067350288746, 0.49140974176898444  &
+               ,0.31648577137428735, 0.19979229150423164, 0.1236281517937096                   &
+               ,0.07498426446649228, 0.044579685999760976,0.025978734107741923                 &
+               ,0.014839288389660534, 0.008308493330363867, 0.004559797818113302               &
+               ,0.0024529178728103862, 0.001293405011132706, 0.0006684981060421901             &
+               ,0.00033867249988518743, 0.00016817978624128203, 8.186189035980977e-05          &
+               ,3.9057447041522455e-05, 1.826585670603756e-05, 8.373178515687453e-06           &
+               ,3.7623116288224154e-06, 1.6570411354494168e-06, 7.153620959283844e-07          &
+               ,3.027141141242445e-07, 1.2556064166356478e-07, 5.104914735796671e-08           &
+               ,2.0344057253278993e-08, 7.946955047258184e-09, 3.042832552759166e-09           &
+               ,1.1420088289968512e-09/)
 
-    box_concnt(:,1)  = (/ 3.89400e+1_fp,  3.89400e+1_fp,  3.89400e+1_fp/)     !
-    box_concnt(:,2)  = (/ 5.26996e+0_fp,  5.26996e+0_fp,  5.26996e+0_fp/)     !
-    box_concnt(:,3)  = (/ 9.65227e-2_fp,  9.65227e-2_fp,  9.65227e-2_fp/)     !
-    box_concnt(:,4)  = (/ 2.39256e-4_fp,  2.39256e-4_fp,  2.39256e-4_fp/)     !
-    box_concnt(:,5)  = (/ 8.02614e-8_fp,  8.02614e-8_fp,  8.02614e-8_fp/)     !
-    box_concnt(:,6)  = (/3.64386e-12_fp, 3.64386e-12_fp, 3.64386e-12_fp/)     ! [kg/m3]
-    box_concnt(:,7)  = (/2.23887e-17_fp, 2.23887e-17_fp, 2.23887e-17_fp/)     ! [kg/m3]
-    box_concnt(:,8)  = (/1.86168e-23_fp, 1.86168e-23_fp, 1.86168e-23_fp/)     ! [kg/m3]
-    box_concnt(:,9)  = (/3.19075e-38_fp, 3.19075e-38_fp, 3.19075e-38_fp/)     ! [kg/m3]
 
+
+!    box_concnt(:,1)  = (/ 3.89400e+1_fp,  3.89400e+1_fp,  3.89400e+1_fp/)     !
+!    box_concnt(:,2)  = (/ 5.26996e+0_fp,  5.26996e+0_fp,  5.26996e+0_fp/)     !
+!    box_concnt(:,3)  = (/ 9.65227e-2_fp,  9.65227e-2_fp,  9.65227e-2_fp/)     !
+!    box_concnt(:,4)  = (/ 2.39256e-4_fp,  2.39256e-4_fp,  2.39256e-4_fp/)     !
+!    box_concnt(:,5)  = (/ 8.02614e-8_fp,  8.02614e-8_fp,  8.02614e-8_fp/)     !
+!    box_concnt(:,6)  = (/3.64386e-12_fp, 3.64386e-12_fp, 3.64386e-12_fp/)     ! [kg/m3]
+!    box_concnt(:,7)  = (/2.23887e-17_fp, 2.23887e-17_fp, 2.23887e-17_fp/)     ! [kg/m3]
+!    box_concnt(:,8)  = (/1.86168e-23_fp, 1.86168e-23_fp, 1.86168e-23_fp/)     ! [kg/m3]
+!    box_concnt(:,9)  = (/3.19075e-38_fp, 3.19075e-38_fp, 3.19075e-38_fp/)     ! [kg/m3]
 
 
 !    box_concnt(:,1)   = (/ 4.95025e+1_fp,  4.95025e+1_fp,  4.95025e+1_fp/)     !
@@ -418,6 +436,10 @@ CONTAINS
          enddo
 
 
+         !---------------------------------------------------------------------------------------------------
+         ! Calculate the transporting speed between different rings based on
+         ! eddy diffusivity
+
          ! For the innest ring (i_ring = 1)
          ! kB should be rewrite in a more accurate equation !!!
          kB(1) = eddy_diffB(1) / ( (box_radiusB(i_box,2)-0.0) / 2.0 )
@@ -434,6 +456,18 @@ CONTAINS
          kB(n_rings_max) = eddy_diffB(n_rings_max)/(box_radiusB(i_box,n_rings_max)-box_radiusB(i_box,n_rings_max-1) )
          kA(n_rings_max) = eddy_diffA(n_rings_max)/(box_radiusA(i_box,n_rings_max)-box_radiusA(i_box,n_rings_max-1) )
 
+
+         ! Another method to calculate kA, kB
+!         do i_ring = 1, n_rings_max        
+
+!         kB(i_ring) = eddy_diffB(i_ring) / box_radiusB(i_box,i_ring)
+!         kA(i_ring) = eddy_diffA(i_ring) / box_radiusA(i_box,i_ring)
+
+!         enddo ! i_ring
+
+
+       ! --------------------------------------------------------------------------------------------------
+       ! Begin to calculate the transportation between different rings:
        Dt2 = 1.0
        do t1s = 1, int(Dt/Dt2)
 
@@ -495,13 +529,13 @@ CONTAINS
          env_amount(i_box) = env_amount(i_box) + Dt2*( AA_env(1)+2.0*AA_env(2)+2.0*AA_env(3)+AA_env(4) )/6.0
 
 
-       if(i_box==1)then
-         write(6,*) 'RK 1-4', RK(:,1)
+       !if(i_box==1)then
+       !  write(6,*) 'RK 1-4', RK(:,1)
        !  write(6,*)'= concentration 1-5 =>', box_concnt(i_box,1:5)
        !  write(6,*)'= concentration 6-10 =>', box_concnt(i_box,6:10)
        !  write(6,*)'= concentration 11-15 =>', box_concnt(i_box,11:15)
        !  write(6,*)'= total amount =>', t1s, sum( box_concnt(i_box,:)*DD(:) ) + env_amount(i_box)
-       endif
+       !endif
 
         if(i_box==1)then
 
