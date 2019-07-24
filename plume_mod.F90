@@ -38,9 +38,9 @@ MODULE Plume_Mod
   real(fp), allocatable :: box_length(:)
 
   ! D_radius should only be used at the beginning!
-  real(fp), parameter :: Init_radius = 10.0e+0_fp     ! [m], the width of each ring
-  real(fp), parameter :: D_radius    = 10.0e+0_fp     ! [m], the width of each ring
-  integer, parameter  :: n_rings_max = 100          ! Degine the number of rings in one box
+  real(fp), parameter :: Init_radius = 10.0e+0_fp !2.0e+0_fp ! 10.0e+0_fp     ! [m], the width of each ring
+  real(fp), parameter :: D_radius    = 10.0e+0_fp !2.0e+0_fp ! 10.0e+0_fp     ! [m], the width of each ring
+  integer, parameter  :: n_rings_max = 100        !500  ! 100          ! Degine the number of rings in one box
 
   ! medical concentration of each ring
   real(fp), allocatable :: box_concnt(:,:)    ! [kg/m3], box_concnt(n_boxes_max,N_rings)
@@ -97,8 +97,11 @@ CONTAINS
 
 
     box_lon    = (/5.0e+0_fp,  5.1e+0_fp,  5.2e+0_fp/)
-    box_lat    = (/4.0e+0_fp, 4.1e+0_fp, 4.2e+0_fp/)
+    box_lat    = (/4.0e+0_fp,  4.1e+0_fp,  4.2e+0_fp/)
     box_lev    = (/20.0e+0_fp, 20.0e+0_fp, 20.0e+0_fp/)      ! hPa
+
+!    box_radiusA(:,1)  = (/2.0e+0_fp,  2.0e+0_fp,  2.0e+0_fp/)     ! the value of the innest ring for every box
+!    box_radiusB(:,1)  = (/2.0e+0_fp,  2.0e+0_fp,  2.0e+0_fp/)     ! m
 
     box_radiusA(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! the value of the innest ring for every box
     box_radiusB(:,1)  = (/10.0e+0_fp,  10.0e+0_fp,  10.0e+0_fp/)     ! m
@@ -126,6 +129,57 @@ CONTAINS
     box_concnt(:,4)  = (/ 2.39256e-4_fp,  2.39256e-4_fp,  2.39256e-4_fp/)     !
     box_concnt(:,5)  = (/ 8.02614e-8_fp,  8.02614e-8_fp,  8.02614e-8_fp/)     !
     box_concnt(:,6)  = (/3.64386e-12_fp, 3.64386e-12_fp, 3.64386e-12_fp/)     ! [kg/m3]
+    box_concnt(:,7)  = (/2.23887e-17_fp, 2.23887e-17_fp, 2.23887e-17_fp/)     ! [kg/m3]
+    box_concnt(:,8)  = (/1.86168e-23_fp, 1.86168e-23_fp, 1.86168e-23_fp/)     ! [kg/m3]
+    box_concnt(:,9)  = (/3.19075e-38_fp, 3.19075e-38_fp, 3.19075e-38_fp/)     ! [kg/m3]
+
+
+
+!    box_concnt(:,1)   = (/ 4.95025e+1_fp,  4.95025e+1_fp,  4.95025e+1_fp/)     !
+!    box_concnt(:,2)   = (/ 4.56966e+1_fp,  4.56966e+1_fp,  4.56966e+1_fp/)     !
+!    box_concnt(:,3)   = (/ 3.89400e+1_fp,  3.89400e+1_fp,  3.89400e+1_fp/)     !
+!    box_concnt(:,4)   = (/ 3.06313e+1_fp,  3.06313e+1_fp,  3.06313e+1_fp/)     !
+!    box_concnt(:,5)   = (/ 2.22429e+1_fp,  2.22429e+1_fp,  2.22429e+1_fp/)     !
+!    box_concnt(:,6)   = (/ 1.49099e+1_fp,  1.49099e+1_fp,  1.49099e+1_fp/)     ![kg/m3]
+!    box_concnt(:,7)   = (/ 9.22598e+0_fp,  9.22598e+0_fp,  9.22598e+0_fp/)     !
+!    box_concnt(:,8)   = (/ 5.26996e+0_fp,  5.26996e+0_fp,  5.26996e+0_fp/)     !
+!    box_concnt(:,9)   = (/ 2.77881e+0_fp,  2.77881e+0_fp,  2.77881e+0_fp/)     !
+!    box_concnt(:,10)  = (/ 1.35259e+0_fp,  1.35259e+0_fp,  1.35259e+0_fp/)     !
+!    box_concnt(:,11)  = (/ 6.07759e-1_fp,  6.07759e-1_fp,  6.07759e-1_fp/)     !
+!    box_concnt(:,12)  = (/ 2.52088e-1_fp,  2.52088e-1_fp,  2.52088e-1_fp/)     !
+!    box_concnt(:,13)  = (/ 9.65227e-2_fp,  9.65227e-2_fp,  9.65227e-2_fp/)     !
+!    box_concnt(:,14)  = (/ 3.41164e-2_fp,  3.41164e-2_fp,  3.41164e-2_fp/)     !
+!    box_concnt(:,15)  = (/ 1.11315e-2_fp,  1.11315e-2_fp,  1.11315e-2_fp/)
+!    box_concnt(:,16)  = (/ 3.35274e-3_fp,  3.35274e-3_fp,  3.35274e-3_fp/)     !
+!    box_concnt(:,17)  = (/ 9.32187e-4_fp,  9.32187e-4_fp,  9.32187e-4_fp/)     !
+!    box_concnt(:,18)  = (/ 2.39256e-4_fp,  2.39256e-4_fp,  2.39256e-4_fp/)     !
+!    box_concnt(:,19)  = (/ 5.66864e-5_fp,  5.66864e-5_fp,  5.66864e-5_fp/)     !
+!    box_concnt(:,20)  = (/ 1.23980e-5_fp,  1.23980e-5_fp,  1.23980e-5_fp/)     !
+!    box_concnt(:,21)  = (/ 2.50311e-6_fp,  2.50311e-6_fp,  2.50311e-6_fp/)     !
+!    box_concnt(:,22)  = (/ 4.66514e-7_fp,  4.66514e-7_fp,  4.66514e-7_fp/)     !
+!    box_concnt(:,23)  = (/ 8.02614e-8_fp,  8.02614e-8_fp,  8.02614e-8_fp/)     !
+!    box_concnt(:,24)  = (/ 1.27469e-8_fp,  1.27469e-8_fp,  1.27469e-8_fp/)
+!    box_concnt(:,25)  = (/ 1.86879e-9_fp,  1.86879e-9_fp,  1.86879e-9_fp/)     !
+!    box_concnt(:,26)  = (/2.52913e-10_fp, 2.52913e-10_fp, 2.52913e-10_fp/)     !
+!    box_concnt(:,27)  = (/3.15964e-11_fp, 3.15964e-11_fp, 3.15964e-11_fp/)     !
+!    box_concnt(:,28)  = (/3.64386e-12_fp, 3.64386e-12_fp, 3.64386e-12_fp/)     !
+!    box_concnt(:,29)  = (/3.87920e-13_fp, 3.87920e-13_fp, 3.87920e-13_fp/)     !
+!    box_concnt(:,30)  = (/3.81223e-14_fp, 3.81223e-14_fp, 3.81223e-14_fp/)     !
+!    box_concnt(:,31)  = (/3.45838e-15_fp, 3.45838e-15_fp, 3.45838e-15_fp/)     !
+!    box_concnt(:,32)  = (/2.89616e-16_fp, 2.89616e-16_fp, 2.89616e-16_fp/)     !
+!    box_concnt(:,33)  = (/2.23887e-17_fp, 2.23887e-17_fp, 2.23887e-17_fp/)
+!    box_concnt(:,34)  = (/1.59768e-18_fp, 1.59768e-18_fp, 1.59768e-18_fp/)     !
+!    box_concnt(:,35)  = (/1.05247e-19_fp, 1.05247e-19_fp, 1.05247e-19_fp/)     !
+!    box_concnt(:,36)  = (/6.40008e-21_fp, 6.40008e-21_fp, 6.40008e-21_fp/)     !
+!    box_concnt(:,37)  = (/3.59267e-22_fp, 3.59267e-22_fp, 3.59267e-22_fp/)     !
+!    box_concnt(:,38)  = (/1.86168e-23_fp, 1.86168e-23_fp, 1.86168e-23_fp/)     !
+!    box_concnt(:,39)  = (/8.90533e-25_fp, 8.90533e-25_fp, 8.90533e-25_fp/)     !
+!    box_concnt(:,40)  = (/3.93234e-26_fp, 3.93234e-26_fp, 3.93234e-26_fp/)     !
+!    box_concnt(:,41)  = (/1.60291e-27_fp, 1.60291e-27_fp, 1.60291e-27_fp/)     !
+!    box_concnt(:,42)  = (/6.03147e-29_fp, 6.03147e-29_fp, 6.03147e-29_fp/)     !
+!    box_concnt(:,43)  = (/2.09505e-30_fp, 2.09505e-30_fp, 2.09505e-30_fp/)
+!    box_concnt(:,44)  = (/6.71770e-32_fp, 6.71770e-32_fp, 6.71770e-32_fp/)     !
+!    box_concnt(:,45)  = (/1.98840e-33_fp, 1.98840e-33_fp, 1.98840e-33_fp/)     !
 
 
     env_amount = (/0.0e+0_fp, 0.0e+0_fp, 0.0e+0_fp/)
@@ -138,10 +192,10 @@ CONTAINS
     OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-    Do i_ring = 1, n_rings_max
-       WRITE(262,'(I0.4,3(x,E16.5E4))') i_ring, box_theta(1), box_radiusA(1,i_ring), box_radiusB(1,i_ring)
-    End Do
-
+    !Do i_ring = 1, n_rings_max
+    !   WRITE(262,'(I0.4,3(x,E16.5E4))') i_ring, box_theta(1), box_radiusA(1,i_ring), box_radiusB(1,i_ring)
+    !End Do
+    write(262,*)box_concnt(1,1:n_rings_max)
 
   END SUBROUTINE plume_init
 
@@ -169,7 +223,7 @@ CONTAINS
     !TYPE(ChmState), intent(inout) :: State_Chm
     TYPE(OptInput), intent(in) :: Input_Opt
 
-    REAL :: Dt          ! = 600.0e+0_fp          
+    REAL :: Dt, Dt2          ! = 600.0e+0_fp          
 
     integer :: i_box, i_ring
 
@@ -224,7 +278,7 @@ CONTAINS
     FILENAME2   = 'Plume_theta_max_min_radius.txt'
 
 
-    Dt = GET_TS_DYN()
+    Dt  = GET_TS_DYN()
 
     u => State_Met%U   ! figure out state_met%U is based on lat/lon or modelgrid(i,j)
     v => State_Met%V   ! V [m s-1]
@@ -355,10 +409,9 @@ CONTAINS
          V_shear = Vertical_shear(v, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
          UV_shear = sqrt( U_shear**2 + V_shear**2 )
          do i_ring=1,n_rings_max
-          !eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
+          ! eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
           ! attention ***
           eddy_h(i_ring) = 1.0
-
 
           eddy_diffA(i_ring) = eddy_v*cos(box_theta(i_box)) + eddy_h(i_ring)*sin(abs(box_theta(i_box))) ! a
           eddy_diffB(i_ring) = eddy_v*sin(abs(box_theta(i_box))) + eddy_h(i_ring)*cos(box_theta(i_box)) ! b
@@ -381,8 +434,8 @@ CONTAINS
          kB(n_rings_max) = eddy_diffB(n_rings_max)/(box_radiusB(i_box,n_rings_max)-box_radiusB(i_box,n_rings_max-1) )
          kA(n_rings_max) = eddy_diffA(n_rings_max)/(box_radiusA(i_box,n_rings_max)-box_radiusA(i_box,n_rings_max-1) )
 
-
-       do t1s=1,int(Dt)
+       Dt2 = 1.0
+       do t1s = 1, int(Dt/Dt2)
 
        ! Use classical Runge-Kutta method (RK4) to solve the diferential
        ! equation
@@ -392,9 +445,9 @@ CONTAINS
            if(Ki==1)then
              box_concnt_K(i_ring) = box_concnt(i_box,i_ring)
            else if(Ki==4)then
-             box_concnt_K(i_ring) = box_concnt(i_box,i_ring) + RK(3,i_ring)*1.0 !Dt
+             box_concnt_K(i_ring) = box_concnt(i_box,i_ring) + RK(3,i_ring)*Dt2 !Dt
            else
-             box_concnt_K(i_ring) = box_concnt(i_box,i_ring) + RK(Ki-1,i_ring)*1.0*0.5 !Dt
+             box_concnt_K(i_ring) = box_concnt(i_box,i_ring) + RK(Ki-1,i_ring)*Dt2*0.5 !Dt
            endif
          enddo ! i_ring
 
@@ -426,37 +479,37 @@ CONTAINS
 
          BB(n_rings_max) = ( kB(n_rings_max-1)*box_radiusA(i_box,n_rings_max-1) + kA(n_rings_max-1)*box_radiusB(i_box,n_rings_max-1) ) * ( box_concnt_K(n_rings_max-1) - box_concnt_K(n_rings_max) ) 
 
-         DD(n_rings_max) = box_radiusA(i_box,n_rings_max)*box_radiusB(i_box,n_rings_max)   &
-                   - box_radiusA(i_box,n_rings_max-1)*box_radiusB(i_box,n_rings_max-1)
+         DD(n_rings_max) = box_radiusA(i_box,n_rings_max) * box_radiusB(i_box,n_rings_max) - box_radiusA(i_box,n_rings_max-1) * box_radiusB(i_box,n_rings_max-1)
 
-         RK(Ki,n_rings_max) = (AA(n_rings_max)+BB(n_rings_max))/DD(n_rings_max)
+         RK(Ki,n_rings_max) = ( AA(n_rings_max) + BB(n_rings_max) ) / DD(n_rings_max)
 
-         AA_env(Ki) = -1.0*AA(n_rings_max)
+         AA_env(Ki) = -1.0 * AA(n_rings_max)
 
 
        enddo ! Ki
 
 
        do i_ring = 1,n_rings_max
-         box_concnt(i_box,i_ring) = box_concnt(i_box,i_ring) + 1.0*( RK(1,i_ring)+2.0*RK(2,i_ring)+2.0*RK(3,i_ring)+RK(4,i_ring) )/6.0 ! Dt
+         box_concnt(i_box,i_ring) = box_concnt(i_box,i_ring) + Dt2*( RK(1,i_ring)+2.0*RK(2,i_ring)+2.0*RK(3,i_ring)+RK(4,i_ring) )/6.0 ! Dt
        enddo !i_ring
-         env_amount(i_box) = env_amount(i_box) + 1.0*( AA_env(1)+2.0*AA_env(2)+2.0*AA_env(3)+AA_env(4) )/6.0
+         env_amount(i_box) = env_amount(i_box) + Dt2*( AA_env(1)+2.0*AA_env(2)+2.0*AA_env(3)+AA_env(4) )/6.0
 
 
-       !if(i_box==1)then
+       if(i_box==1)then
+         write(6,*) 'RK 1-4', RK(:,1)
        !  write(6,*)'= concentration 1-5 =>', box_concnt(i_box,1:5)
        !  write(6,*)'= concentration 6-10 =>', box_concnt(i_box,6:10)
        !  write(6,*)'= concentration 11-15 =>', box_concnt(i_box,11:15)
        !  write(6,*)'= total amount =>', t1s, sum( box_concnt(i_box,:)*DD(:) ) + env_amount(i_box)
-       !endif
+       endif
 
         if(i_box==1)then
 
          OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='OLD', &
                FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-         WRITE(262,*)'= theta/radius 1,2 =>', box_theta(1), box_radiusA(1,1), box_radiusB(1,1), box_radiusA(1,2), box_radiusB(1,2)
-         write(262,*)'= concent 1-6 =>', box_concnt(1,1:6)
+         ! WRITE(262,*)'= theta/radius 1,2 =>', box_theta(1), box_radiusA(1,1), box_radiusB(1,1), box_radiusA(1,2), box_radiusB(1,2)
+         write(262,*)box_concnt(1,1:n_rings_max)
 
         endif
 
