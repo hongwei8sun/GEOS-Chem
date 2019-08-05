@@ -32,6 +32,16 @@ MODULE Plume_Mod
   real(fp), allocatable :: box_radiusA(:,:)   ! vertical radius
   real(fp), allocatable :: box_radiusB(:,:)   ! horizontal radius of the the cross-section
 
+  real(fp), allocatable :: box_radiusA_big
+  real(fp), allocatable :: box_radiusB_big
+  real(fp), allocatable :: box_radiusA_small
+  real(fp), allocatable :: box_radiusB_small
+
+  real(fp), allocatable :: box_Dvolumn_big
+  real(fp), allocatable :: box_Dvolumn_small
+  real(fp), allocatable :: box_volumn
+  real(fp), allocatable :: box_volumn_new
+
 
   ! Theta is the clockwise angle between z-axis (P) and vertical radiusA
   real(fp), allocatable :: box_theta(:)    ! 0 ~ 180 degree
@@ -44,6 +54,7 @@ MODULE Plume_Mod
 
   ! medical concentration of each ring
   real(fp), allocatable :: box_concnt(:,:)    ! [kg/m3], box_concnt(n_boxes_max,N_rings)
+  real(fp), allocatable :: Delt_concnt_12
   real(fp), allocatable :: box_concnt_K(:)    ! [kg/m3], box_concnt_K(N_rings_max)
   real(fp), allocatable :: RK(:,:), AA_env(:)  ! for Runge-Kutta method
   real(fp), allocatable :: eddy_h(:)  ! 
@@ -507,6 +518,23 @@ CONTAINS
        Dt2 = 1.0    ! 0.1     ! 1.0
        do t1s = 1, int(Dt/Dt2)
 
+
+         ! For the innest ring:
+         box_radiusA_big   = sqrt(box_radiusA(i_box,1)**2.0+2.0*eddy_diffA(1)*Dt2)
+         box_radiusA_small = sqrt(box_radiusA(i_box,1)**2.0-2.0*eddy_diffA(1)*Dt2)
+         box_radiusB_big   = sqrt(box_radiusB(i_box,1)**2.0+2.0*eddy_diffB(1)*Dt2)
+         box_radiusB_small = sqrt(box_radiusB(i_box,1)**2.0-2.0*eddy_diffB(1)*Dt2)
+
+         box_Dvolumn_big   = PI*( box_radiusA_big*box_radiusB_big - box_radiusA(i_box,1)*box_radiusB(i_box,1) )
+         box_Dvolumn_small = PI*( box_radiusA(i_box,1)*box_radiusB(i_box,1) - box_radiusA_small*box_radiusB_small )
+ 
+         box_volumn     = PI * box_radiusA(i_box,1) * box_radiusB(i_box,1)
+
+         Delt_concnt_12 = ( box_concnt(i_box,2)*box_Dvolumn_small - box_concnt(i_box,1)*box_Dvolumn_big )
+
+         box_concnt(i_box,1) = box_concnt(i_box,1) - Delt_concnt_12/box_volumn
+
+
        ! Use classical Runge-Kutta method (RK4) to solve the diferential
        ! equation
        do Ki = 1,4
@@ -522,34 +550,34 @@ CONTAINS
          enddo ! i_ring
 
  
-         AA(1) = ( kB(1)*box_radiusA(i_box,1) + kA(1)*box_radiusB(i_box,1) ) * ( box_concnt_K(2) - box_concnt_K(1) )
+         AA(2) = PI* ( kB(1)*box_radiusA(i_box,1) + kA(1)*box_radiusB(i_box,1) ) * ( box_concnt_K(2) - box_concnt_K(1) )
 
-         BB(1) = 0.0
+         BB(2) = Delt_concnt_12
 
-         DD(1) = box_radiusA(i_box,1) * box_radiusB(i_box,1)
+         DD(2) = box_radiusA(i_box,2) * box_radiusB(i_box,2)
 
-         RK(Ki,1)          = AA(1)/DD(1)
+         RK(Ki,2)          = ( AA(2)+BB(2) ) / DD(2)
 
 
          ! For rings from 2 to (n_rings_max - 1)
-         do i_ring = 2, n_rings_max-1
+         do i_ring = 3, n_rings_max-1
 
-           AA(i_ring) = ( kB(i_ring)*box_radiusA(i_box,i_ring) + kA(i_ring)*box_radiusB(i_box,i_ring) ) * ( box_concnt_K(i_ring+1) - box_concnt_K(i_ring) )
+           AA(i_ring) = PI* ( kB(i_ring)*box_radiusA(i_box,i_ring) + kA(i_ring)*box_radiusB(i_box,i_ring) ) * ( box_concnt_K(i_ring+1) - box_concnt_K(i_ring) )
 
-           BB(i_ring) = ( kB(i_ring-1)*box_radiusA(i_box,i_ring-1) + kA(i_ring-1)*box_radiusB(i_box,i_ring-1) ) * ( box_concnt_K(i_ring-1) - box_concnt_K(i_ring) ) 
+           BB(i_ring) = PI* ( kB(i_ring-1)*box_radiusA(i_box,i_ring-1) + kA(i_ring-1)*box_radiusB(i_box,i_ring-1) ) * ( box_concnt_K(i_ring-1) - box_concnt_K(i_ring) ) 
 
-           DD(i_ring) = box_radiusA(i_box,i_ring)*box_radiusB(i_box,i_ring) - box_radiusA(i_box,i_ring-1)*box_radiusB(i_box,i_ring-1)
+           DD(i_ring) = PI* ( box_radiusA(i_box,i_ring)*box_radiusB(i_box,i_ring) - box_radiusA(i_box,i_ring-1)*box_radiusB(i_box,i_ring-1) )
 
            RK(Ki,i_ring) = (AA(i_ring)+BB(i_ring))/DD(i_ring)
 
          enddo ! i_ring
  
 
-         AA(n_rings_max) = ( kB(n_rings_max)*box_radiusA(i_box,n_rings_max) + kA(n_rings_max)*box_radiusB(i_box,n_rings_max) ) * ( 0 - box_concnt_K(n_rings_max) ) 
+         AA(n_rings_max) = PI* ( kB(n_rings_max)*box_radiusA(i_box,n_rings_max) + kA(n_rings_max)*box_radiusB(i_box,n_rings_max) ) * ( 0 - box_concnt_K(n_rings_max) ) 
 
-         BB(n_rings_max) = ( kB(n_rings_max-1)*box_radiusA(i_box,n_rings_max-1) + kA(n_rings_max-1)*box_radiusB(i_box,n_rings_max-1) ) * ( box_concnt_K(n_rings_max-1) - box_concnt_K(n_rings_max) ) 
+         BB(n_rings_max) = PI* ( kB(n_rings_max-1)*box_radiusA(i_box,n_rings_max-1) + kA(n_rings_max-1)*box_radiusB(i_box,n_rings_max-1) ) * ( box_concnt_K(n_rings_max-1) - box_concnt_K(n_rings_max) ) 
 
-         DD(n_rings_max) = box_radiusA(i_box,n_rings_max) * box_radiusB(i_box,n_rings_max) - box_radiusA(i_box,n_rings_max-1) * box_radiusB(i_box,n_rings_max-1)
+         DD(n_rings_max) = PI* box_radiusA(i_box,n_rings_max) * box_radiusB(i_box,n_rings_max) - box_radiusA(i_box,n_rings_max-1) * box_radiusB(i_box,n_rings_max-1)
 
          RK(Ki,n_rings_max) = ( AA(n_rings_max) + BB(n_rings_max) ) / DD(n_rings_max)
 
@@ -559,7 +587,7 @@ CONTAINS
        enddo ! Ki
 
 
-       do i_ring = 1,n_rings_max
+       do i_ring = 2 , n_rings_max
          box_concnt(i_box,i_ring) = box_concnt(i_box,i_ring) + Dt2*( RK(1,i_ring)+2.0*RK(2,i_ring)+2.0*RK(3,i_ring)+RK(4,i_ring) )/6.0 ! Dt
        enddo !i_ring
          env_amount(i_box) = env_amount(i_box) + Dt2*( AA_env(1)+2.0*AA_env(2)+2.0*AA_env(3)+AA_env(4) )/6.0
