@@ -475,8 +475,11 @@ CONTAINS
 
          ! For the innest ring (i_ring = 1)
          ! kB should be rewrite in a more accurate equation !!!
-         kB(1) = eddy_diffB(1) / ( (box_radiusB(i_box,2)-0.0) / 2.0 )
-         kA(1) = eddy_diffA(1) / ( (box_radiusA(i_box,2)-0.0) / 2.0 )
+!         kB(1) = eddy_diffB(1) / ( (box_radiusB(i_box,2)-0.0) / 2.0 )
+!         kA(1) = eddy_diffA(1) / ( (box_radiusA(i_box,2)-0.0) / 2.0 )
+         kB(1) = eddy_diffB(1) / ( box_radiusB(i_box,1) + (box_radiusB(i_box,2)-box_radiusB(i_box,1)) / 2.0 )
+         kA(1) = eddy_diffA(1) / ( box_radiusA(i_box,1) + (box_radiusA(i_box,2)-box_radiusA(i_box,1)) / 2.0 )
+
 
          do i_ring = 2, n_rings_max-1
 
@@ -501,7 +504,7 @@ CONTAINS
 
        ! --------------------------------------------------------------------------------------------------
        ! Begin to calculate the transportation between different rings:
-       Dt2 = 0.1        ! 1.0
+       Dt2 = 1.0    ! 0.1     ! 1.0
        do t1s = 1, int(Dt/Dt2)
 
        ! Use classical Runge-Kutta method (RK4) to solve the diferential
@@ -571,21 +574,21 @@ CONTAINS
        !endif
 
         if(i_box==1)then
-        if(MOD(t1s,10)==0)then
+!        if(MOD(t1s,10)==0)then
 
          OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='OLD', &
                FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-         WRITE(262,*)'==>', t1s, box_theta(1), box_radiusA(1,1), box_radiusB(1,1), box_radiusA(1,2), box_radiusB(1,2)
-         WRITE(262,*)'kA', kA(:)
-         WRITE(262,*)'kB', kB(:)
-         WRITE(262,*)'AA', AA(:)
-         WRITE(262,*)'BB', BB(:)
-         WRITE(262,*)'DD', DD(:)
+!         WRITE(262,*)'==>', t1s, box_theta(1), box_radiusA(1,1), box_radiusB(1,1), box_radiusA(1,2), box_radiusB(1,2)
+!         WRITE(262,*)'kA', kA(:)
+!         WRITE(262,*)'kB', kB(:)
+!         WRITE(262,*)'AA', AA(:)
+!         WRITE(262,*)'BB', BB(:)
+!         WRITE(262,*)'DD', DD(:)
          write(262,*) box_concnt(1,1:n_rings_max)
 
         endif ! if(i_box==1)then
-        endif ! if(MOD(t1s,10)==0)then
+!        endif ! if(MOD(t1s,10)==0)then
 
        enddo ! t1s
 
