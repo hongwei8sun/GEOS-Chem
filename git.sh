@@ -1,7 +1,7 @@
 #!/bin/sh 
     git add .
     git status
-    git commit -m "innest ring use expanding method, rest rings use transport flux"
+    git commit -m "new method: using 1D to get 2D"
 #    git remote add origin https://github.com/hongwei8sun/GEOS-Chem.git
     git pull origin master
     git push origin master
