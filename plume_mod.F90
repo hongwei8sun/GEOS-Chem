@@ -49,7 +49,7 @@ MODULE Plume_Mod
   ! D_radius should only be used at the beginning!
   real(fp), parameter :: Init_radius = 10.0e+0_fp      ! [m], the width of each ring
   real(fp), parameter :: D_radius    = 10.0e+0_fp      ! [m], the width of each ring
-  integer, parameter  :: n_rings_max = 100               ! Degine the number of rings in one box
+  integer, parameter  :: n_rings_max = 500               ! Degine the number of rings in one box
 
   ! medical concentration of each ring
   real(fp), allocatable :: box_concnt(:,:)      ! [kg/m3], box_concnt(n_boxes_max,N_rings)
@@ -159,6 +159,9 @@ CONTAINS
 
         Init_amount = 1.0
 
+!        box_concntA(1,1) = 1.0/5.0/2.0
+!        box_concntB(1,1) = 1.0/5.0/2.0
+
         ! the width of each ring is 10 meters    
         box_concntA(1,1:50) = (/0.003990434422338111, 0.003970532047626462, 0.003911418526693425, 0.0038148452591753547, 0.0036836352444442225, 0.0035215460176803324, 0.003333091003569171, 0.003123331131920607, 0.0028976501132865293, 0.0026615272249509514, 0.002420320822720736, 0.002179074189221644,0.0019423529573334018, 0.0017141204685727559, 0.0014976543279421662,0.0012955043810437587, 0.0011094896144223894, 0.0009407292588196733,0.0007897017809591875, 0.0006563245331208338, 0.0005400465727842572,0.00043994749125587674, 0.0003548358831999168, 0.00028334220773294154,0.00022400208990311328, 0.00017532745234282972, 0.0001358641353659439,0.00010423577304107724, 7.917458744480698e-05, 5.954041833835127e-05,4.432972218383701e-05, 3.2676474401993346e-05, 2.3846927468912365e-05,1.7230057396607686e-05, 1.2325316285834113e-05, 8.72903985655587e-06,6.120570932126139e-06, 4.248879842543077e-06, 2.9202095626509314e-06,1.9870584547565455e-06, 1.3386416177901846e-06, 8.928429171161266e-07,5.895801425139183e-07, 3.854496830881495e-07, 2.494879607993849e-07,1.5987794185804532e-07, 1.0143423533158182e-07, 6.371440407983393e-08,3.9623035778822646e-08, 2.4395792056312046e-08/)
         box_concntB(1,1:50) = (/0.003990434422338111, 0.003970532047626462, 0.003911418526693425, 0.0038148452591753547, 0.0036836352444442225, 0.0035215460176803324, 0.003333091003569171, 0.003123331131920607, 0.0028976501132865293, 0.0026615272249509514, 0.002420320822720736, 0.002179074189221644,0.0019423529573334018, 0.0017141204685727559, 0.0014976543279421662,0.0012955043810437587, 0.0011094896144223894, 0.0009407292588196733,0.0007897017809591875, 0.0006563245331208338, 0.0005400465727842572,0.00043994749125587674, 0.0003548358831999168, 0.00028334220773294154,0.00022400208990311328, 0.00017532745234282972, 0.0001358641353659439,0.00010423577304107724, 7.917458744480698e-05, 5.954041833835127e-05,4.432972218383701e-05, 3.2676474401993346e-05, 2.3846927468912365e-05,1.7230057396607686e-05, 1.2325316285834113e-05, 8.72903985655587e-06,6.120570932126139e-06, 4.248879842543077e-06, 2.9202095626509314e-06,1.9870584547565455e-06, 1.3386416177901846e-06, 8.928429171161266e-07,5.895801425139183e-07, 3.854496830881495e-07, 2.494879607993849e-07,1.5987794185804532e-07, 1.0143423533158182e-07, 6.371440407983393e-08,3.9623035778822646e-08, 2.4395792056312046e-08/)
@@ -215,7 +218,7 @@ CONTAINS
     !TYPE(ChmState), intent(inout) :: State_Chm
     TYPE(OptInput), intent(in) :: Input_Opt
 
-    REAL :: Dt          ! = 600.0e+0_fp          
+    REAL :: Dt, Dt2          ! = 600.0e+0_fp          
 
     integer :: i_box, i_ring
 
@@ -414,7 +417,8 @@ CONTAINS
          ! Calculate the interaction/teansporting between adjacent rings
          !===========================================================================
 
-       do t1s=1,int(Dt)
+        Dt2 = 1.0
+       do t1s=1,int(Dt/Dt2)
 
          do i_ring = 1, n_rings_max
 
@@ -426,7 +430,7 @@ CONTAINS
 
          ! For inest ring (i_ring=1):
          box_concntA(i_box,1) = box_concntA_old(i_box,1)  &
-             + eddy_diffA(1)                             &
+             + Dt2 * eddy_diffA(1)                             &
              * ( (box_concntA_old(i_box,2)-box_concntA_old(i_box,1))/D_radius - (box_concntA_old(i_box,1)-box_concntA_old(i_box,2))/D_radius ) &
              / D_radius
 
@@ -434,7 +438,7 @@ CONTAINS
         ! Change the box_radiusA used here !!!
 
          box_concntB(i_box,1) = box_concntB_old(i_box,1)  &
-             + eddy_diffB(1)                             &
+             + Dt2 * eddy_diffB(1)                             &
              * ( (box_concntB_old(i_box,2)-box_concntB_old(i_box,1))/D_radius - (box_concntB_old(i_box,1)-box_concntB_old(i_box,2))/D_radius ) &
              / D_radius
 
@@ -442,27 +446,26 @@ CONTAINS
          ! For the ring between 2 and n_rings_max:
          do i_ring = 2, n_rings_max-1
            box_concntA(i_box,i_ring) = box_concntA_old(i_box,i_ring) &
-             + eddy_diffA(i_ring)                                   &
+             + Dt2 * eddy_diffA(i_ring)                                   &
              * ( (box_concntA_old(i_box,i_ring+1)-box_concntA_old(i_box,i_ring))/D_radius - (box_concntA_old(i_box,i_ring)-box_concntA_old(i_box,i_ring-1))/D_radius ) &
              / D_radius
 
            box_concntB(i_box,i_ring) = box_concntB_old(i_box,i_ring) &
-             + eddy_diffB(i_ring)                                   &
+             + Dt2 * eddy_diffB(i_ring)                                   &
              * ( (box_concntB_old(i_box,i_ring+1)-box_concntB_old(i_box,i_ring))/D_radius - (box_concntB_old(i_box,i_ring)-box_concntB_old(i_box,i_ring-1))/D_radius ) &
              / D_radius
 
-           write(6,*)'test=>', box_concntB_old(i_box,i_ring), eddy_diffB(i_ring),box_concntB_old(i_box,i_ring+1) , D_radius
 
          enddo
 
          ! For outest ring:
          box_concntA(i_box,n_rings_max) = box_concntA_old(i_box,n_rings_max) &
-             + eddy_diffA(n_rings_max)                                      &
+             + Dt2 * eddy_diffA(n_rings_max)                                      &
              * ( (0.0-box_concntA_old(i_box,n_rings_max))/D_radius - (box_concntA_old(i_box,n_rings_max)-box_concntA_old(i_box,n_rings_max-1))/D_radius ) &
              / D_radius
 
          box_concntB(i_box,n_rings_max) = box_concntB_old(i_box,n_rings_max) &
-             + eddy_diffB(n_rings_max)                                      &
+             + Dt2 * eddy_diffB(n_rings_max)                                      &
              * ( (0.0-box_concntB_old(i_box,n_rings_max))/D_radius - (box_concntB_old(i_box,n_rings_max)-box_concntB_old(i_box,n_rings_max-1))/D_radius ) &
              / D_radius
 
@@ -473,14 +476,24 @@ CONTAINS
          enddo       
 
 !
-!         env_amount(i_box) = env_amount(i_box) + box_concnt(i_box,n_rings_max) * box_Dvolumn_big(i_box,n_rings_max)
+!         env_amount(i_box) = env_amount(i_box) + (box_concntA_old(i_box,n_rings_max)-0.0)/(D_radius**2) * (box_concntB_old(i_box,n_rings_max)-0.0)/(D_radius**2)
 
-         !if(i_box==1)then
+         do i_ring = 1,n_rings_max
+           if(i_ring==1)then
+              box_volumn(i_box,i_ring) = PI * box_radiusA(i_box,i_ring) * box_radiusB(i_box,i_ring)
+           else
+              box_volumn(i_box,i_ring) = PI*( box_radiusA(i_box,i_ring)*box_radiusB(i_box,i_ring) - box_radiusA(i_box,i_ring-1)*box_radiusB(i_box,i_ring-1) )
+           endif
+         enddo
+
+
+         if(i_box==1)then
          !  write(6,*)'= concentration 1-5 =>', box_concnt(i_box,1:5)
          !  write(6,*)'= concentration 6-10 =>', box_concnt(i_box,6:10)
          !  write(6,*)'= concentration 11-15 =>', box_concnt(i_box,11:15)
-         !  write(6,*)'= total amount =>', t1s, sum( box_concnt(i_box,:)* box_volumn(i_box,:) ) + env_amount(i_box)
-         !endif
+           write(6,*)'= total amount =>', t1s, sum( box_concnt(i_box,:)*box_volumn(i_box,:) ), box_concnt(i_box,n_rings_max)
+           write(6,*)box_concnt(i_box,1)*box_volumn(i_box,1), box_concnt(i_box,2)*box_volumn(i_box,2), box_concnt(i_box,3)*box_volumn(i_box,3), box_concnt(i_box,4)*box_volumn(i_box,4)
+         endif
 
          if(i_box==1)then
 
