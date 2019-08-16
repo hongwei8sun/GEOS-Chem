@@ -11,47 +11,38 @@ import math
 #
 PI = 3.14
  
-Sigma_h0 = 10.0  # [m]
-Sigma_v0 = 10.0
+Sigma_h0 = 100.0  # [m]
 
 D_h = 1.0  # [m2/s]
-D_v = 1.0
 
-C0 = 100.0*PI*10*10  # [kg/m]
+C0 = 1.0  # [kg/m2]
 
-print(C0)
+x = [0.0]
+C = [2.5]
 
-x = [5.0]
-z = [5.0]
-C = [0.0]
-
-N_time = 4009
+N_time = 5000
 N_ring = 100
 
 for i in range(N_ring-1):
-	x.append( (i+1.5)*10.0 )
-	z.append( (i+1.5)*10.0 )
+	x.append( (i+1)*10.0 )
 	C.append( 0.0 )
 
 
 Sigma_h = Sigma_h0
-Sigma_v = Sigma_v0
 
 print(x)
 
 for i in range(N_ring):
-	C[i] = C0 / (2.0*PI*Sigma_h*Sigma_v) * math.exp(-0.5*( x[i]**2/Sigma_h**2 + z[i]**2/Sigma_v**2 ))
-print(C[0:20])
-
+	C[i] = C0 / (math.sqrt(2.0*PI)*Sigma_h) * math.exp(-0.5*( x[i]**2/Sigma_h**2))
+print(C[0:50])
 
 for t in range(1,N_time,1):
 	
 	print(t)
 	Sigma_h = math.sqrt(Sigma_h0**2 + 2.0 * D_h * t)
-	Sigma_v = math.sqrt(Sigma_v0**2 + 2.0 * D_v * t)
 
 	for i in range(N_ring):
-		C[i] = C0 / (2.0*PI*Sigma_h*Sigma_v) * math.exp(-0.5*( x[i]**2/Sigma_h**2 + z[i]**2/Sigma_v**2 ))
+		C[i] = C0 / (math.sqrt(2.0*PI)*Sigma_h) * math.exp( -0.5* ( x[i]**2/Sigma_h**2 ) ) 
 	print(C[0:30])
 
 
