@@ -13,8 +13,17 @@ from matplotlib import patches
 
 #
 xcenter, ycenter = 0.0, 0.0
-width, height = 4, 2
-angle = -30
+widths  = [200, 269.69, 413.43, 578.44, 750.83, 926.48]
+heights = [200, 148.32,  96.75, 69.151, 53.275, 43.174]
+
+widths2   = [400, 539.38, 826.87, 1159.9, 1501.7, 1853.0]
+heights2  = [400, 296.64, 193.50,  138.3, 106.55, 86.348]
+
+angles   = [0.0, 0.73535, 1.0659, 1.2178, 1.3012, 1.3532]
+
+width  = 200
+height = 200
+angle  = 0.0
 
 theta = np.deg2rad(np.arange(0.0, 360.0, 1.0))
 x = 0.9 * width * np.cos(theta)
@@ -32,31 +41,25 @@ x += xcenter
 y += ycenter
 
 #
-fig = plt.figure(figsize=(30, 10))
+for i in range(6):
+    fig = plt.figure(figsize=(30, 10))
+    ax = fig.add_subplot(111)
 
-ax = fig.add_subplot(111)
+    ax.fill(x, y, alpha=0.5, facecolor='white',
+            edgecolor='white', linewidth=1, zorder=1)
 
-ax.fill(x, y, alpha=0.5, facecolor='white',
-        edgecolor='white', linewidth=1, zorder=1)
-
-e1 = patches.Ellipse((xcenter, ycenter), width, height,
-                     angle=0, linewidth=2, fill=False, zorder=2)
-
-ax.add_patch(e1)
-
-
-e1 = patches.Ellipse((xcenter, ycenter), width, height,
-                     angle=45, linewidth=2, fill=False, zorder=2)
-
-ax.add_patch(e1)
-
-
-e1 = patches.Ellipse((xcenter, ycenter), width, height,
-                     angle=90, linewidth=2, fill=False, zorder=2)
-
-ax.add_patch(e1)
-
-plt.ylim(-5, 5)
-plt.xlim(-15, 15)
-
-fig.savefig('ellipse_compare')
+    e1 = patches.Ellipse((xcenter, ycenter), widths[i], heights[i],
+                angle=90-angles[i]/3.14*180.0, linewidth=2, fill=False, zorder=2)
+    
+    e2 = patches.Ellipse((xcenter, ycenter), widths2[i], heights2[i],
+                angle=90-angles[i]/3.14*180.0, linewidth=2, fill=False, zorder=2)
+    
+    print(widths[i])
+    
+    ax.add_patch(e1)
+    ax.add_patch(e2)
+    
+    plt.ylim(-600, 600)
+    plt.xlim(-1800, 1800)
+    
+    fig.savefig(str(i)+'_ellipse')
