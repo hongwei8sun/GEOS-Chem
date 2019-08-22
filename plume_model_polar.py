@@ -16,21 +16,21 @@ Sigma_h0 = 1000.0  			# [m]
 Sigma_v0 = 1000.0
 Dr = 100.0  				#[m]
 
-D_h = 1.0  				# [m2/s]
+D_h = 1.0  				# diffusion coefficient, [m2/s]
 D_v = 1.0
 
-C0 = 100.0* PI*Sigma_h0*Sigma_v0 	# [kg/m3 * m2 = kg/m]
+Q = 100.0* PI*Sigma_h0*Sigma_v0 	# [kg/m3 * m2 = kg/m]
 
 x = [0.5*Dr]
 z = [0.5*Dr]
-concnt_gaus = [0.0]
+concnt_gaussian = [0.0]			# concentration from gaussian analytical solution
 
 N_ring = 50
 
 for i_ring in range(N_ring-1):
         x.append( (i_ring+1.5)*Dr )
         z.append( (i_ring+1.5)*Dr )
-        concnt_gaus.append( 0.0 )
+        concnt_gaussian.append( 0.0 )
 
 
 Sigma_h = Sigma_h0
@@ -38,14 +38,14 @@ Sigma_v = Sigma_v0
 
 # initial concentration distribution from gaussion analytical results---------
 for i_ring in range(N_ring-1):
-        concnt_gaus[i_ring] = C0 / (2.0*PI*Sigma_h*Sigma_v) * math.exp(-0.5*( x[i_ring]**2/Sigma_h**2 + z[i_ring]**2/Sigma_v**2 ))
+        concnt_gaussian[i_ring] = Q / (2.0*PI*Sigma_h*Sigma_v) * math.exp(-0.5*( x[i_ring]**2/Sigma_h**2 + z[i_ring]**2/Sigma_v**2 ))
 
 
 # plume model -------------------------------
-Dif          = 1.0     				# [m2/s2]
-r            = [0.5*Dr]
-concnt_model = [0.0]
-concnt_old = [0.0]
+Dif          = 1.0     				# equal to D_h and D_v, [m2/s]
+r            = [0.5*Dr]				# equal to x and z
+concnt_model = [0.0]				# concentration from model results
+concnt_old   = [0.0]
 
 for i_ring in range(N_ring-1):
     r.append( (i_ring+1.5)*Dr )
@@ -54,7 +54,7 @@ for i_ring in range(N_ring-1):
 
 # use gaussian distribution as model initial concentration:
 for i_ring in range(0,N_ring-1,1):
-    concnt_model[i_ring] = concnt_gaus[i_ring]
+    concnt_model[i_ring] = concnt_gaussian[i_ring]
 
 Dt = 1.0 					#[s]
 for i_time in range(1,99999,1): 		# [s]
@@ -73,13 +73,13 @@ for i_time in range(1,99999,1): 		# [s]
         Sigma_v = math.sqrt(Sigma_v0**2 + 2.0 * D_v * t)
         
         for i_ring in range(0,N_ring-1,1):
-            concnt_gaus[i_ring] = C0 / (2.0*PI*Sigma_h*Sigma_v) * math.exp(-0.5*( x[i_ring]**2/Sigma_h**2 + z[i_ring]**2/Sigma_v**2 ))
+            concnt_gaussian[i_ring] = Q / (2.0*PI*Sigma_h*Sigma_v) * math.exp(-0.5*( x[i_ring]**2/Sigma_h**2 + z[i_ring]**2/Sigma_v**2 ))
         
         
         # plot every 3600s (1hour) -----------------------------------
         plt.figure(figsize=(7,8))
         
-        plt.plot(x, concnt_model[0:50], 'b-', x, concnt_gaus[0:50], 'r--')
+        plt.plot(x, concnt_model[0:50], 'b-', x, concnt_gaussian[0:50], 'r--')
         
         plt.title( 'time = '+str(i_time/3600)+' hour' )
         
