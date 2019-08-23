@@ -38,10 +38,10 @@ Sigma_v = Sigma_v0
 
 # initial concentration distribution from gaussion analytical results---------
 for i_ring in range(N_ring-1):
-        concnt_gaussian[i_ring] = Q / (2.0*PI*Sigma_h*Sigma_v) * math.exp(-0.5*( x[i_ring]**2/Sigma_h**2 + z[i_ring]**2/Sigma_v**2 ))
+        concnt_gaussian[i_ring] = Q / (2.0*PI*Sigma_h*Sigma_v) * math.exp(-0.5*( x[i_ring]**2/Sigma_h**2 + 0.0**2/Sigma_v**2 ))
 
 
-# plume model -------------------------------
+# plume modela & xy model -------------------------------
 Dif          = 1.0     				# equal to D_h and D_v, [m2/s]
 r            = [0.5*Dr]				# equal to x and z
 concnt_model = [0.0]				# concentration from model results
@@ -73,7 +73,7 @@ for i_time in range(1,99999,1): 		# [s]
         Sigma_v = math.sqrt(Sigma_v0**2 + 2.0 * D_v * t)
         
         for i_ring in range(0,N_ring-1,1):
-            concnt_gaussian[i_ring] = Q / (2.0*PI*Sigma_h*Sigma_v) * math.exp(-0.5*( x[i_ring]**2/Sigma_h**2 + z[i_ring]**2/Sigma_v**2 ))
+            concnt_gaussian[i_ring] = Q / (2.0*PI*Sigma_h*Sigma_v) * math.exp(-0.5*( x[i_ring]**2/Sigma_h**2 + 0.0**2/Sigma_v**2 ))
         
         
         # plot every 3600s (1hour) -----------------------------------
