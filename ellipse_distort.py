@@ -42,7 +42,7 @@ y += ycenter
 
 #
 for i in range(6):
-    fig = plt.figure(figsize=(30, 10))
+    fig = plt.figure(figsize=(20, 10))
     ax = fig.add_subplot(111)
 
     ax.fill(x, y, alpha=0.5, facecolor='white',
@@ -59,7 +59,7 @@ for i in range(6):
     ax.add_patch(e1)
     ax.add_patch(e2)
     
-    plt.ylim(-600, 600)
-    plt.xlim(-1800, 1800)
+    plt.ylim(-500, 500)
+    plt.xlim(-1000, 1000)
     
     fig.savefig(str(i)+'_ellipse')

@@ -1,7 +1,7 @@
 #!/bin/sh 
     git add .
     git status
-    git commit -m " rewrite plume model (polar coordinat) in Python "
+    git commit -m " set z=0.0 in gaussian analytical results !!! "
 #    git remote add origin https://github.com/hongwei8sun/GEOS-Chem.git
     git pull origin master
     git push origin master
