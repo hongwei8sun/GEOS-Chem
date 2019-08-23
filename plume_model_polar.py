@@ -36,6 +36,11 @@ for i_ring in range(N_ring-1):
 Sigma_h = Sigma_h0
 Sigma_v = Sigma_v0
 
+
+###
+# let z=0.0 when calculate concentration distribution !!!
+###
+
 # initial concentration distribution from gaussion analytical results---------
 for i_ring in range(N_ring-1):
         concnt_gaussian[i_ring] = Q / (2.0*PI*Sigma_h*Sigma_v) * math.exp(-0.5*( x[i_ring]**2/Sigma_h**2 + 0.0**2/Sigma_v**2 ))
