@@ -18,8 +18,8 @@ MODULE Lagrange_Mod
   PUBLIC :: lagrange_cleanup
 
 
-  integer, parameter :: n_boxes_max = 360*4  ! 24*200*1 : lat*lon*lev
-  integer            :: tt
+  integer, parameter :: n_boxes_max = 6000  ! 24*200*1 : lat*lon*lev
+  integer            :: tt, N_Dt
   real(fp), allocatable :: box_lon(:)    
   real(fp), allocatable :: box_lat(:)
   real(fp), allocatable :: box_lev(:)
@@ -52,14 +52,12 @@ CONTAINS
     allocate(box_length(n_boxes_max))
 
 
-    do ii=1,4,1
-    do jj=1,360,1  ! change the value of 'n_boxes_max'
-        i_box = (ii-1)*360 + jj
-        box_lon(i_box)  = -180.09e+0_fp +1.0e+0_fp * jj         ! -141.0W degree
-        !box_lat(i_box) = -30.05e+0_fp + 0.1e+0_fp * ii            ! -29.95S : 29.95N : 0.1
-        box_lat(i_box)  = 75.00e+0_fp + 3.0e+0_fp * ii             ! -29.995S : 299.95N : 0.1
-        box_lev(i_box)  = 52.0e+0_fp                               ! 20.0hPa!
-    enddo
+    
+
+    do i_box=1,n_boxes_max,1
+        box_lon(i_box) = -141.0                              !-180.09e+0_fp +1.0e+0_fp * jj         ! -141.0W degree
+        box_lat(i_box) = -30.05e+0_fp + 0.01e+0_fp * i_box      ! -29.95S : 29.95N : 0.1
+        box_lev(i_box) = 52.0e+0_fp                          ! 20.0hPa!
     enddo
 
 !    box_lon    = 0.0e+0_fp       ! (/0.0e+0_fp, 5.0e+0_fp, 10.0e+0_fp/)
@@ -72,7 +70,8 @@ CONTAINS
 
 !    FILENAME   = 'Lagrange_1hr_box_i_lon_lat_lev.txt'
     FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
-    tt = 0
+    tt   = 0
+    N_Dt = 5
 
     OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
@@ -114,7 +113,7 @@ CONTAINS
 
     REAL :: Dt          ! = 600.0e+0_fp          
 
-    integer :: i_box
+    integer :: i_box, N_box
 
     integer :: i_lon
     integer :: i_lat
@@ -175,8 +174,15 @@ CONTAINS
     X_edge2       = X_edge(2)
     Y_edge2       = Y_edge(2)
 
+    
+    if(N_Dt<=n_boxes_max)then
+      N_box = N_Dt
+    else
+      N_box = n_boxes_max
+    endif
+
     ! Run Lagrangian advection HERE
-    do i_box = 1,n_boxes_max
+    do i_box = 1,N_box,1
 
        ! make sure the location is not out of range
        do while (box_lat(i_box) > Y_edge(JJPAR+1))
@@ -207,39 +213,37 @@ CONTAINS
 
        ! For vertical direction:
        ! pay attention for the polar region * * *
-       curr_omeg = 0.0 ! Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       curr_omeg = 0.0                       ! Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        dbox_lev = Dt * curr_omeg / 100.0     ! Pa => hPa
        box_lev(i_box) = box_lev(i_box) + dbox_lev
 
 
        ! test: replace the same wind around polar with adjacent different values =======================
-       do ii=1,IIPAR,1
-       do kk=1,LLPAR,1
+!       do ii=1,IIPAR,1
+!       do kk=1,LLPAR,1
 
-        u(ii,1,kk) = u(ii,2,kk)*0.6
-        v(ii,1,kk) = v(ii,2,kk)*0.6
+!        u(ii,1,kk) = u(ii,2,kk)*0.6
+!        v(ii,1,kk) = v(ii,2,kk)*0.6
 
-        u(ii,JJPAR,kk) = u(ii,JJPAR-1,kk)*0.6
-        v(ii,JJPAR,kk) = v(ii,JJPAR-1,kk)*0.6
+!        u(ii,JJPAR,kk) = u(ii,JJPAR-1,kk)*0.6
+!        v(ii,JJPAR,kk) = v(ii,JJPAR-1,kk)*0.6
 
-       enddo
-       enddo
+!       enddo
+!       enddo
 
        ! test for solid-body rotation ===================================================================
 !       do ii=1,IIPAR,1
 !       do jj=1,JJPAR,1
 !       do kk=i_lev-2,i_lev+2,1
-
-!        u(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0) *( -1.0*sin(X_mid(ii)*PI/180.0)*0.0 +cos(X_mid(ii)*PI/180.0)*3.0 )
-!        v(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0)**2 *( -1.0*cos(X_mid(ii)*PI/180.0)*0.0 -sin(X_mid(ii)*PI/180.0)*3.0 )
-
+!         u(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0) *( -1.0*sin(X_mid(ii)*PI/180.0)*0.0 +cos(X_mid(ii)*PI/180.0)*3.0 )
+!         v(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0)**2 *( -1.0*cos(X_mid(ii)*PI/180.0)*0.0 -sin(X_mid(ii)*PI/180.0)*3.0 )
 !       enddo
 !       enddo
 !       enddo
        ! test:====================================================================
 
 
-       if(abs(curr_lat)<=89.99)then
+       if(abs(curr_lat)<=72.0)then
        ! Regualr Longitude-Latitude Mesh:
 
          curr_u    = Interplt_wind_RLL(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
@@ -255,7 +259,7 @@ CONTAINS
          ! write(6,*)'= RLL =>', dbox_lat, curr_lat, box_lat(i_box)
       endif
 
-       if(abs(curr_lat)>89.99)then
+       if(abs(curr_lat)>72.0)then
        ! Polar Stereographic plane (Dong and Wang, 2012):
 
          curr_u_PS = Interplt_uv_PS(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
@@ -298,8 +302,9 @@ CONTAINS
        endif
        !call
        !grow_box(box_length(i_box),box_width(i_box),box_depth(i_box),i_lon,i_lat,i_lev)
-    end do
+    end do  !do i_box = 1,n_boxes_max
 
+        N_Dt = N_Dt + 5        ! use to add particles one by one
 
     ! Everything is done, clean up pointers
     nullify(u)
