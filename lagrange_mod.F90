@@ -89,13 +89,13 @@ CONTAINS
 !-----------------------------------------------------------------
 !=================================================================
 
-  SUBROUTINE lagrange_run(am_I_Root, State_Met, Input_Opt)
+  SUBROUTINE lagrange_run(am_I_Root, State_Chm, State_Met, Input_Opt)
 
     USE Input_Opt_Mod, ONLY : OptInput
     ! USE PhysConstants, ONLY : PI, Re 
     ! Re    : Radius of Earth [m]
 
-    !USE State_Chm_Mod, ONLY : ChmState
+    USE State_Chm_Mod, ONLY : ChmState
     USE State_Met_Mod, ONLY : MetState
 
     USE TIME_MOD,      ONLY : GET_TS_DYN
@@ -108,14 +108,17 @@ CONTAINS
 
     logical, intent(in) :: am_I_Root
     TYPE(MetState), intent(in) :: State_Met
-    !TYPE(ChmState), intent(inout) :: State_Chm
+    TYPE(ChmState), intent(inout) :: State_Chm
     TYPE(OptInput), intent(in) :: Input_Opt
 
-    REAL :: Dt          ! = 600.0e+0_fp          
+    REAL :: Dt                  ! = 600.0e+0_fp          
+
+    real(fp), pointer :: PASV           
+    integer :: nAdv        
 
     integer :: i_box, N_box
 
-    integer :: i_lon
+    integer :: i_lon            !1:IIPAR
     integer :: i_lat
     integer :: i_lev
 
@@ -305,6 +308,15 @@ CONTAINS
     end do  !do i_box = 1,n_boxes_max
 
         N_Dt = N_Dt + 5        ! use to add particles one by one
+
+       ! ============================================================================
+       ! For conventional GEOS-Chem for comparison with Lagrangian Model:
+
+       nAdv = State_Chm%nAdvect
+       PASV => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)
+       PASV = PASV + 1.0e-5_fp
+
+       ! ============================================================================
 
     ! Everything is done, clean up pointers
     nullify(u)
