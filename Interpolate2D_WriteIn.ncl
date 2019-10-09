@@ -25,7 +25,7 @@ month      = (/"01","02","03","04","05","06","07","08","09","10","11","12"/)
 day 	   = (/"01","02","03","04","05","06","07","08","09","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31"/)
 Ndays      = (/31,28,31,30,31,30,31,31,30,31,30,31/)
 
-do imon = 0,11,1
+do imon = 10,11,1
 do iday = 0,Ndays(imon)-1,1
 print((/imon/))
 print((/iday/))
@@ -53,7 +53,7 @@ print((/iday/))
 
 ; replace the U, V in old file with interpolated U, V from new file
 
-  f_old->U = uwnd2               ; overwrite
+  f_old->U = uwnd1_new               ; overwrite
 
 end do
 end do

@@ -21,8 +21,8 @@ load "$NCARG_ROOT/lib/ncarg/nclscripts/csm/shea_util.ncl"
 
 begin
 ;---Read in netCDF file
-  f_new = addfile("/n/home12/hongwei/hongwei/data/GEOS-Chem/MERRA2_A3dyn/2015/01/MERRA2.20150101.A3dyn.4x5.nc4","r")
-  f_old = addfile("/n/holylfs/EXTERNAL_REPOS/GEOS-CHEM/gcgrid/data/ExtData/GEOS_4x5/MERRA2/2015/01/MERRA2.20150101.A3dyn.4x5.nc4","r")
+  f_new = addfile("/n/home12/hongwei/hongwei/data/GEOS-Chem/MERRA2_A3dyn/2015/11/MERRA2.20151109.A3dyn.4x5.nc4","r")
+  f_old = addfile("/n/holylfs/EXTERNAL_REPOS/GEOS-CHEM/gcgrid/data/ExtData/GEOS_4x5/MERRA2/2015/11/MERRA2.20151109.A3dyn.4x5.nc4","r")
 
 ;---Read in data
   uwnd1 = f_new->U(:,:,:,:); remove cyclic point
@@ -33,26 +33,17 @@ begin
   lon2 = f_old->lon(:)
   lat2 = f_old->lat(:)
 
-print(uwnd1(1,1,0,:))
-print(sum(uwnd1(1,1,0,:)))
-print(uwnd2(1,1,0,:))
+print(uwnd1(1,45,0,:))
+print(sum(uwnd1(1,45,0,:)))
+print(uwnd2(1,45,0,:))
 
 ;---------------------------------------------
 ; interpolate to new grid
 ;---------------------------------------------
 
-  newlat = fspan(-60.,60,24)
-  newlon = fspan(0.,355.,72)
-  newlat@units = "degrees_north"
-  newlon@units = "degrees_east"
-
   uwnd1_new = linint2_Wrap(lon1,lat1,uwnd1,True,lon2,lat2,0)
 
   copy_VarMeta(uwnd2,uwnd1_new)
-;  newsst!0   ="lat"
-;  newsst!1   = "lon"
-;  newsst&lat = newlat
-;  newsst&lon = newlon
 
 printVarSummary (uwnd1)
 printVarSummary (uwnd2)
@@ -95,11 +86,11 @@ printVarSummary (uwnd1_new)
   plot = new(2,graphic)
 
   res@tiMainString        = "Original Grid"
-  plot(0) = gsn_csm_contour_map(wks,uwnd1(1,1,:,:),res)  ; create the plot
+  plot(0) = gsn_csm_contour_map(wks,uwnd1(1,45,:,:),res)  ; create the plot
 
 
   res@tiMainString        = "Grid after linint2"
-  plot(1) = gsn_csm_contour_map(wks,uwnd2(1,1,:,:),res)  ; create the plot
+  plot(1) = gsn_csm_contour_map(wks,uwnd2(1,45,:,:),res)  ; create the plot
 
 ;---------------------------------------------
 ; create panel
