@@ -18,9 +18,9 @@ MODULE Lagrange_Mod
   PUBLIC :: lagrange_cleanup
 
 
-  integer, parameter :: n_boxes_max = 6000  ! 24*200*1 : lat*lon*lev
-  integer, parameter :: N_parcels   = 131   ! 
-  integer            :: tt, N_Dt            ! Aircraft would release 131 aerosol parcels every time step
+  integer, parameter    :: n_boxes_max = 6904224           ! 24*200*1 : lat*lon*lev
+  integer, parameter    :: N_parcels   = 131        
+  integer               :: tt, N_Dt, N_Dt_previous         ! Aircraft would release 131 aerosol parcels every time step
   real(fp), allocatable :: box_lon(:)    
   real(fp), allocatable :: box_lat(:)
   real(fp), allocatable :: box_lev(:)
@@ -52,18 +52,16 @@ CONTAINS
     allocate(box_depth(n_boxes_max))
     allocate(box_length(n_boxes_max))
 
-
     
+    do i_box = 1,n_boxes_max,1
 
-    do i_box=1,n_boxes_max,1
-        box_lon(i_box) = -141.0                              !-180.09e+0_fp +1.0e+0_fp * jj         ! -141.0W degree
-        box_lat(i_box) = -30.05e+0_fp + 0.01e+0_fp * i_box      ! -29.95S : 29.95N : 0.1
-        box_lev(i_box) = 52.0e+0_fp                          ! 20.0hPa!
+      box_lon(i_box) = -141.0      
+      box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
+      box_lev(i_box) = 52.0e+0_fp       ! about 20 km
+
     enddo
 
-!    box_lon    = 0.0e+0_fp       ! (/0.0e+0_fp, 5.0e+0_fp, 10.0e+0_fp/)
-!    box_lat    = 0.0e+0_fp       ! (/0.0e+0_fp, 4.0e+0_fp, 8.0e+0_fp/)
-!    box_lev    = 20.0e+0_fp      ! hPa
+
     box_width  = 0.0e+0_fp
     box_depth  = 0.0e+0_fp
     box_length = 0.0e+0_fp
@@ -107,15 +105,15 @@ CONTAINS
     ! DLAT( IIPAR, JJPAR, LLPAR ), DLON( IIPAR, JJPAR, LLPAR )
     ! XEDGE  ( IM+1, JM,   L ), YEDGE  ( IM,   JM+1, L ), IM=IIPAR, JM=JJPAR
 
-    logical, intent(in) :: am_I_Root
-    TYPE(MetState), intent(in) :: State_Met
+    logical, intent(in)           :: am_I_Root
+    TYPE(MetState), intent(in)    :: State_Met
     TYPE(ChmState), intent(inout) :: State_Chm
-    TYPE(OptInput), intent(in) :: Input_Opt
+    TYPE(OptInput), intent(in)    :: Input_Opt
 
     REAL :: Dt                  ! = 600.0e+0_fp          
 
-    real(fp), pointer :: PASV           
-    integer :: nAdv        
+    real(fp), pointer  :: PASV           
+    integer            :: nAdv        
     REAL(fp)           :: MW_g
 
     integer :: i_box, N_box
@@ -310,31 +308,35 @@ CONTAINS
          ! write(6,*)'= PS =>', curr_lat, box_lat(i_box), dbox_x_PS, box_x_PS
 
        endif
+
+       ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in corresponding with injected parcels in Lagrangian model
+       if(i_box>N_Dt_previous)then
+         ! ============================================================================
+         ! For conventional GEOS-Chem for comparison with Lagrangian Model:
+         !
+         !  AD(I,J,L) = grid box dry air mass [kg]
+         !  AIRMW     = dry air molecular wt [g/mol]
+         !  MW_G(N)   = species molecular wt [g/mol]
+         !     
+         ! the conversion is:
+         ! 
+         !====================================================================
+         nAdv = State_Chm%nAdvect         ! the last one is PASV
+         PASV => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)
+
+         MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
+         ! Assume every parcle has 110kg H2SO4
+         PASV = PASV + (110.0/MW_g) / (State_Met%AD(i_lon,i_lat,i_lev)/AIRMW) * N_parcels
+       endif
+
+
        !call
        !grow_box(box_length(i_box),box_width(i_box),box_depth(i_box),i_lon,i_lat,i_lev)
     end do  !do i_box = 1,n_boxes_max
 
-        N_Dt = N_Dt + N_parcels        ! N_Dt is used to add particles, here add 5 parcles every time step
+        N_Dt_previous = N_Dt
+        N_Dt = N_Dt_previous + N_parcels        ! N_Dt is used to add particles, here add 5 parcles every time step
 
-       ! ============================================================================
-       ! For conventional GEOS-Chem for comparison with Lagrangian Model:
-       !
-       !  AD(I,J,L) = grid box dry air mass [kg]
-       !  AIRMW     = dry air molecular wt [g/mol]
-       !  MW_G(N)   = species molecular wt [g/mol]
-       !     
-       ! the conversion is:
-       ! 
-       !====================================================================
-       nAdv = State_Chm%nAdvect         ! the last one is PASV
-       PASV => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)
-
-       MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
-       ! Assume every parcle has 110kg H2SO4
-       PASV = PASV + (110.0*MW_g) / (State_Met%AD(i_lon,i_lat,i_lev)*AIRMW) * N_parcels
-       
-
-       ! ============================================================================
 
     ! Everything is done, clean up pointers
     nullify(u)
