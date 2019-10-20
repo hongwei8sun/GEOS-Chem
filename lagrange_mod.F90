@@ -5,7 +5,7 @@
 MODULE Lagrange_Mod
 
   USE precision_mod
-  USE PhysConstants, ONLY : PI, Re 
+  USE PhysConstants, ONLY : PI, Re, AIRMW
   USE CMN_SIZE_Mod,  ONLY : IIPAR, JJPAR, LLPAR
 
   IMPLICIT NONE
@@ -19,7 +19,8 @@ MODULE Lagrange_Mod
 
 
   integer, parameter :: n_boxes_max = 6000  ! 24*200*1 : lat*lon*lev
-  integer            :: tt, N_Dt
+  integer, parameter :: N_parcels   = 131   ! 
+  integer            :: tt, N_Dt            ! Aircraft would release 131 aerosol parcels every time step
   real(fp), allocatable :: box_lon(:)    
   real(fp), allocatable :: box_lat(:)
   real(fp), allocatable :: box_lev(:)
@@ -71,7 +72,7 @@ CONTAINS
 !    FILENAME   = 'Lagrange_1hr_box_i_lon_lat_lev.txt'
     FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
     tt   = 0
-    N_Dt = 5
+    N_Dt = N_parcels 
 
     OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
@@ -115,6 +116,7 @@ CONTAINS
 
     real(fp), pointer :: PASV           
     integer :: nAdv        
+    REAL(fp)           :: MW_g
 
     integer :: i_box, N_box
 
@@ -265,9 +267,14 @@ CONTAINS
        if(abs(curr_lat)>72.0)then
        ! Polar Stereographic plane (Dong and Wang, 2012):
 
-         curr_u_PS = Interplt_uv_PS(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
-         curr_v_PS = Interplt_uv_PS(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
-      
+         if(abs(curr_lat)>Y_mid(JJPAR))then 
+            curr_u_PS = Interplt_uv_PS_polar(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+            curr_v_PS = Interplt_uv_PS_polar(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+         else
+            curr_u_PS = Interplt_uv_PS(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
+            curr_v_PS = Interplt_uv_PS(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
+         endif
+
          dbox_x_PS = Dt*curr_u_PS
          dbox_y_PS = Dt*curr_v_PS
 
@@ -307,14 +314,25 @@ CONTAINS
        !grow_box(box_length(i_box),box_width(i_box),box_depth(i_box),i_lon,i_lat,i_lev)
     end do  !do i_box = 1,n_boxes_max
 
-        N_Dt = N_Dt + 5        ! use to add particles one by one
+        N_Dt = N_Dt + N_parcels        ! N_Dt is used to add particles, here add 5 parcles every time step
 
        ! ============================================================================
        ! For conventional GEOS-Chem for comparison with Lagrangian Model:
-
-       nAdv = State_Chm%nAdvect
+       !
+       !  AD(I,J,L) = grid box dry air mass [kg]
+       !  AIRMW     = dry air molecular wt [g/mol]
+       !  MW_G(N)   = species molecular wt [g/mol]
+       !     
+       ! the conversion is:
+       ! 
+       !====================================================================
+       nAdv = State_Chm%nAdvect         ! the last one is PASV
        PASV => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)
-       PASV = PASV + 1.0e-5_fp
+
+       MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
+       ! Assume every parcle has 110kg H2SO4
+       PASV = PASV + (110.0*MW_g) / (State_Met%AD(i_lon,i_lat,i_lev)*AIRMW) * N_parcels
+       
 
        ! ============================================================================
 
@@ -471,6 +489,183 @@ CONTAINS
 
 
 !------------------------------------------------------------------
+! functions to interpolate wind speed (u,v) 
+! based on the surrounding 3 points, one of the points is the north/south polar
+! point. The u/v value at polar point is the average of all surrounding grid points.
+
+  real function Interplt_uv_PS_polar(i_uv, u_RLL, v_RLL, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+
+    implicit none
+
+    real(fp)          :: curr_lon, curr_lat, curr_pressure
+    real(fp)          :: curr_x, curr_y
+    real(fp), pointer :: u_RLL(:,:,:), v_RLL(:,:,:)
+    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
+
+    integer           :: i_uv
+    integer           :: i_lon, i_lat, i_lev
+    integer           :: init_lon, init_lat, init_lev
+    integer           :: i, ii, j, jj, k, kk
+
+    real(fp)          :: x_PS(3), y_PS(3)  ! the third value x_PS(3) is the polar point
+    real(fp)          :: uv_PS(3,2)
+    real(fp)          :: uv_polars(IIPAR)
+    real(fp)          :: distance_PS(3), Weight_PS(3)
+    real(fp)          :: uv_xy(2), uv_xy_lev
+
+    ! first interpolate horizontally (Inverse Distance Weighting)
+
+    ! identify the grid point located in the southwest of the particle or under
+    ! the particle
+    if(curr_lon>=X_mid(i_lon))then
+      init_lon = i_lon
+    else
+      init_lon = i_lon - 1
+    endif
+
+    if(curr_lat>=Y_mid(i_lat))then
+      init_lat = i_lat
+    else
+      init_lat = i_lat - 1
+    endif
+
+    ! For pressure level, P_mid(1) is about surface pressure, has biggerst
+    ! value.
+    if(curr_pressure<=P_mid(i_lev))then
+      init_lev = i_lev
+    else
+      init_lev = i_lev - 1
+    endif
+
+    ! change from (lon,lat) in RLL to (x,y) in PS: 
+    if(curr_lat<0)then
+      curr_x = -1.0* Re* cos(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+      curr_y = -1.0* Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+    else
+      curr_x = Re* cos(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+      curr_y = Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+    endif
+
+    ! i,j means the four grid point value that surround around the particle
+!    do i=1,2
+!    do j=1,2
+
+!      ii = i + init_lon - 1
+!      jj = j + init_lat - 1
+!
+      ! For lon=180 deg:
+!      if(ii==IIPAR+1)then
+!        ii = 1
+!      endif
+!      if(ii==0)then
+!        ii = IIPAR
+!      endif
+
+      ! Get the right ii and jj for interpolation at polar point:
+
+      ! For South Polar Point:
+ !     if(jj==0)then
+ !       jj = jj+1
+ !     endif
+
+      ! For North Polar Point:
+!      if(jj==JJPAR+1)then
+!        jj = jj-1
+!      endif
+
+
+
+    if(init_lat==0)then ! south polar
+       jj = init_lat + 1
+    endif
+
+    if(init_lat==JJPAR)then ! north polar
+       jj = init_lat
+    endif
+
+
+    do i=1,2  ! Interpolate location and wind of grid points into Polar Stereographic Plane
+   
+       ii = i + init_lon - 1
+
+       ! For lon=180 deg:
+       if(ii==IIPAR+1)then
+          ii = 1
+       endif
+       if(ii==0)then
+          ii = IIPAR
+       endif
+
+       x_PS(i) = Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+       y_PS(i) = Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+
+       do k=1,2
+          kk = k + init_lev - 1
+          if(i_uv==1)then ! i_ux==1 for u
+             uv_PS(i,k) = -1.0* ( u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
+          endif
+
+          if(i_uv==0)then ! for v
+             uv_PS(i,k) = u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) - v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+          endif
+       enddo
+    enddo
+
+    ! Third grid point: south/north polar point
+    x_PS(3) = 0.0
+    y_PS(3) = 0.0
+    
+    do k=1,2
+       kk = k + init_lev - 1
+          if(i_uv==1)then ! i_ux==1 for u
+
+             ! interpolate all the grid points surrounding the polar point:
+             do ii = 1,IIPAR
+                uv_polars(ii) = -1.0* ( u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
+             enddo
+
+             uv_PS(3,k) = SUM(uv_polars)/IIPAR
+
+          endif
+
+          if(i_uv==0)then ! for v
+             do ii = 1,IIPAR
+             uv_polars(ii) = u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) - v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+             enddo
+             uv_PS(3,k) = SUM(uv_polars)/IIPAR
+          endif
+    enddo
+
+
+
+    ! calculate the distance between particle and grid point
+    do i = 1,3
+          distance_PS(i) = sqrt( (x_PS(i)-curr_x)**2.0 + (y_PS(i)-curr_y)**2.0 )
+    enddo
+
+    ! Calculate the inverse distance weight
+    do i = 1,3
+        Weight_PS(i) = 1.0/distance_PS(i) / sum( 1.0/distance_PS(:) )
+    enddo
+
+
+    do k = 1,2
+      uv_xy(k) =  Weight_PS(1) * uv_PS(1,k)   + Weight_PS(2) * uv_PS(2,k)   &
+                 + Weight_PS(3) * uv_PS(3,k)
+    enddo
+
+
+    ! second interpolate vertically (Linear)
+
+    uv_xy_lev = uv_xy(1)+ (uv_xy(2)-uv_xy(1)) / (P_mid(init_lev+1)-P_mid(init_lev)) * (curr_pressure-P_mid(init_lev))
+
+    Interplt_uv_PS_polar = uv_xy_lev
+
+    return
+  end function
+
+
+!------------------------------------------------------------------
 ! functions to interpolate wind speed (u,v,omeg) 
 ! based on the surrounding 4 points.
 
@@ -510,7 +705,7 @@ CONTAINS
       init_lat = i_lat - 1
     endif
 
-    ! For pressure level, P_mid(1) is about surface pressure
+    ! For pressure level, P_mid(1) is about surface pressure, has biggerst value.
     if(curr_pressure<=P_mid(i_lev))then
       init_lev = i_lev
     else
@@ -527,6 +722,7 @@ CONTAINS
       curr_y = Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
     endif
 
+    ! i,j means the four grid point value that surround around the particle
     do i=1,2
     do j=1,2
 
@@ -560,15 +756,15 @@ CONTAINS
         y_PS(i,j) = Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
           
         do k=1,2
-        kk = k + init_lev - 1
+           kk = k + init_lev - 1
 
-        if(i_uv==1)then ! i_ux==1 for u
-          uv_PS(i,j,k) = -1.0* ( u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
-        endif
+           if(i_uv==1)then ! i_ux==1 for u
+             uv_PS(i,j,k) = -1.0* ( u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
+           endif
 
-        if(i_uv==0)then ! for v
-          uv_PS(i,j,k) = u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) - v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
-        endif
+           if(i_uv==0)then ! for v
+             uv_PS(i,j,k) = u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) - v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+           endif
         enddo
 
       else
@@ -577,14 +773,15 @@ CONTAINS
         y_PS(i,j) = -1.0* Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
 
         do k=1,2
-        kk = k + init_lev - 1
-        if(i_uv==1)then
-          uv_PS(i,j,k) = u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
-        endif
+           kk = k + init_lev - 1
 
-        if(i_uv==0)then
-          uv_PS(i,j,k) = -1* u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
-        endif
+           if(i_uv==1)then
+             uv_PS(i,j,k) = u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+           endif
+
+           if(i_uv==0)then
+             uv_PS(i,j,k) = -1* u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+           endif
         enddo
 
       endif
