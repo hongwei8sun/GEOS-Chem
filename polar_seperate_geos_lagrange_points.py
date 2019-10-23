@@ -10,9 +10,8 @@ import math
 #------------------------------------------------
 # geos ------------------------------------------
 #------------------------------------------------
-#FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_tracer/'
-FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_gc2_timing/'
-nbox = 360*3
+FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_gc_timing/'
+nbox = 360*4
 
 geos_nc = Dataset(FILEDIR+'GEOSChem.SpeciesConc_inst.20160701_0000z.nc4','r',format='NETCDF4_CLASSIC')
 
@@ -117,7 +116,7 @@ while i<Nt:
 	# latitude circle boundinglat is tangent to the edge
 	# of the map at lon_0. Default value of lat_ts
 	# (latitude of true scale) is pole.
-	m = Basemap(projection='nplaea',boundinglat=75,lon_0=270,resolution='l')
+	m = Basemap(projection='nplaea',boundinglat=70,lon_0=270,resolution='l')
 	m.drawcoastlines()
 	# m.fillcontinents(color='coral',lake_color='aqua')
 	# draw parallels and meridians.

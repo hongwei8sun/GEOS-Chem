@@ -17,10 +17,10 @@ import math
 
 # FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_tracer/'
 # FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard_12deg/'
-FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_gc_timing_interplt/'
+FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/merra2_4x5_standard_2/'
 
 # GEOS-Chem file:
-geos_nc = Dataset(FILEDIR+'GEOSChem.SpeciesConc_inst.20160701_0000z.nc4','r',format='NETCDF4_CLASSIC')
+geos_nc = Dataset(FILEDIR+'GEOSChem.SpeciesConc_inst.20150101_0000z.nc4','r',format='NETCDF4_CLASSIC')
 
 # Lagrange file:
 # lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_box_i_lon_lat_lev.txt')
@@ -65,7 +65,10 @@ del pasv1
 #------------------------------------------------
 
 print('len(lagrange_txt)',len(lagrange_txt)) # 1 hour
-nbox = 80000
+nbox     = 6904224
+nbox_day = 18864
+N_boxes  = nbox_day
+
 ntimes = math.floor(len(lagrange_txt)/nbox)
 print('ntimes',ntimes)
 
@@ -115,7 +118,7 @@ while t < (Nt-2):   # 30 number in total
 	print('t',t)     # 0~29 -> 1~30
 	n = 0
 	tt = t + 1
-	while n < nbox:
+	while n < N_boxes:
 		i_lon = int( (lagr[tt,n,0] - Xmin) / Dx )   # find_lon(lagr[t,n,0], Xmin, Dx)
 		i_lat = int( (lagr[tt,n,1] - Ymin) / Dy )   # find_lat(lagr[t,n,1], Ymin, Dy)
 		i_lev = find_lev(lagr[tt,n,2] , Pedge )
@@ -123,9 +126,10 @@ while t < (Nt-2):   # 30 number in total
 		n = n + 1
 	print('n',n)
 	t = t + 1
+	N_boxes = N_boxes + nbox_day
 
 # write news variable into nc file ----------------
-filename = 'GEOSChem.SpeciesConc_inst.20160701_0000z.nc4'
+filename = 'GEOSChem.SpeciesConc_inst.20150101_0000z.nc4'
 f = Dataset(filename,'r+',format='NETCDF4_CLASSIC')
 
 # create dimensions
