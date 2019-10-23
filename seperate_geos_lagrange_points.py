@@ -10,11 +10,12 @@ import math
 #------------------------------------------------
 # geos ------------------------------------------
 #------------------------------------------------
-FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_standard/'
+FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/merra2_4x5_standard_2/'
 #FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_gc_timing/'
-nbox = 6000
+nbox = 6904224
+nbox_day = 18864 
 
-geos_nc = Dataset(FILEDIR+'GEOSChem.SpeciesConc_inst.20160701_0000z.nc4','r',format='NETCDF4_CLASSIC')
+geos_nc = Dataset(FILEDIR+'GEOSChem.SpeciesConc_inst.20150101_0000z.nc4','r',format='NETCDF4_CLASSIC')
 
 pasv1 = geos_nc.variables['SpeciesConc_PASV1']
 print(pasv1)
@@ -31,7 +32,6 @@ del pasv1
 lagrange_txt=np.loadtxt(FILEDIR+'Lagrange_1day_box_i_lon_lat_lev.txt')
 
 print(len(lagrange_txt)) # 
-# nbox = 6000
 ntimes = math.floor(len(lagrange_txt)/nbox)
 
 x1 = np.zeros( (ntimes, nbox) )
