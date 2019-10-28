@@ -7,13 +7,14 @@ import matplotlib.ticker
 from matplotlib.mlab import bivariate_normal
 import math
 #pandas
+
 #------------------------------------------------
 # geos ------------------------------------------
 #------------------------------------------------
-FILEDIR  = '/n/home12/hongwei/GC_lagrange/rundirs/merra2_4x5_standard_2/'
+FILEDIR  = '/n/home12/hongwei/hongwei/merra2_4x5_standard_BigData/'
 #FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_gc_timing/'
-nbox	 = 6904224
-nbox_day = 18864 
+nbox	 = 6904224	# total boxes relseased 1 year
+nbox_day = 18864 	# aircraft release 18,864 boxes every day
 N_boxes  = nbox_day
 
 geos_nc  = Dataset(FILEDIR+'GEOSChem.SpeciesConc_inst.20150101_0000z.nc4','r',format='NETCDF4_CLASSIC')
@@ -26,6 +27,8 @@ pasv_mean = np.sum(pasv1[:,:,:,:], axis=1)    # sum for the whole vertical level
 del geos_nc
 print(pasv_mean.shape)
 del pasv1
+
+
 #------------------------------------------------
 # lagrange --------------------------------------
 #------------------------------------------------
@@ -54,6 +57,7 @@ while ii < (ntimes-1):
 	ii = i*Ndt                             # plot in every 10 time steps
 
 del lagrange_txt
+
 #------------------------------------------------
 # plot  -----------------------------------------
 #------------------------------------------------
