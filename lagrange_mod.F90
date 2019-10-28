@@ -28,6 +28,7 @@ MODULE Lagrange_Mod
   real(fp), allocatable :: box_width(:)
   real(fp), allocatable :: box_length(:)
 
+  real(fp), allocatable :: box_AD(:)
 
 CONTAINS
 
@@ -52,7 +53,9 @@ CONTAINS
     allocate(box_depth(n_boxes_max))
     allocate(box_length(n_boxes_max))
 
+    allocate(box_AD(n_boxes_max))
     
+
     do i_box = 1,n_boxes_max,1
 
       box_lon(i_box) = -141.0      
@@ -61,6 +64,7 @@ CONTAINS
 
     enddo
 
+    box_AD = 0.0e+0_fp
 
     box_width  = 0.0e+0_fp
     box_depth  = 0.0e+0_fp
@@ -78,7 +82,7 @@ CONTAINS
 !    WRITE(261,'(a)') ' --> Lagrange Module Location (i_box,box_lon,box_lat,box_lev) <-- '
 
     Do i_box = 1, n_boxes_max
-       WRITE(261,'(I0.4,3(x,E16.5E4))') i_box,box_lon(i_box),box_lat(i_box),box_lev(i_box)
+       WRITE(261,'(I0.4,4(x,E16.5E4))') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box), box_AD(i_box)
     End Do
 
 
@@ -214,6 +218,8 @@ CONTAINS
        i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2) 
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
+       box_AD(i_box) = State_Met%AD(i_lon,i_lat,i_lev)
+
        ! For vertical direction:
        ! pay attention for the polar region * * *
        curr_omeg = 0.0                       ! Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
@@ -311,22 +317,22 @@ CONTAINS
 
        ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in corresponding with injected parcels in Lagrangian model
        if(i_box>N_Dt_previous)then
-         ! ============================================================================
-         ! For conventional GEOS-Chem for comparison with Lagrangian Model:
-         !
-         !  AD(I,J,L) = grid box dry air mass [kg]
-         !  AIRMW     = dry air molecular wt [g/mol]
-         !  MW_G(N)   = species molecular wt [g/mol]
-         !     
-         ! the conversion is:
-         ! 
-         !====================================================================
-         nAdv = State_Chm%nAdvect         ! the last one is PASV
-         PASV => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)
-
-         MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
-         ! Assume every parcle has 110kg H2SO4
-         PASV = PASV + (110.0/MW_g) / (State_Met%AD(i_lon,i_lat,i_lev)/AIRMW) * N_parcels
+          ! ============================================================================
+          ! For conventional GEOS-Chem for comparison with Lagrangian Model:
+          !
+          !  AD(I,J,L) = grid box dry air mass [kg]
+          !  AIRMW     = dry air molecular wt [g/mol]
+          !  MW_G(N)   = species molecular wt [g/mol]
+          !     
+          ! the conversion is:
+          ! 
+          !====================================================================
+          nAdv = State_Chm%nAdvect         ! the last one is PASV
+          PASV => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)
+ 
+          MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
+          ! Assume every parcle has 110kg H2SO4
+          PASV = PASV + (110.0/MW_g) / (State_Met%AD(i_lon,i_lat,i_lev)/AIRMW)
        endif
 
 
@@ -911,7 +917,7 @@ CONTAINS
              FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
        Do i_box = 1, n_boxes_max
-          WRITE(261,'(I0.4,3(x,E16.5E4))') i_box, box_lon(i_box), box_lat(i_box),box_lev(i_box)
+          WRITE(261,'(I0.4,4(x,E16.5E4))') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box), box_AD(i_box)
        End Do
     
     ENDIF

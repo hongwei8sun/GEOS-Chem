@@ -75,7 +75,7 @@ print('ntimes',ntimes)
 Ndt = 1  # output is once every day now
 Nt = math.floor(ntimes/Ndt)
 print('Nt',Nt)
-lagr = np.arange( Nt * nbox * 3 ).reshape(Nt, nbox, 3)
+lagr = np.arange( Nt * nbox * 4 ).reshape(Nt, nbox, 4)
 
 i = 0
 ii = i*Ndt                             # plot in every 10 time steps
@@ -85,6 +85,7 @@ while i < Nt:
 	lagr[i,:,0] = lagrange_txt[ii*nbox : (ii+1)*nbox : 1, 1]  # there are 1000 not 1001 in a[i*1000:(i+1)*1000:1,1] 
 	lagr[i,:,1] = lagrange_txt[ii*nbox : (ii+1)*nbox : 1, 2]
 	lagr[i,:,2] = lagrange_txt[ii*nbox : (ii+1)*nbox : 1, 3]
+	lagr[i,:,3] = lagrange_txt[ii*nbox : (ii+1)*nbox : 1, 4]
 	i=i+1
 	ii = i*Ndt                             # plot in every 10 time steps
 print('lagr.shape',lagr.shape)
