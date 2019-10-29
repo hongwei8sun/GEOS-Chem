@@ -49,20 +49,22 @@ print(x1.shape)
 # Plot
 plt.figure(figsize=(10,7), dpi= 80)
 
-plt.subplot(2, 1, 1)
-plt.hist(x1, bins=50, range=(1e-10,7e-9), label='Euler')
+#plt.hist(x1, bins=50, range=(1e-10,7e-9))
+plt.hist(x1, bins=50, range=(0,7e-9), density=True, histtype='step', cumulative=True,
+        linewidth=2.5, label='Euler')
 #plt.gca().set(title='Frequency Histogram', ylabel='Frequency')
-plt.ylim(0,500)
+#plt.ylim(0,500)
 #plt.legend();
-plt.legend(loc='right')
-plt.title('Frequency number')
 
-plt.subplot(2, 1, 2)
-plt.hist(x2, bins=50, range=(1e-10,7e-9), label='Lagrange')
-plt.ylim(0,500)
+#plt.hist(x2, bins=50, range=(1e-10,7e-9))
+plt.hist(x2, bins=50, range=(0,7e-9), density=True, histtype='step', cumulative=True, linewidth=1.0, label='Lagrange')
+#plt.ylim(0,500)
 
 plt.legend(loc='right')
+plt.title('Cumulative step histograms')
+plt.xlabel('Tracer Concentration (mol/mol)')
+plt.ylabel('Frequency Number')
 
-plt.savefig('Frequency_Distribution.png')
+plt.savefig('Accumulate_Frequency_Distribution.png')
 plt.clf()
 plt.cla()
