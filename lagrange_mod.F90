@@ -21,6 +21,8 @@ MODULE Lagrange_Mod
   integer, parameter    :: n_boxes_max = 6904224           ! 24*200*1 : lat*lon*lev
   integer, parameter    :: N_parcels   = 131        
   integer               :: tt, N_Dt, N_Dt_previous         ! Aircraft would release 131 aerosol parcels every time step
+  integer               :: i_rec
+
   real(fp), allocatable :: box_lon(:)    
   real(fp), allocatable :: box_lat(:)
   real(fp), allocatable :: box_lev(:)
@@ -71,18 +73,20 @@ CONTAINS
     box_length = 0.0e+0_fp
 
 
-!    FILENAME   = 'Lagrange_1hr_box_i_lon_lat_lev.txt'
-    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
+    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.bin'
     tt   = 0
     N_Dt = N_parcels 
 
     OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
-          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+          FORM='UNFORMATTED',    ACCESS='Direct', Recl=18 )
+! Integer is 2 bytes, 2+4+4+4=18 bytes.
 
 !    WRITE(261,'(a)') ' --> Lagrange Module Location (i_box,box_lon,box_lat,box_lev) <-- '
 
+    i_rec = 0
     Do i_box = 1, n_boxes_max
-       WRITE(261,'(I0.4,4(x,E16.5E4))') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box), box_AD(i_box)
+       i_rec = i_rec + 1
+       WRITE(261,Rec=i_rec) i_box, REAL(box_lon(i_box),4), REAL(box_lat(i_box),4), REAL(box_lev(i_box),4), REAL(box_AD(i_box),4)
     End Do
 
 
@@ -180,7 +184,7 @@ CONTAINS
 
     X_edge2       = X_edge(2)
     Y_edge2       = Y_edge(2)
-
+     
     
     if(N_Dt<=n_boxes_max)then
       N_box = N_Dt
@@ -906,18 +910,18 @@ CONTAINS
 
     CHARACTER(LEN=255)            :: FILENAME
 
-!    FILENAME   = 'Lagrange_1hr_box_i_lon_lat_lev.txt'
-    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
+    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.bin'
     tt = tt +1
 
 !    IF(mod(tt,6)==0)THEN     ! output once every hour
     IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
 
        OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD', &
-             FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+             FORM='UNFORMATTED', ACCESS='Direct', Recl=18 )
 
        Do i_box = 1, n_boxes_max
-          WRITE(261,'(I0.4,4(x,E16.5E4))') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box), box_AD(i_box)
+          i_rec = i_rec + 1
+          WRITE(261,Rec=i_rec) i_box, REAL(box_lon(i_box),4), REAL(box_lat(i_box),4), REAL(box_lev(i_box),4), REAL(box_AD(i_box),4)
        End Do
     
     ENDIF
