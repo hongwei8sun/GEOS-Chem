@@ -37,12 +37,20 @@ CONTAINS
 
 !-----------------------------------------------------------------
 
-  SUBROUTINE lagrange_init( am_I_root )
+  SUBROUTINE lagrange_init( am_I_root, State_Met )
+
+    USE State_Met_Mod, ONLY : MetState
 
     LOGICAL,        INTENT(IN)    :: am_I_Root   ! Are we on the root CPU
+    TYPE(MetState), intent(in)    :: State_Met
+
     INTEGER                       :: i_box
     INTEGER                       :: ii, jj, kk
     CHARACTER(LEN=255)            :: FILENAME
+
+    integer :: i_lon            !1:IIPAR
+    integer :: i_lat
+    integer :: i_lev
 
     WRITE(6,'(a)') '--------------------------------------------------------'
     WRITE(6,'(a)') ' Initial Lagrnage Module (Using Dynamic time step)'
@@ -73,20 +81,35 @@ CONTAINS
     box_length = 0.0e+0_fp
 
 
-    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.bin'
+    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
     tt   = 0
     N_Dt = N_parcels 
 
+!    OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
+!          FORM='UNFORMATTED',    ACCESS='Direct', Recl=18 )
     OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
-          FORM='UNFORMATTED',    ACCESS='Direct', Recl=18 )
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 ! Integer is 2 bytes, 2+4+4+4=18 bytes.
 
 !    WRITE(261,'(a)') ' --> Lagrange Module Location (i_box,box_lon,box_lat,box_lev) <-- '
 
-    i_rec = 0
+!    i_rec = 0
     Do i_box = 1, n_boxes_max
-       i_rec = i_rec + 1
-       WRITE(261,Rec=i_rec) i_box, REAL(box_lon(i_box),4), REAL(box_lat(i_box),4), REAL(box_lev(i_box),4), REAL(box_AD(i_box),4)
+!       i_rec = i_rec + 1
+       WRITE(261,'(I0.1,3(x,E12.5))') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
+    End Do
+
+
+! Output State_Met%AD(i_lon,i_lat,i_lev) into State_Met_AD.txt
+    OPEN( 314,      FILE='State_Met_AD.txt', STATUS='REPLACE', &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+    Do i_lon = 1, IIPAR
+    Do i_lat = 1, JJPAR
+    Do i_lev = 1, LLPAR
+       WRITE(314,'(x,E12.5)') State_Met%AD(i_lon,i_lat,i_lev)
+    End Do
+    End Do
     End Do
 
 
@@ -332,11 +355,12 @@ CONTAINS
           ! 
           !====================================================================
           nAdv = State_Chm%nAdvect         ! the last one is PASV
-          PASV => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)
+          PASV => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)     ! Unit: [kg]
  
           MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
           ! Assume every parcle has 110kg H2SO4
-          PASV = PASV + (110.0/MW_g) / (State_Met%AD(i_lon,i_lat,i_lev)/AIRMW)
+          !PASV = PASV + (110.0/MW_g) / (State_Met%AD(i_lon,i_lat,i_lev)/AIRMW)
+          PASV = PASV + 110.0
        endif
 
 
@@ -910,18 +934,20 @@ CONTAINS
 
     CHARACTER(LEN=255)            :: FILENAME
 
-    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.bin'
+    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
     tt = tt +1
 
 !    IF(mod(tt,6)==0)THEN     ! output once every hour
     IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
 
-       OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD', &
-             FORM='UNFORMATTED', ACCESS='Direct', Recl=18 )
+!       OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD', &
+!             FORM='UNFORMATTED', ACCESS='Direct', Recl=18 )
+    OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD', &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
        Do i_box = 1, n_boxes_max
-          i_rec = i_rec + 1
-          WRITE(261,Rec=i_rec) i_box, REAL(box_lon(i_box),4), REAL(box_lat(i_box),4), REAL(box_lev(i_box),4), REAL(box_AD(i_box),4)
+!          WRITE(261,Rec=i_rec) i_box, REAL(box_lon(i_box),4), REAL(box_lat(i_box),4), REAL(box_lev(i_box),4), REAL(box_AD(i_box),4)
+           WRITE(261,'(I0.1,3(x,E12.5))') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
        End Do
     
     ENDIF
