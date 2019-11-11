@@ -30,7 +30,6 @@ MODULE Lagrange_Mod
   real(fp), allocatable :: box_width(:)
   real(fp), allocatable :: box_length(:)
 
-  real(fp), allocatable :: box_AD(:)
 
 CONTAINS
 
@@ -39,7 +38,8 @@ CONTAINS
 
   SUBROUTINE lagrange_init( am_I_root, State_Met )
 
-    USE State_Met_Mod, ONLY : MetState
+    USE State_Met_Mod,   ONLY : MetState
+    USE GC_GRID_MOD,     ONLY : GET_AREA_M2
 
     LOGICAL,        INTENT(IN)    :: am_I_Root   ! Are we on the root CPU
     TYPE(MetState), intent(in)    :: State_Met
@@ -63,7 +63,6 @@ CONTAINS
     allocate(box_depth(n_boxes_max))
     allocate(box_length(n_boxes_max))
 
-    allocate(box_AD(n_boxes_max))
     
 
     do i_box = 1,n_boxes_max,1
@@ -74,7 +73,6 @@ CONTAINS
 
     enddo
 
-    box_AD = 0.0e+0_fp
 
     box_width  = 0.0e+0_fp
     box_depth  = 0.0e+0_fp
@@ -112,6 +110,18 @@ CONTAINS
     End Do
     End Do
 
+
+! Output State_Met%AREA_M2(i_lon,i_lat,i_lev) into State_Met_AREA_M2.txt
+    OPEN( 315,      FILE='State_Met_AREA_M2.txt', STATUS='REPLACE', &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+    Do i_lon = 1, IIPAR
+    Do i_lat = 1, JJPAR
+    Do i_lev = 1, LLPAR
+       WRITE(315,'(x,E12.5)') GET_AREA_M2(i_lon,i_lat,i_lev)
+    End Do
+    End Do
+    End Do
 
   END SUBROUTINE lagrange_init
 
@@ -245,11 +255,10 @@ CONTAINS
        i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2) 
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
-       box_AD(i_box) = State_Met%AD(i_lon,i_lat,i_lev)
 
        ! For vertical direction:
        ! pay attention for the polar region * * *
-       curr_omeg = 0.0                       ! Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       curr_omeg = Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        dbox_lev = Dt * curr_omeg / 100.0     ! Pa => hPa
        box_lev(i_box) = box_lev(i_box) + dbox_lev
 
@@ -946,7 +955,6 @@ CONTAINS
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
        Do i_box = 1, n_boxes_max
-!          WRITE(261,Rec=i_rec) i_box, REAL(box_lon(i_box),4), REAL(box_lat(i_box),4), REAL(box_lev(i_box),4), REAL(box_AD(i_box),4)
            WRITE(261,'(I0.1,3(x,E12.5))') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
        End Do
     
