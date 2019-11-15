@@ -258,7 +258,12 @@ CONTAINS
 
        ! For vertical direction:
        ! pay attention for the polar region * * *
-       curr_omeg = Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       if(abs(curr_lat)>Y_mid(JJPAR))then
+          curr_omeg = Interplt_wind_RLL_polar(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       else
+          curr_omeg = Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       endif
+       !curr_omeg = Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        dbox_lev = Dt * curr_omeg / 100.0     ! Pa => hPa
        box_lev(i_box) = box_lev(i_box) + dbox_lev
 
@@ -364,12 +369,12 @@ CONTAINS
           ! 
           !====================================================================
           nAdv = State_Chm%nAdvect         ! the last one is PASV
-          PASV => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)     ! Unit: [kg]
+          PASV => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)     ! Unit: [kg/kg]
  
           MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
           ! Assume every parcle has 110kg H2SO4
-          !PASV = PASV + (110.0/MW_g) / (State_Met%AD(i_lon,i_lat,i_lev)/AIRMW)
-          PASV = PASV + 110.0
+          ! write(6,*)'== test 1 ==>', State_Chm%Spc_Units
+          PASV = PASV + 110.0/State_Met%AD(i_lon,i_lat,i_lev)
        endif
 
 
@@ -533,6 +538,106 @@ CONTAINS
   end function
 
 
+! functions to interpolate vertical wind speed (w)
+! based on the surrounding 3 points, one of the points is the north/south polar
+! point. The w value at polar point is the average of all surrounding grid points.
+
+  real function Interplt_wind_RLL_polar(wind, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+    implicit none
+    real(fp)          :: curr_lon, curr_lat, curr_pressure
+    !real(fp), pointer :: PI, Re
+    real(fp), pointer :: wind(:,:,:)
+    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
+    integer           :: i_lon, i_lat, i_lev
+    integer           :: init_lon, init_lat, init_lev
+    integer           :: i, ii, j, jj, k, kk
+    real(fp)          :: distance(3), Weight(3)
+    real(fp)          :: wind_lonlat(2), wind_lonlat_lev
+    real(fp)          :: wind_polar
+
+    ! first interpolate horizontally (Inverse Distance Weighting)
+
+    ! identify the grid point located in the southwest of the particle or under
+    ! the particle
+    if(curr_lon>=X_mid(i_lon))then
+      init_lon = i_lon
+    else
+      init_lon = i_lon - 1
+    endif
+
+    if(curr_lat>=Y_mid(i_lat))then
+      init_lat = i_lat
+    else
+      init_lat = i_lat - 1
+    endif
+    
+    if(init_lat==0)then
+      init_lat = 1
+    endif
+
+    ! For pressure level, P_mid(1) is about surface pressure
+    if(curr_pressure<=P_mid(i_lev))then
+      init_lev = i_lev
+    else
+      init_lev = i_lev - 1
+    endif
+
+    ! calculate the distance between particle and grid point
+    j = 1
+    do i = 1,2
+        ii = i + init_lon - 1
+        jj = j + init_lat - 1
+
+        ! For some special circumstance:
+        if(ii==0)then
+          distance(i) = Distance_Circle(curr_lon+360.0, curr_lat, X_mid(ii+IIPAR), Y_mid(jj))
+        else if(ii==(IIPAR+1))then
+          distance(i) = Distance_Circle(curr_lon-360.0, curr_lat, X_mid(ii-IIPAR), Y_mid(jj))
+        else
+          distance(i) = Distance_Circle(curr_lon, curr_lat, X_mid(ii), Y_mid(jj))
+        endif
+
+    enddo
+
+   distance(3) = Distance_Circle(curr_lon, curr_lat, X_mid(ii), 90.0e+0_fp)
+
+   if(distance(3)==0.0)then
+       do k=1,2
+         kk = k + init_lev - 1
+         wind_lonlat(k) = SUM(wind(:,init_lat,kk))/IIPAR
+       enddo
+   else
+       ! Calculate the inverse distance weight
+       do i=1,3
+          Weight(i) = 1.0/distance(i) / sum( 1.0/distance(:) )
+       enddo
+
+       do k=1,2
+         kk = k + init_lev - 1
+
+         wind_polar = SUM(wind(:,init_lat,kk))/IIPAR      
+
+         wind_lonlat(k) =   Weight(1)*wind(init_lon,init_lat,kk)   &
+                          + Weight(2)*wind(init_lon,init_lat,kk)   &
+                          + Weight(3)*wind_polar
+       enddo
+    endif
+
+    ! second interpolate vertically (Linear)
+    wind_lonlat_lev =   wind_lonlat(1) &
+                      + (wind_lonlat(2)-wind_lonlat(1)) &
+                      / (P_mid(init_lev+1)-P_mid(init_lev)) &
+                      * (curr_pressure-P_mid(init_lev))
+
+    !Line_Interplt( wind_lonlat(1), wind_lonlat(2), P_mid(i_lev),
+    !P_mid(i_lev+1), curr_pressure )
+
+    Interplt_wind_RLL_polar = wind_lonlat_lev
+
+    return
+  end function
+
+
 !------------------------------------------------------------------
 ! functions to interpolate wind speed (u,v) 
 ! based on the surrounding 3 points, one of the points is the north/south polar
@@ -663,14 +768,12 @@ CONTAINS
     do k=1,2
        kk = k + init_lev - 1
           if(i_uv==1)then ! i_ux==1 for u
-
              ! interpolate all the grid points surrounding the polar point:
              do ii = 1,IIPAR
                 uv_polars(ii) = -1.0* ( u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
              enddo
 
              uv_PS(3,k) = SUM(uv_polars)/IIPAR
-
           endif
 
           if(i_uv==0)then ! for v
