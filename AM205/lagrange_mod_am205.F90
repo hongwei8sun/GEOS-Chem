@@ -18,10 +18,11 @@ MODULE Lagrange_Mod
   PUBLIC :: lagrange_cleanup
 
 
-  integer, parameter    :: n_boxes_max = 7904224 !  6904224           ! 24*200*1 : lat*lon*lev
-  integer, parameter    :: N_parcels   = 131        
-  integer               :: tt, N_Dt, N_Dt_previous         ! Aircraft would release 131 aerosol parcels every time step
+  integer, parameter    :: n_boxes_max = 99*99           ! 24*200*1 : lat*lon*lev
+  integer               :: tt         ! Aircraft would release 131 aerosol parcels every time step
   integer               :: i_rec
+
+  integer               :: Inits
 
   real(fp), allocatable :: box_lon(:)    
   real(fp), allocatable :: box_lat(:)
@@ -45,7 +46,7 @@ CONTAINS
     TYPE(MetState), intent(in)    :: State_Met
 
     INTEGER                       :: i_box
-    INTEGER                       :: ii, jj, kk
+    INTEGER                       :: i, j, kk
     CHARACTER(LEN=255)            :: FILENAME
 
     integer :: i_lon            !1:IIPAR
@@ -63,22 +64,16 @@ CONTAINS
     allocate(box_depth(n_boxes_max))
     allocate(box_length(n_boxes_max))
 
+    Inits = 0    
 
-    ! (1)
-!    FILENAME_INIT   = 'Lagrange_Init_box_i_lon_lat_lev.txt'
-!    OPEN( 361,      FILE=TRIM( FILENAME_INIT   ), STATUS='old', &
-!          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-!    Do i_box = 1, n_boxes_max
-!       READ(361,'(I0.1,I0.1,3(x,E12.5))') N_Dt_previous, i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
-!    End Do
-    
-    ! (2)
-    do i_box = 1,n_boxes_max,1
-        box_lon(i_box) = -141.0      
-        box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
-        box_lev(i_box) = 52.0e+0_fp       ! about 20 km
+
+    do i = 1,99,1
+    do j = 1,99,1
+        box_lon((i-1)*99+j)     = 115.01 + 0.1*i
+        box_lat((i-1)*99+j)     = 10.01 + 0.1*j
+        box_lev((i-1)*99+j)     = 52.0159e+0_fp
     enddo
-    N_Dt_previous = 0
+    enddo
 
 
     box_width  = 0.0e+0_fp
@@ -88,7 +83,6 @@ CONTAINS
 
     FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
     tt   = 0
-    N_Dt = N_Dt_previous + N_parcels 
 
 !    OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
 !          FORM='UNFORMATTED',    ACCESS='Direct', Recl=18 )
@@ -100,7 +94,7 @@ CONTAINS
 !    i_rec = 0
     Do i_box = 1, n_boxes_max
 !       i_rec = i_rec + 1
-       WRITE(261,'(I0.1,I0.1,3(x,E12.5))') N_Dt_previous, i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
+       WRITE(261,'(I0.1,3(x,E12.5))') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
     End Do
 
 
@@ -225,14 +219,9 @@ CONTAINS
     Y_edge2       = Y_edge(2)
      
     
-    if(N_Dt<=n_boxes_max)then
-      N_box = N_Dt
-    else
-      N_box = n_boxes_max
-    endif
 
     ! Run Lagrangian advection HERE
-    do i_box = 1,N_box,1
+    do i_box = 1, n_boxes_max, 1
 
        ! make sure the location is not out of range
        do while (box_lat(i_box) > Y_edge(JJPAR+1))
@@ -259,7 +248,32 @@ CONTAINS
 
        i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
        i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2) 
-       i_lev = Find_iPLev(curr_pressure,P_mid)
+       i_lev = Find_iPLev(curr_pressure,P_edge)
+
+
+
+       ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in
+       ! corresponding with injected parcels in Lagrangian model
+          ! ============================================================================
+          ! For conventional GEOS-Chem for comparison with Lagrangian Model:
+          !
+          !  AD(I,J,L) = grid box dry air mass [kg]
+          !  AIRMW     = dry air molecular wt [g/mol]
+          !  MW_G(N)   = species molecular wt [g/mol]
+          !     
+          ! the conversion is:
+          ! 
+          !====================================================================
+       if(Inits==0)then
+          nAdv = State_Chm%nAdvect         ! the last one is PASV
+          PASV => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)     ! Unit: [kg/kg]
+
+          MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
+          ! Assume every parcle has 1100kg H2SO4
+          ! write(6,*)'== test 1 ==>', State_Chm%Spc_Units
+          PASV = PASV + 1100.0/State_Met%AD(i_lon,i_lat,i_lev)
+       endif
+
 
        ! For vertical direction:
        ! pay attention for the polar region * * *
@@ -269,6 +283,8 @@ CONTAINS
           curr_omeg = Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        endif
 
+       curr_omeg = 0.0
+
        ! ==================================================
        ! test !
 !       curr_omeg = 0.0
@@ -277,8 +293,6 @@ CONTAINS
        dbox_lev = Dt * curr_omeg / 100.0     ! Pa => hPa
        box_lev(i_box) = box_lev(i_box) + dbox_lev
 
-       if(box_lev(i_box)<P_mid(LLPAR)) box_lev(i_box) = P_mid(LLPAR) + ( P_mid(LLPAR) - box_lev(i_box) )
-       if(box_lev(i_box)>P_mid(1)) box_lev(i_box) = P_mid(1) - ( box_lev(i_box) - P_mid(1) )
 
        ! test: replace the same wind around polar with adjacent different values =======================
 !       do ii=1,IIPAR,1
@@ -368,34 +382,12 @@ CONTAINS
 
        endif
 
-       ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in corresponding with injected parcels in Lagrangian model
-       if(i_box>N_Dt_previous)then
-          ! ============================================================================
-          ! For conventional GEOS-Chem for comparison with Lagrangian Model:
-          !
-          !  AD(I,J,L) = grid box dry air mass [kg]
-          !  AIRMW     = dry air molecular wt [g/mol]
-          !  MW_G(N)   = species molecular wt [g/mol]
-          !     
-          ! the conversion is:
-          ! 
-          !====================================================================
-          nAdv = State_Chm%nAdvect         ! the last one is PASV
-          PASV => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)     ! Unit: [kg/kg]
- 
-          MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
-          ! Assume every parcle has 110kg H2SO4
-          ! write(6,*)'== test 1 ==>', State_Chm%Spc_Units
-          PASV = PASV + 110.0/State_Met%AD(i_lon,i_lat,i_lev)
-       endif
-
 
        !call
        !grow_box(box_length(i_box),box_width(i_box),box_depth(i_box),i_lon,i_lat,i_lev)
     end do  !do i_box = 1,n_boxes_max
 
-        N_Dt_previous = N_Dt
-        N_Dt = N_Dt_previous + N_parcels        ! N_Dt is used to add particles, here add 5 parcles every time step
+    Inits = Inits + 1
 
 
     ! Everything is done, clean up pointers
@@ -434,15 +426,15 @@ CONTAINS
   !end function
 
 
-  integer function Find_iPLev(curr_pressure,P_mid)
+  integer function Find_iPLev(curr_pressure,P_edge)
     implicit none
     real(fp) :: curr_pressure
-    real(fp), pointer :: P_mid(:)
+    real(fp), pointer :: P_edge(:)
     integer :: i_lon, i_lat
     integer :: locate(1)
-    locate = MINLOC(abs( P_mid(:)-curr_pressure ))
+    locate = MINLOC(abs( P_edge(:)-curr_pressure ))
 
-    if(P_mid(locate(1))-curr_pressure >= 0 )then
+    if(P_edge(locate(1))-curr_pressure >= 0 )then
        Find_iPLev = locate(1)
     else
        Find_iPLev = locate(1) - 1
@@ -1118,7 +1110,7 @@ CONTAINS
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
        Do i_box = 1, n_boxes_max
-          WRITE(261,'(I0.1,I0.1,3(x,E12.5))') N_Dt_previous, i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
+          WRITE(261,'(I0.1,3(x,E12.5))') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
        End Do
     
     ENDIF
