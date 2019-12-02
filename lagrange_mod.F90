@@ -18,7 +18,7 @@ MODULE Lagrange_Mod
   PUBLIC :: lagrange_cleanup
 
 
-  integer, parameter    :: n_boxes_max = 6904224           ! 24*200*1 : lat*lon*lev
+  integer, parameter    :: n_boxes_max = 7000000 !  6904224           ! 24*200*1 : lat*lon*lev
   integer, parameter    :: N_parcels   = 131        
   integer               :: tt, N_Dt, N_Dt_previous         ! Aircraft would release 131 aerosol parcels every time step
   integer               :: i_rec
@@ -44,9 +44,9 @@ CONTAINS
     LOGICAL,        INTENT(IN)    :: am_I_Root   ! Are we on the root CPU
     TYPE(MetState), intent(in)    :: State_Met
 
-    INTEGER                       :: i_box
+    INTEGER                       :: i_box, iibox
     INTEGER                       :: ii, jj, kk
-    CHARACTER(LEN=255)            :: FILENAME
+    CHARACTER(LEN=255)            :: FILENAME, FILENAME_INIT
 
     integer :: i_lon            !1:IIPAR
     integer :: i_lat
@@ -63,16 +63,28 @@ CONTAINS
     allocate(box_depth(n_boxes_max))
     allocate(box_length(n_boxes_max))
 
+
+!--------------------------------------------------
+
+    ! (1)
+    FILENAME_INIT   = '/n/home12/hongwei/hongwei/merra2_2x25_standard_Mar/Lagrange_Init_box_i_lon_lat_lev.txt'
+    OPEN( 361,      FILE=TRIM( FILENAME_INIT   ), STATUS='old', &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+    Do i_box = 1, n_boxes_max
+       READ(361,'( 2(x,I8) , 3(x,E12.5) )') N_Dt_previous, iibox, box_lon(i_box), box_lat(i_box), box_lev(i_box)
+    End Do
     
+!--------------------------------------------------
 
-    do i_box = 1,n_boxes_max,1
+    ! (2)
+!    do i_box = 1,n_boxes_max,1
+!        box_lon(i_box) = -141.0      
+!        box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
+!        box_lev(i_box) = 52.0e+0_fp       ! about 20 km
+!    enddo
+!    N_Dt_previous = 0
 
-      box_lon(i_box) = -141.0      
-      box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
-      box_lev(i_box) = 52.0e+0_fp       ! about 20 km
-
-    enddo
-
+!-------------------------------------------------
 
     box_width  = 0.0e+0_fp
     box_depth  = 0.0e+0_fp
@@ -81,7 +93,7 @@ CONTAINS
 
     FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
     tt   = 0
-    N_Dt = N_parcels 
+    N_Dt = N_Dt_previous + N_parcels 
 
 !    OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
 !          FORM='UNFORMATTED',    ACCESS='Direct', Recl=18 )
@@ -89,12 +101,12 @@ CONTAINS
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 ! Integer is 2 bytes, 2+4+4+4=18 bytes.
 
-!    WRITE(261,'(a)') ' --> Lagrange Module Location (i_box,box_lon,box_lat,box_lev) <-- '
 
 !    i_rec = 0
     Do i_box = 1, n_boxes_max
 !       i_rec = i_rec + 1
-       WRITE(261,'(I0.1,3(x,E12.5))') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
+       WRITE(261,'( 2(x,I8) , 3(x,E12.5) )') N_Dt_previous, i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
+!       WRITE(261,'( 1(x,I8) , 3(x,E12.5) )') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
     End Do
 
 
@@ -253,7 +265,10 @@ CONTAINS
 
        i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
        i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2) 
-       i_lev = Find_iPLev(curr_pressure,P_edge)
+       i_lev = Find_iPLev(curr_pressure,P_mid)
+
+
+       if(i_lon==IIPAR+1) i_lon=1
 
 
        ! For vertical direction:
@@ -263,10 +278,17 @@ CONTAINS
        else
           curr_omeg = Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        endif
-       !curr_omeg = Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+
+       ! ==================================================
+       ! test !
+!       curr_omeg = 0.0
+       ! ==================================================
+
        dbox_lev = Dt * curr_omeg / 100.0     ! Pa => hPa
        box_lev(i_box) = box_lev(i_box) + dbox_lev
 
+       if(box_lev(i_box)<P_mid(LLPAR)) box_lev(i_box) = P_mid(LLPAR) + ( P_mid(LLPAR) - box_lev(i_box) )
+       if(box_lev(i_box)>P_mid(1)) box_lev(i_box) = P_mid(1) - ( box_lev(i_box) - P_mid(1) )
 
        ! test: replace the same wind around polar with adjacent different values =======================
 !       do ii=1,IIPAR,1
@@ -375,6 +397,8 @@ CONTAINS
           ! Assume every parcle has 110kg H2SO4
           ! write(6,*)'== test 1 ==>', State_Chm%Spc_Units
           PASV = PASV + 110.0/State_Met%AD(i_lon,i_lat,i_lev)
+
+          !WRITE(6,*) '= Lagrange for Eulerian =>', i_box
        endif
 
 
@@ -422,19 +446,22 @@ CONTAINS
   !end function
 
 
-  integer function Find_iPLev(curr_pressure,P_edge)
+  integer function Find_iPLev(curr_pressure,P_mid)
     implicit none
     real(fp) :: curr_pressure
-    real(fp), pointer :: P_edge(:)
+    real(fp), pointer :: P_mid(:)
     integer :: i_lon, i_lat
     integer :: locate(1)
-    locate = MINLOC(abs( P_edge(:)-curr_pressure ))
+    locate = MINLOC(abs( P_mid(:)-curr_pressure ))
 
-    if(P_edge(locate(1))-curr_pressure >= 0 )then
+    if(P_mid(locate(1))-curr_pressure >= 0 )then
        Find_iPLev = locate(1)
     else
        Find_iPLev = locate(1) - 1
     endif
+
+    if(Find_iPLev==0) Find_iPLev=1
+    if(Find_iPLev==LLPAR) Find_iPLev=LLPAR-1
 
     return
   end function
@@ -491,6 +518,9 @@ CONTAINS
       init_lev = i_lev - 1
     endif
 
+    if(init_lev==0) init_lev = 1
+    if(init_lev==LLPAR) init_lev = LLPAR-1
+
 
     ! calculate the distance between particle and grid point
     do i = 1,2
@@ -500,9 +530,9 @@ CONTAINS
 
         ! For some special circumstance:
         if(ii==0)then
-          distance(i,j) = Distance_Circle(curr_lon+360.0, curr_lat, X_mid(ii+IIPAR), Y_mid(jj))
+          distance(i,j) = Distance_Circle(curr_lon, curr_lat, X_mid(ii+IIPAR), Y_mid(jj))
         else if(ii==(IIPAR+1))then
-          distance(i,j) = Distance_Circle(curr_lon-360.0, curr_lat, X_mid(ii-IIPAR), Y_mid(jj))
+          distance(i,j) = Distance_Circle(curr_lon, curr_lat, X_mid(ii-IIPAR), Y_mid(jj))
         else
           distance(i,j) = Distance_Circle(curr_lon, curr_lat, X_mid(ii), Y_mid(jj))
         endif
@@ -511,17 +541,42 @@ CONTAINS
     enddo
 
     ! Calculate the inverse distance weight
+
     do i = 1,2
     do j = 1,2
-        Weight(i,j) = 1.0/distance(i,j) / sum( 1.0/distance(:,:) )
+
+       if(distance(i,j)==0)then
+          Weight(:,:) = 0
+          Weight(i,j) = 1
+          GOTO 100
+       endif
+
+          Weight(i,j) = 1.0/distance(i,j) / sum( 1.0/distance(:,:) )
+
     enddo
     enddo
-    
+
+ 100 CONTINUE
+
 
     do k = 1,2     
-      kk = k + init_lev - 1 
-      wind_lonlat(k) =  Weight(1,1) * wind(init_lon,init_lat,kk)   + Weight(1,2) * wind(init_lon,init_lat+1,kk)   &
-                      + Weight(2,1) * wind(init_lon+1,init_lat,kk) + Weight(2,2) * wind(init_lon+1,init_lat+1,kk)
+        kk = k + init_lev - 1 
+        if(init_lon==0)then
+            wind_lonlat(k) =  Weight(1,1) * wind(IIPAR,init_lat,kk)     &
+                          + Weight(1,2) * wind(IIPAR,init_lat+1,kk)   &
+                          + Weight(2,1) * wind(init_lon+1,init_lat,kk)   &
+                          + Weight(2,2) * wind(init_lon+1,init_lat+1,kk)
+        else if(init_lon==IIPAR)then
+            wind_lonlat(k) =  Weight(1,1) * wind(init_lon,init_lat,kk)     &
+                          + Weight(1,2) * wind(init_lon,init_lat+1,kk)   &
+                          + Weight(2,1) * wind(1,init_lat,kk)   &
+                          + Weight(2,2) * wind(1,init_lat+1,kk)
+        else
+            wind_lonlat(k) =  Weight(1,1) * wind(init_lon,init_lat,kk)     &
+                          + Weight(1,2) * wind(init_lon,init_lat+1,kk)   &
+                          + Weight(2,1) * wind(init_lon+1,init_lat,kk)   &
+                          + Weight(2,2) * wind(init_lon+1,init_lat+1,kk)
+        endif
     enddo
 
 
@@ -582,6 +637,10 @@ CONTAINS
       init_lev = i_lev - 1
     endif
 
+    if(init_lev==0) init_lev = 1
+    if(init_lev==LLPAR) init_lev = LLPAR-1
+
+
     ! calculate the distance between particle and grid point
     j = 1
     do i = 1,2
@@ -590,16 +649,24 @@ CONTAINS
 
         ! For some special circumstance:
         if(ii==0)then
-          distance(i) = Distance_Circle(curr_lon+360.0, curr_lat, X_mid(ii+IIPAR), Y_mid(jj))
+          distance(i) = Distance_Circle(curr_lon, curr_lat, X_mid(ii+IIPAR), Y_mid(jj))
         else if(ii==(IIPAR+1))then
-          distance(i) = Distance_Circle(curr_lon-360.0, curr_lat, X_mid(ii-IIPAR), Y_mid(jj))
+          distance(i) = Distance_Circle(curr_lon, curr_lat, X_mid(1), Y_mid(jj))
         else
           distance(i) = Distance_Circle(curr_lon, curr_lat, X_mid(ii), Y_mid(jj))
         endif
 
     enddo
 
-   distance(3) = Distance_Circle(curr_lon, curr_lat, X_mid(ii), 90.0e+0_fp)
+
+   if(ii==0)then
+       distance(3) = Distance_Circle(curr_lon, curr_lat, X_mid(ii+IIPAR), 90.0e+0_fp)
+   else if(ii==(IIPAR+1))then
+       distance(3) = Distance_Circle(curr_lon, curr_lat, X_mid(1), 90.0e+0_fp)
+   else
+       distance(3) = Distance_Circle(curr_lon, curr_lat, X_mid(ii), 90.0e+0_fp)
+   endif
+
 
    if(distance(3)==0.0)then
        do k=1,2
@@ -613,13 +680,23 @@ CONTAINS
        enddo
 
        do k=1,2
-         kk = k + init_lev - 1
+           kk = k + init_lev - 1
 
-         wind_polar = SUM(wind(:,init_lat,kk))/IIPAR      
+           wind_polar = SUM(wind(:,init_lat,kk))/IIPAR      
 
-         wind_lonlat(k) =   Weight(1)*wind(init_lon,init_lat,kk)   &
-                          + Weight(2)*wind(init_lon,init_lat,kk)   &
-                          + Weight(3)*wind_polar
+           if(init_lon==0)then    
+               wind_lonlat(k) =  Weight(1)*wind(IIPAR,init_lat,kk)   &
+                               + Weight(2)*wind(init_lon+1,init_lat,kk)   &
+                               + Weight(3)*wind_polar
+           else if(init_lon==IIPAR)then
+               wind_lonlat(k) =  Weight(1)*wind(init_lon,init_lat,kk)   &
+                               + Weight(2)*wind(1,init_lat,kk)   &
+                               + Weight(3)*wind_polar
+           else
+               wind_lonlat(k) =  Weight(1)*wind(init_lon,init_lat,kk)   &
+                               + Weight(2)*wind(init_lon+1,init_lat,kk)   &
+                               + Weight(3)*wind_polar
+           endif
        enddo
     endif
 
@@ -686,6 +763,10 @@ CONTAINS
     else
       init_lev = i_lev - 1
     endif
+
+    if(init_lev==0) init_lev = 1
+    if(init_lev==LLPAR) init_lev = LLPAR-1
+
 
     ! change from (lon,lat) in RLL to (x,y) in PS: 
     if(curr_lat<0)then
@@ -859,6 +940,9 @@ CONTAINS
     else
       init_lev = i_lev - 1
     endif
+
+    if(init_lev==0) init_lev = 1
+    if(init_lev==LLPAR) init_lev = LLPAR-1
 
     
     ! change from (lon,lat) in RLL to (x,y) in PS: 
@@ -1049,7 +1133,6 @@ CONTAINS
     FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
     tt = tt +1
 
-!    IF(mod(tt,6)==0)THEN     ! output once every hour
     IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
 
 !       OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD', &
@@ -1058,7 +1141,8 @@ CONTAINS
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
        Do i_box = 1, n_boxes_max
-           WRITE(261,'(I0.1,3(x,E12.5))') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
+          WRITE(261,'(2(x,I8),3(x,E12.5))') N_Dt_previous, i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
+!          WRITE(261,'(1(x,I8),3(x,E12.5))') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
        End Do
     
     ENDIF
