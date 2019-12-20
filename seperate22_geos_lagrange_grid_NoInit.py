@@ -10,7 +10,7 @@ import math
 #------------------------------------------------
 FILEDIR2 = '/n/home12/hongwei/hongwei/GC_Python/Postdeal_lagrange_points/LAGR_GOES4x5_1yr/'
 #NcFile = Dataset(FILEDIR2+'Lagrange_Geos_Concentration_12deg.nc','r',format='NETCDF4_CLASSIC')
-NcFile   = Dataset(FILEDIR2+'GEOSChem.SpeciesConc_inst.20150201_0000z.nc4','r',format='NETCDF4_CLASSIC')
+NcFile   = Dataset(FILEDIR2+'GEOSChem.SpeciesConc_inst.20150101_0000z.nc4','r',format='NETCDF4_CLASSIC')
 
 NA = 6.022e+23
 
@@ -81,16 +81,8 @@ print(Nt)
 
 i=359
 while i<Nt:
-	total_geos   = sum(sum(geos_Zsum[i,:,:]))
-	percent_geos  = geos_Zsum[i,:,:]/total_geos
-	total_lagr   = sum(sum(lagrange_Zsum[i,:,:]))
-	percent_lagr = lagrange_Zsum[i,:,:]/total_lagr
-	print(total_geos-total_lagr)
-	
-	percent_geos_Xmean = geos_Zsum_Xmean[i,:]/sum(geos_Zsum_Xmean[i,:])
-	percent_lagr_Xmean = lagrange_Zsum_Xmean[i,:]/sum(lagrange_Zsum_Xmean[i,:])
-	
-	plt.figure(figsize=(14,8))
+	print(i)
+	plt.figure(figsize=(15,8))
 	
 	plt.subplot(2, 2, 3)
 	#ax = fig.add_axes([0.1,0.1,0.4,0.4])
@@ -111,11 +103,19 @@ while i<Nt:
 	ny = geos_Zsum.shape[1]; nx = geos_Zsum.shape[2]
 	lons, lats = m.makegrid(nx, ny) # get lat/lons of ny by nx evenly space grid.
 	x, y = m(lons, lats) # compute map proj coordinates.
-	print(i)
 	
-	bounds = np.linspace(0.0001E-3,1.5E-3,31)
+	bounds = np.linspace(1e-4,2.0e+15,21)
+#	bounds = np.linspace(1e-4,np.amax(geos_Zsum[i,:,:])/1.2,20)
+#	bounds = (math.ceil(np.amax(geos_Zsum[i,:,:])/1000.0),math.ceil(np.amax(geos_Zsum[i,:,:])/500.0),math.ceil(np.amax(geos_Zsum[i,:,:])/100.0), math.ceil(np.amax(geos_Zsum[i,:,:])/50.0), math.ceil(np.amax(geos_Zsum[i,:,:])/10.0), math.ceil(np.amax(geos_Zsum[i,:,:])/5.0), math.ceil(np.amax(geos_Zsum[i,:,:])))
 	norm = colors.BoundaryNorm(boundaries=bounds, ncolors=256)
-	cs = m.pcolormesh(x, y, percent_geos, norm=norm, cmap='bwr')
+	cs = m.pcolormesh(x, y, geos_Zsum[i,:,:], norm=norm, cmap='Reds')
+
+	print('lats')
+	print(lats[15:])
+	print('lons')
+	print(lons[15:])
+	print(np.mean(geos_Zsum[i,:,:]))
+
 	cs.cmap.set_under('w')
 	cs.set_clim(bounds[0])
 
@@ -124,21 +124,21 @@ while i<Nt:
 	fmt.set_powerlimits((0, 0))
 	
 	cbar = m.colorbar(cs,location='bottom',pad="9%",format=fmt)
-	cbar.set_label('Unit: (molec/cm2)/molec')
+	cbar.set_label('Unit: molec/cm2')
 	
-	plt.title('Eulerian', fontsize=10)
+	plt.title('Eulerian', fontsize=12)
 
 	plt.suptitle('Day: '+str(i+1), fontsize=16)
 	
 	
 	# for GOES distribution ===================================================
 	plt.subplot(2,2,4)
-	plt.plot(percent_geos_Xmean[:],lat)
-
-	X_max = 0.06
+	plt.plot(geos_Zsum_Xmean[i,:],lat)
+	
+	X_max = 2.0e+15
 	plt.xlim(0,X_max)
 	plt.ylim(-90,90)
-	plt.xlabel('Tracer Concentration Percentage [(molec/cm2)/molec]')
+	plt.xlabel('Tracer Concentration [molec/cm2]')
 	plt.ylabel('Latitude (deg)')
 	
 	
@@ -157,24 +157,24 @@ while i<Nt:
 	m.drawmeridians(meridians,labels=[0,0,0,1],fontsize=8)
 	
 	norm = colors.BoundaryNorm(boundaries=bounds, ncolors=256)
-	cs = m.pcolormesh(x, y, percent_lagr, norm=norm, cmap='bwr')
+	cs = m.pcolormesh(x, y, lagrange_Zsum[i,:], norm=norm, cmap='Reds')
 	cs.cmap.set_under('w')
 	cs.set_clim(bounds[0])
+
 	# add colorbar.
 	fmt = matplotlib.ticker.ScalarFormatter(useMathText=True)
 	fmt.set_powerlimits((0, 0))
 	
 	cbar = m.colorbar(cs,location='bottom',pad="9%",format=fmt)
-#	cbar.set_label('(molec/cm2)/molec')
+#	cbar.set_label('molec/cm2')
 	
-	plt.title('Lagrangian', fontsize=10)
+	plt.title('Lagrangian', fontsize=12)
 		
 
 	# for Lagrange Distribution: ==============================================
 	plt.subplot(2,2,2)
-	plt.plot(percent_lagr_Xmean,lat)
+	plt.plot(lagrange_Zsum_Xmean[i,:],lat)
 
-#	plt.xscale('log')
 	plt.xlim(0,X_max)
 	plt.ylim(-90,90)
 	plt.ylabel('Latitude (deg)')

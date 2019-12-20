@@ -67,22 +67,22 @@ CONTAINS
 !--------------------------------------------------
 
     ! (1)
-!    FILENAME_INIT   = '/n/home12/hongwei/hongwei/merra2_4x5_standard_Feb/Lagrange_Init_box_i_lon_lat_lev.txt'
-!    OPEN( 361,      FILE=TRIM( FILENAME_INIT   ), STATUS='old', &
-!          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-!    Do i_box = 1, n_boxes_max
-!       READ(361,'( 2(x,I8) , 3(x,E12.5) )') N_Dt_previous, iibox, box_lon(i_box), box_lat(i_box), box_lev(i_box)
-!    End Do
+    FILENAME_INIT   = '/n/home12/hongwei/hongwei/merra2_2x25_standard_Nov/Lagrange_Init_box_i_lon_lat_lev.txt'
+    OPEN( 361,      FILE=TRIM( FILENAME_INIT   ), STATUS='old', &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+    Do i_box = 1, n_boxes_max
+       READ(361,'( 2(x,I8) , 3(x,E12.5) )') N_Dt_previous, iibox, box_lon(i_box), box_lat(i_box), box_lev(i_box)
+    End Do
     
 !--------------------------------------------------
 
     ! (2)
-    do i_box = 1,n_boxes_max,1
-        box_lon(i_box) = -141.0      
-        box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
-        box_lev(i_box) = 52.0e+0_fp       ! about 20 km
-    enddo
-    N_Dt_previous = 0
+!    do i_box = 1,n_boxes_max,1
+!        box_lon(i_box) = -141.0      
+!        box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
+!        box_lev(i_box) = 52.0e+0_fp       ! about 20 km
+!    enddo
+!    N_Dt_previous = 0
 
 !-------------------------------------------------
 
@@ -267,6 +267,10 @@ CONTAINS
        i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2) 
        i_lev = Find_iPLev(curr_pressure,P_mid)
 
+
+       if(i_lon==IIPAR+1) i_lon=1
+
+
        ! For vertical direction:
        ! pay attention for the polar region * * *
        if(abs(curr_lat)>Y_mid(JJPAR))then
@@ -394,7 +398,7 @@ CONTAINS
           ! write(6,*)'== test 1 ==>', State_Chm%Spc_Units
           PASV = PASV + 110.0/State_Met%AD(i_lon,i_lat,i_lev)
 
-          WRITE(6,*) '= Lagrange for Eulerian =>', i_box
+          !WRITE(6,*) '= Lagrange for Eulerian =>', i_box
        endif
 
 
@@ -537,12 +541,23 @@ CONTAINS
     enddo
 
     ! Calculate the inverse distance weight
+
     do i = 1,2
     do j = 1,2
-        Weight(i,j) = 1.0/distance(i,j) / sum( 1.0/distance(:,:) )
+
+       if(distance(i,j)==0)then
+          Weight(:,:) = 0
+          Weight(i,j) = 1
+          GOTO 100
+       endif
+
+          Weight(i,j) = 1.0/distance(i,j) / sum( 1.0/distance(:,:) )
+
     enddo
     enddo
-    
+
+ 100 CONTINUE
+
 
     do k = 1,2     
         kk = k + init_lev - 1 

@@ -18,7 +18,7 @@ MODULE Lagrange_Mod
   PUBLIC :: lagrange_cleanup
 
 
-  integer, parameter    :: n_boxes_max = 100*100           ! 24*200*1 : lat*lon*lev
+  integer, parameter    :: n_boxes_max = 999*999           ! 24*200*1 : lat*lon*lev
   integer               :: tt         ! Aircraft would release 131 aerosol parcels every time step
   integer               :: i_rec
 
@@ -46,7 +46,7 @@ CONTAINS
     TYPE(MetState), intent(in)    :: State_Met
 
     INTEGER                       :: i_box
-    INTEGER                       :: ii, jj, kk
+    INTEGER                       :: i, j, kk
     CHARACTER(LEN=255)            :: FILENAME
 
     integer :: i_lon            !1:IIPAR
@@ -66,12 +66,13 @@ CONTAINS
 
     Inits = 0    
 
-    do i_box = 1,n_boxes_max,1
 
-      box_lon(i_box) = -141.0      
-      box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
-      box_lev(i_box) = 52.0e+0_fp       ! about 20 km
-
+    do i = 1,999,1
+    do j = 1,999,1
+        box_lon((i-1)*999+j)     = 115.005 + 0.01*i
+        box_lat((i-1)*999+j)     = 10.005 + 0.01*j
+        box_lev((i-1)*999+j)     = 52.0159e+0_fp
+    enddo
     enddo
 
 
@@ -281,6 +282,8 @@ CONTAINS
        else
           curr_omeg = Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        endif
+
+       curr_omeg = 0.0
 
        ! ==================================================
        ! test !

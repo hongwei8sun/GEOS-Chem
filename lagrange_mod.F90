@@ -67,22 +67,22 @@ CONTAINS
 !--------------------------------------------------
 
     ! (1)
-    FILENAME_INIT   = '/n/home12/hongwei/hongwei/merra2_2x25_standard_Mar/Lagrange_Init_box_i_lon_lat_lev.txt'
-    OPEN( 361,      FILE=TRIM( FILENAME_INIT   ), STATUS='old', &
-          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-    Do i_box = 1, n_boxes_max
-       READ(361,'( 2(x,I8) , 3(x,E12.5) )') N_Dt_previous, iibox, box_lon(i_box), box_lat(i_box), box_lev(i_box)
-    End Do
+!    FILENAME_INIT   = '/n/home12/hongwei/hongwei/merra2_2x25_standard_Dec/Lagrange_Init_box_i_lon_lat_lev.txt'
+!    OPEN( 361,      FILE=TRIM( FILENAME_INIT   ), STATUS='old', &
+!          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+!    Do i_box = 1, n_boxes_max
+!       READ(361,'( 2(x,I8) , 3(x,E12.5) )') N_Dt_previous, iibox, box_lon(i_box), box_lat(i_box), box_lev(i_box)
+!    End Do
     
 !--------------------------------------------------
 
     ! (2)
-!    do i_box = 1,n_boxes_max,1
-!        box_lon(i_box) = -141.0      
-!        box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
-!        box_lev(i_box) = 52.0e+0_fp       ! about 20 km
-!    enddo
-!    N_Dt_previous = 0
+    do i_box = 1,n_boxes_max,1
+        box_lon(i_box) = -141.0      
+        box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
+        box_lev(i_box) = 52.0e+0_fp       ! about 20 km
+    enddo
+    N_Dt_previous = 0
 
 !-------------------------------------------------
 
@@ -271,6 +271,23 @@ CONTAINS
        if(i_lon==IIPAR+1) i_lon=1
 
 
+!=======================================================================================================
+
+       ! test for solid-body rotation 
+!       do ii=1,IIPAR,1
+!       do jj=1,JJPAR,1
+!       do kk=i_lev-2,i_lev+2,1
+!         omeg(ii, jj, kk) = 0.0
+!         u(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0) *( -1.0*sin(X_mid(ii)*PI/180.0)*0.0 +cos(X_mid(ii)*PI/180.0)*3.0 )
+!         v(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0)**2 *( -1.0*cos(X_mid(ii)*PI/180.0)*0.0 -sin(X_mid(ii)*PI/180.0)*3.0 )
+!       enddo
+!       enddo
+!       enddo
+       ! test:
+
+!=================================================================================
+
+
        ! For vertical direction:
        ! pay attention for the polar region * * *
        if(abs(curr_lat)>Y_mid(JJPAR))then
@@ -279,10 +296,6 @@ CONTAINS
           curr_omeg = Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        endif
 
-       ! ==================================================
-       ! test !
-!       curr_omeg = 0.0
-       ! ==================================================
 
        dbox_lev = Dt * curr_omeg / 100.0     ! Pa => hPa
        box_lev(i_box) = box_lev(i_box) + dbox_lev
@@ -290,7 +303,10 @@ CONTAINS
        if(box_lev(i_box)<P_mid(LLPAR)) box_lev(i_box) = P_mid(LLPAR) + ( P_mid(LLPAR) - box_lev(i_box) )
        if(box_lev(i_box)>P_mid(1)) box_lev(i_box) = P_mid(1) - ( box_lev(i_box) - P_mid(1) )
 
-       ! test: replace the same wind around polar with adjacent different values =======================
+
+!======================================================================================================
+
+       ! test: replace the same wind around polar with adjacent different values
 !       do ii=1,IIPAR,1
 !       do kk=1,LLPAR,1
 
@@ -303,16 +319,7 @@ CONTAINS
 !       enddo
 !       enddo
 
-       ! test for solid-body rotation ===================================================================
-!       do ii=1,IIPAR,1
-!       do jj=1,JJPAR,1
-!       do kk=i_lev-2,i_lev+2,1
-!         u(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0) *( -1.0*sin(X_mid(ii)*PI/180.0)*0.0 +cos(X_mid(ii)*PI/180.0)*3.0 )
-!         v(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0)**2 *( -1.0*cos(X_mid(ii)*PI/180.0)*0.0 -sin(X_mid(ii)*PI/180.0)*3.0 )
-!       enddo
-!       enddo
-!       enddo
-       ! test:====================================================================
+!=======================================================================================================
 
 
        if(abs(curr_lat)<=72.0)then

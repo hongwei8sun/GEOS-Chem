@@ -11,7 +11,7 @@ import math
 #------------------------------------------------
 # geos ------------------------------------------
 #------------------------------------------------
-FILEDIR  = '/n/home12/hongwei/hongwei/merra2_4x5_standard_BigData/'
+FILEDIR  = '/n/home12/hongwei/hongwei/merra2_4x5_standard/'
 #FILEDIR = '/n/home12/hongwei/GC_lagrange/rundirs/geosfp_4x5_gc_timing/'
 nbox	 = 6904224	# total boxes relseased 1 year
 nbox_day = 18864 	# aircraft release 18,864 boxes every day
@@ -48,7 +48,9 @@ for itime in range(Nt):
         data = lines.split() #split string into a list
         x1[itime,ibox] = float(data[1])
         y1[itime,ibox] = float(data[2])
-
+        if ibox==0:    
+            print(lines)
+quit()
 
 #------------------------------------------------
 # plot  -----------------------------------------
