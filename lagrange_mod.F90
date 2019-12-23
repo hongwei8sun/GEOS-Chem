@@ -18,8 +18,8 @@ MODULE Lagrange_Mod
   PUBLIC :: lagrange_cleanup
 
 
-  integer, parameter    :: n_boxes_max = 7000000 !  6904224           ! 24*200*1 : lat*lon*lev
-  integer, parameter    :: N_parcels   = 131        
+  integer, parameter    :: n_boxes_max = 3600*4 !  6904224           ! 24*200*1 : lat*lon*lev
+  integer, parameter    :: N_parcels   = 0        
   integer               :: tt, N_Dt, N_Dt_previous         ! Aircraft would release 131 aerosol parcels every time step
   integer               :: i_rec
 
@@ -52,6 +52,8 @@ CONTAINS
     integer :: i_lat
     integer :: i_lev
 
+    integer :: j_lat
+
     WRITE(6,'(a)') '--------------------------------------------------------'
     WRITE(6,'(a)') ' Initial Lagrnage Module (Using Dynamic time step)'
     WRITE(6,'(a)') '--------------------------------------------------------'
@@ -77,12 +79,24 @@ CONTAINS
 !--------------------------------------------------
 
     ! (2)
-    do i_box = 1,n_boxes_max,1
-        box_lon(i_box) = -141.0      
-        box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
+!    do i_box = 1,n_boxes_max,1
+!        box_lon(i_box) = -141.0      
+!        box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
+!        box_lev(i_box) = 52.0e+0_fp       ! about 20 km
+!    enddo
+!    N_Dt_previous = 0
+
+!--------------------------------------------------
+
+    ! (3)
+    do j_lat = 1,4,1
+    do i_box = (j_lat-1)*3600+1,j_lat*3600,1
+        box_lon(i_box) = (i_box+0.01)*0.1
+        box_lat(i_box)  = -76.1 - 3*j_lat
         box_lev(i_box) = 52.0e+0_fp       ! about 20 km
     enddo
-    N_Dt_previous = 0
+    enddo
+    N_Dt_previous = n_boxes_max
 
 !-------------------------------------------------
 
@@ -274,15 +288,15 @@ CONTAINS
 !=======================================================================================================
 
        ! test for solid-body rotation 
-!       do ii=1,IIPAR,1
-!       do jj=1,JJPAR,1
-!       do kk=i_lev-2,i_lev+2,1
-!         omeg(ii, jj, kk) = 0.0
-!         u(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0) *( -1.0*sin(X_mid(ii)*PI/180.0)*0.0 +cos(X_mid(ii)*PI/180.0)*3.0 )
-!         v(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0)**2 *( -1.0*cos(X_mid(ii)*PI/180.0)*0.0 -sin(X_mid(ii)*PI/180.0)*3.0 )
-!       enddo
-!       enddo
-!       enddo
+       do ii=1,IIPAR,1
+       do jj=1,JJPAR,1
+       do kk=i_lev-2,i_lev+2,1
+         omeg(ii, jj, kk) = 0.0
+         u(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0) *( -1.0*sin(X_mid(ii)*PI/180.0)*0.0 +cos(X_mid(ii)*PI/180.0)*3.0 )
+         v(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0)**2 *( -1.0*cos(X_mid(ii)*PI/180.0)*0.0 -sin(X_mid(ii)*PI/180.0)*3.0 )
+       enddo
+       enddo
+       enddo
        ! test:
 
 !=================================================================================
@@ -325,18 +339,16 @@ CONTAINS
        if(abs(curr_lat)<=72.0)then
        ! Regualr Longitude-Latitude Mesh:
 
-         curr_u    = Interplt_wind_RLL(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
-         curr_v    = Interplt_wind_RLL(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+           curr_u    = Interplt_wind_RLL(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+           curr_v    = Interplt_wind_RLL(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
 
-         dbox_lon = (Dt*curr_u) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
-         dbox_lat = (Dt*curr_v) / (PI*Re) * 180.0
+           dbox_lon = (Dt*curr_u) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
+           dbox_lat = (Dt*curr_v) / (PI*Re) * 180.0
 
-         box_lon(i_box) = box_lon(i_box) + dbox_lon
-         box_lat(i_box) = box_lat(i_box) + dbox_lat
+           box_lon(i_box) = box_lon(i_box) + dbox_lon
+           box_lat(i_box) = box_lat(i_box) + dbox_lat
  
-         ! write(6,*)'= RLL =>', i_box, dbox_lon, curr_lon, box_lon(i_box)
-         ! write(6,*)'= RLL =>', dbox_lat, curr_lat, box_lat(i_box)
-      endif
+       endif
 
        if(abs(curr_lat)>72.0)then
        ! Polar Stereographic plane (Dong and Wang, 2012):
@@ -344,6 +356,7 @@ CONTAINS
          if(abs(curr_lat)>Y_mid(JJPAR))then 
             curr_u_PS = Interplt_uv_PS_polar(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
             curr_v_PS = Interplt_uv_PS_polar(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+            write(6,*) '= polar wind interplation =>', curr_u_PS, curr_v_PS
          else
             curr_u_PS = Interplt_uv_PS(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
             curr_v_PS = Interplt_uv_PS(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
@@ -380,8 +393,6 @@ CONTAINS
            box_lat(i_box) = atan( Re / sqrt(box_x_PS**2+box_y_PS**2) ) *180.0/PI
          endif
 
-         ! write(6,*)'= PS =>', i_box, curr_lon, box_lon(i_box), dbox_x_PS, box_x_PS
-         ! write(6,*)'= PS =>', curr_lat, box_lat(i_box), dbox_x_PS, box_x_PS
 
        endif
 
@@ -812,16 +823,14 @@ CONTAINS
 !      endif
 
 
-
-    if(init_lat==0)then ! south polar
-       jj = init_lat + 1
-    endif
-
-    if(init_lat==JJPAR)then ! north polar
-       jj = init_lat
+    if(init_lat==0)then
+           jj = init_lat + 1    ! south polar
+       else
+           jj = init_lat
     endif
 
 
+    
     do i=1,2  ! Interpolate location and wind of grid points into Polar Stereographic Plane
    
        ii = i + init_lon - 1
@@ -834,17 +843,32 @@ CONTAINS
           ii = IIPAR
        endif
 
-       x_PS(i) = Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
-       y_PS(i) = Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+      ! Interpolate location and wind into Polar Stereographic Plane
+      if(Y_mid(jj)>0)then
+          x_PS(i) = Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+          y_PS(i) = Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+      else
+          x_PS(i) = -1.0* Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+          y_PS(i) = -1.0* Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+      endif
+
 
        do k=1,2
           kk = k + init_lev - 1
           if(i_uv==1)then ! i_ux==1 for u
-             uv_PS(i,k) = -1.0* ( u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
+             if(Y_mid(jj)>0)then
+                 uv_PS(i,k) = -1.0* ( u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
+             else
+                 uv_PS(i,k) = u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+             endif
           endif
 
           if(i_uv==0)then ! for v
-             uv_PS(i,k) = u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) - v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+             if(Y_mid(jj)>0)then
+                 uv_PS(i,k) = u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) - v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+             else
+                 uv_PS(i,k) = -1* u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+             endif
           endif
        enddo
     enddo
@@ -858,7 +882,11 @@ CONTAINS
           if(i_uv==1)then ! i_ux==1 for u
              ! interpolate all the grid points surrounding the polar point:
              do ii = 1,IIPAR
-                uv_polars(ii) = -1.0* ( u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
+                 if(Y_mid(jj)>0)then
+                     uv_polars(ii) = -1.0* ( u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
+                 else
+                     uv_polars(ii) = u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+                 endif
              enddo
 
              uv_PS(3,k) = SUM(uv_polars)/IIPAR
@@ -866,7 +894,11 @@ CONTAINS
 
           if(i_uv==0)then ! for v
              do ii = 1,IIPAR
-             uv_polars(ii) = u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) - v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+                 if(Y_mid(jj)>0)then
+                     uv_polars(ii) = u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) - v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+                 else
+                     uv_polars(ii) = -1* u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+                 endif
              enddo
              uv_PS(3,k) = SUM(uv_polars)/IIPAR
           endif
