@@ -1490,6 +1490,8 @@ CONTAINS
           Plume_Species(i_box,i_ring,SpcID) = REAL( C(N), kind=fp )
 
        ENDDO
+       
+       WRITE(6,*)'= success for plume chemical solver ==========='
 
     ENDDO ! Do i_ring = 1, n_rings_max 
     ENDDO ! DO i_ring = 1,n_boxes_max

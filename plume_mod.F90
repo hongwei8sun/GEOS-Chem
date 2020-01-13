@@ -27,15 +27,15 @@ MODULE Plume_Mod
   integer, allocatable  :: Plume_I(:), Plume_J(:), Plume_L(:) ! (n_boxes_max)
   real(fp), allocatable :: Plume_Species(:,:,:)
 
-  integer, parameter    :: n_boxes_max = 3  ! 50*40*40
+  integer, parameter    :: n_boxes_max = 3  
   integer               :: tt
+  integer               :: N_inject
 
+  ! Consider the box as a cylinder
   ! The center of the cylinder
   real(fp), allocatable :: box_lon(:)
   real(fp), allocatable :: box_lat(:)
   real(fp), allocatable :: box_lev(:)
-
-  ! Consider the box as a cylinder
 
   ! box_radius(n_boxes_max,N_rings)
   real(fp), allocatable :: box_radiusA(:,:) ! vertical radius
@@ -52,9 +52,9 @@ MODULE Plume_Mod
   integer, parameter    :: n_rings_max = 500 ! Degine the number of rings in one box
 
   ! medical concentration of each ring
-  real(fp), allocatable :: box_concnt(:,:,:) ! [kg/m3],(n_boxes_max,N_rings,N_species)
-  real(fp), allocatable :: box_concnt_K(:)     ! [kg/m3], box_concnt_K(N_rings_max)
-  real(fp), allocatable :: RK(:,:), AA_env(:)  ! for Runge-Kutta method
+  real(fp), allocatable :: box_concnt(:,:,:) ! [molec/cm3],(n_boxes_max,N_rings,N_species)
+  real(fp), allocatable :: box_concnt_K(:)     ! [molec/cm3], box_concnt_K(N_rings_max)
+  real(fp), allocatable :: RK(:,:), Outer2env(:)  ! for Runge-Kutta method
   real(fp), allocatable :: eddy_h(:)  ! 
   real(fp), allocatable :: eddy_A(:)  ! 
   real(fp), allocatable :: eddy_B(:)  ! 
@@ -133,7 +133,7 @@ CONTAINS
     allocate(box_concnt(n_boxes_max,n_rings_max,N_species))
     allocate(box_concnt_K(n_rings_max))
     allocate(RK(4,n_rings_max))
-    allocate(AA_env(4))
+    allocate(Outer2env(4))
 
     allocate(eddy_h(n_rings_max))
     allocate(eddy_A(n_rings_max))
@@ -160,8 +160,8 @@ CONTAINS
       box_radiusB(:,i_ring) = i_ring * D_radius
     enddo
 
-    box_theta         = (/0.0e+0_fp,    0.0e+0_fp,    0.0e+0_fp/)             ! degree
-    box_length        = (/1000.0e+0_fp, 1000.0e+0_fp, 1000.0e+0_fp/)    ! m
+    box_theta         = (/0.0e+0_fp,    0.0e+0_fp,    0.0e+0_fp/) ! degree
+    box_length        = (/1000.0e+0_fp, 1000.0e+0_fp, 1000.0e+0_fp/) ! m
 
 
 
@@ -202,7 +202,8 @@ CONTAINS
 
        do i_species = 1,N_species
        do i_ring = 1,N_species
-          box_concnt(i_box,i_ring,i_species) = State_Chm%Species(i_lon,i_lat,i_lev,i_species) 
+          box_concnt(i_box,i_ring,i_species) = &
+                                State_Chm%Species(i_lon,i_lat,i_lev,i_species) 
           ! [kg/kg] ???
        enddo ! do i_ring = 1,N_species
        enddo ! do i_species = 1,N_species
@@ -223,17 +224,15 @@ CONTAINS
 
 
     do i_ring=1,n_rings_max
-!    do i_species = 1,N_species
-!      box_concnt(:,i_ring,i_species) = (/0.0e+0_fp,  0.0e+0_fp,  0.0e+0_fp/)   ! [kg/m3]
-!    enddo  
- 
        box_concnt_K(i_ring) = 0.0e+0_fp
-
     enddo
 
 
-        ! Sigma = 1000m, Dr = 100m
-       box_concnt(1,1:100,1) = (/ 49.93753904622905, 49.44065223056165, 48.46166172381721, 47.0294031682171, 45.1853538936598, 42.98163818012711, 40.478582433394344, 37.741980099450366, 34.84023877480174, 31.84158071858716, 28.811453683589995, 25.810283697274816, 22.891668088580712, 20.10106915473274, 17.475030009987826, 15.040897717863777, 12.817007570753681, 10.813258341494365, 9.0319925809447, 7.469088762520901, 6.11517266734503, 4.95686262553737, 3.977975435911384, 3.1606351537644426, 2.48624367061748, 1.9362885175832174, 1.4929783320557766, 1.1397090441806172, 0.8613735655817554, 0.6445344572000735, 0.4774828697510154, 0.3502083574681211, 0.25430346155063505, 0.1828247940026448, 0.13012926263627014, 0.09170054150365799, 0.06397729689499619, 0.0441913153467525, 0.030220735187977774, 0.020461156511408944, 0.01371552337467006, 0.009102310518350318, 0.0059806441790512185, 0.003890463430776882, 0.002505600144312384, 0.001597641188721152, 0.0010085647538279085, 0.0006303552588524261, 0.000390053365115542, 0.00023895698661023193, 0.00014493473873164686, 8.703266982466485e-05, 5.1742710555468766e-05, 3.0456016577577623e-05, 1.77481904348566e-05, 1.0239815105987296e-05, 5.849075200675953e-06, 3.3078008188488504e-06, 1.8520322753971736e-06, 1.0266320224615827e-06, 5.634275999136617e-07, 3.061388760736478e-07, 1.6468570551530405e-07, 8.771025650048737e-08, 4.624895376357952e-08, 2.414407099189213e-08, 1.2478895312221815e-08, 6.3855577725641675e-09, 3.2350320733131727e-09, 1.6226146706350309e-09, 8.057665991536951e-10, 3.9615047298176933e-10, 1.928271364234862e-10, 9.292513057582789e-11, 4.433587289933671e-11, 2.094278344422346e-11, 9.79423670500225e-12, 4.5348595885495465e-12, 2.078806895816242e-12, 9.434556900632728e-13, 4.2392196790663004e-13, 1.8858510687236676e-13, 8.305885063498716e-14, 3.6217752542073234e-14, 1.5635584907363262e-14, 6.682882459159197e-15, 2.8279424573025658e-15, 1.184770873670088e-15, 4.914227126564088e-16, 2.0180556398551702e-16, 8.204801948335148e-17, 3.302631537603281e-17, 1.316161553421132e-17, 5.192964243507581e-18, 2.028516381535571e-18, 7.845105014892859e-19, 3.003834899930149e-19, 1.1387028598265411e-19, 4.273678215867316e-20, 1.5879992099449743e-20 /)
+    ! State_Chm%nAdvect: the last one is PASV
+    N_inject = State_Chm%nAdvect
+
+    ! Sigma = 1000m, Dr = 100m, 
+    box_concnt(1,1:100,N_inject) = 1.0e+1_fp * (/ 49.93753904622905, 49.44065223056165, 48.46166172381721, 47.0294031682171, 45.1853538936598, 42.98163818012711, 40.478582433394344, 37.741980099450366, 34.84023877480174, 31.84158071858716, 28.811453683589995, 25.810283697274816, 22.891668088580712, 20.10106915473274, 17.475030009987826, 15.040897717863777, 12.817007570753681, 10.813258341494365, 9.0319925809447, 7.469088762520901, 6.11517266734503, 4.95686262553737, 3.977975435911384, 3.1606351537644426, 2.48624367061748, 1.9362885175832174, 1.4929783320557766, 1.1397090441806172, 0.8613735655817554, 0.6445344572000735, 0.4774828697510154, 0.3502083574681211, 0.25430346155063505, 0.1828247940026448, 0.13012926263627014, 0.09170054150365799, 0.06397729689499619, 0.0441913153467525, 0.030220735187977774, 0.020461156511408944, 0.01371552337467006, 0.009102310518350318, 0.0059806441790512185, 0.003890463430776882, 0.002505600144312384, 0.001597641188721152, 0.0010085647538279085, 0.0006303552588524261, 0.000390053365115542, 0.00023895698661023193, 0.00014493473873164686, 8.703266982466485e-05, 5.1742710555468766e-05, 3.0456016577577623e-05, 1.77481904348566e-05, 1.0239815105987296e-05, 5.849075200675953e-06, 3.3078008188488504e-06, 1.8520322753971736e-06, 1.0266320224615827e-06, 5.634275999136617e-07, 3.061388760736478e-07, 1.6468570551530405e-07, 8.771025650048737e-08, 4.624895376357952e-08, 2.414407099189213e-08, 1.2478895312221815e-08, 6.3855577725641675e-09, 3.2350320733131727e-09, 1.6226146706350309e-09, 8.057665991536951e-10, 3.9615047298176933e-10, 1.928271364234862e-10, 9.292513057582789e-11, 4.433587289933671e-11, 2.094278344422346e-11, 9.79423670500225e-12, 4.5348595885495465e-12, 2.078806895816242e-12, 9.434556900632728e-13, 4.2392196790663004e-13, 1.8858510687236676e-13, 8.305885063498716e-14, 3.6217752542073234e-14, 1.5635584907363262e-14, 6.682882459159197e-15, 2.8279424573025658e-15, 1.184770873670088e-15, 4.914227126564088e-16, 2.0180556398551702e-16, 8.204801948335148e-17, 3.302631537603281e-17, 1.316161553421132e-17, 5.192964243507581e-18, 2.028516381535571e-18, 7.845105014892859e-19, 3.003834899930149e-19, 1.1387028598265411e-19, 4.273678215867316e-20, 1.5879992099449743e-20 /)
 
     env_amount = (/0.0e+0_fp, 0.0e+0_fp, 0.0e+0_fp/)
 
@@ -245,11 +244,8 @@ CONTAINS
     OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-!    Do i_ring = 1, n_rings_max
-!       WRITE(262,'(I0.4,3(x,E16.5E4))') i_ring, box_theta(1), box_radiusA(1,i_ring), box_radiusB(1,i_ring)
-!    End Do
      
-     write(262,*)box_concnt(1,:,1)
+     write(262,*)box_concnt(1,:,N_inject)
 
 
   END SUBROUTINE plume_init
@@ -326,7 +322,7 @@ CONTAINS
 
     real(fp), pointer :: P_I, R_e     
 
-    real(fp)          :: AA(n_rings_max), BB(n_rings_max), DD(n_rings_max) 
+    real(fp)          :: Outer(n_rings_max), Inner(n_rings_max), V_ring(n_rings_max) 
     ! used to calculate concentration distribution
 
     real(fp)          :: eddy_v
@@ -349,14 +345,14 @@ CONTAINS
 
     Dt = GET_TS_DYN()
 
-    u => State_Met%U   ! figure out state_met%U is based on lat/lon or modelgrid(i,j)
-    v => State_Met%V   ! V [m s-1]
+    u => State_Met%U ! figure out state_met%U is based on lat/lon or modelgrid(i,j)
+    v => State_Met%V ! V [m s-1]
     omeg => State_Met%OMEGA  ! Updraft velocity [Pa/s]
 
     Ptemp => State_Met%THETA  ! Updraft velocity [Pa/s]
 
     P_edge => State_Met%PEDGE(1,1,:)  ! Wet air press @ level edges [hPa]
-    P_mid => State_Met%PMID(1,1,:)  ! Pressure (w/r/t moist air) at level centers (hPa)
+    P_mid => State_Met%PMID(1,1,:) ! Pressure (w/r/t moist air) at level centers (hPa)
 
     P_BXHEIGHT => State_Met%BXHEIGHT  ![IIPAR,JJPAR,KKPAR]
 
@@ -447,11 +443,11 @@ CONTAINS
        Plume_L(i_box) = i_lev
 
 
-       curr_u    = Interplt_wind(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
-       curr_v    = Interplt_wind(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
-       curr_omeg = Interplt_wind(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       curr_u = Interplt_wind(u, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       curr_v = Interplt_wind(v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       curr_omeg = Interplt_wind(omeg, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
 
-       curr_Ptemp = Interplt_wind(Ptemp,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       curr_Ptemp = Interplt_wind(Ptemp, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
 
 
        i_lon = Find_iLonLat(next_lon, Dx, X_edge2)
@@ -475,9 +471,9 @@ CONTAINS
        do i_ring=1,n_rings_max
        ! make sure use box_theta or TAN(box_theta)  ??? 
        box_radiusA(i_box,i_ring) = box_radiusA(i_box,i_ring) &
-                        * (TAN(box_theta(i_box))**2+1)**0.5 / (TAN(theta_previous)**2+1)**0.5
+          * (TAN(box_theta(i_box))**2+1)**0.5 / (TAN(theta_previous)**2+1)**0.5
        box_radiusB(i_box,i_ring) = box_radiusB(i_box,i_ring) &
-                        * (TAN(box_theta(i_box))**2+1)**(-0.5) / (TAN(theta_previous)**2+1)**(-0.5)
+          * (TAN(box_theta(i_box))**2+1)**(-0.5) / (TAN(theta_previous)**2+1)**(-0.5)
        enddo
 
 
@@ -486,128 +482,174 @@ CONTAINS
        ! box_concnt(n_boxes_max,N_rings,N_species)
        !!!!!!
 
-         ! Calculate vertical eddy diffusivity (U.Schumann, 2012) :
-         Cv = 0.2
-         Omega_N = 0.1
-         Ptemp_shear = Vertical_shear(Ptemp, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
-         eddy_v = Cv * Omega_N**2 / sqrt( (Ptemp_shear*g0/curr_Ptemp) )
+       ! Calculate vertical eddy diffusivity (U.Schumann, 2012) :
+       Cv = 0.2
+       Omega_N = 0.1
+       Ptemp_shear = Vertical_shear(Ptemp, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
+       eddy_v = Cv * Omega_N**2 / sqrt( (Ptemp_shear*g0/curr_Ptemp) )
 
-         ! attenttion ***
-         eddy_v = 1.0
+       ! attenttion ***
+       eddy_v = 1.0
 
 
-         ! Calculate horizontal eddy diffusivity:
-         Ch = 0.1
-         U_shear = Vertical_shear(u, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
-         V_shear = Vertical_shear(v, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
-         UV_shear = sqrt( U_shear**2 + V_shear**2 )
-         do i_ring=1,n_rings_max
-          !eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
-          ! attention ***
+       ! Calculate horizontal eddy diffusivity:
+       Ch = 0.1
+       U_shear = Vertical_shear(u, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       V_shear = Vertical_shear(v, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       UV_shear = sqrt( U_shear**2 + V_shear**2 )
+       do i_ring=1,n_rings_max
+        !eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
+        ! attention ***
           eddy_h(i_ring) = 1.0
 
-          eddy_A(i_ring) = eddy_v*cos(box_theta(i_box)) + eddy_h(i_ring)*sin(abs(box_theta(i_box))) ! a
-          eddy_B(i_ring) = eddy_v*sin(abs(box_theta(i_box))) + eddy_h(i_ring)*cos(box_theta(i_box)) ! b
-         enddo
+          eddy_A(i_ring) = eddy_v*cos(box_theta(i_box)) &
+                        + eddy_h(i_ring)*sin(abs(box_theta(i_box))) ! a
+          eddy_B(i_ring) = eddy_v*sin(abs(box_theta(i_box))) &
+                        + eddy_h(i_ring)*cos(box_theta(i_box)) ! b
+       enddo
 
 
-         ! For the innest ring (i_ring = 1)
-         ! kB should be rewrite in a more accurate equation !!!
-         kB(1) = eddy_B(1) / ( box_radiusB(i_box,2) / 2.0 )
-         kA(1) = eddy_A(1) / ( box_radiusA(i_box,2) / 2.0 )
+       !=========================================================================
+       ! Calculate the transport rate
+       ! kB should be rewrite in a more accurate equation !!!
+       !=========================================================================
+       ! For innest ring:
+       kB(1) = eddy_B(1) &
+          / ( box_radiusB(i_box,1) + 0.5*(box_radiusB(i_box,2)-box_radiusB(i_box,1)) )
+       kA(1) = eddy_A(1) &
+          / ( box_radiusA(i_box,1) + 0.5*(box_radiusA(i_box,2)-box_radiusA(i_box,1)) )
 
-         do i_ring = 2, n_rings_max-1
+       do i_ring = 2, n_rings_max-1
 
-         kB(i_ring) = eddy_B(i_ring) / ((box_radiusB(i_box,i_ring+1)-box_radiusB(i_box,i_ring-1)) / 2.0 )
-         kA(i_ring) = eddy_A(i_ring) / ((box_radiusA(i_box,i_ring+1)-box_radiusA(i_box,i_ring-1)) / 2.0 )
+       kB(i_ring) = eddy_B(i_ring) &
+              / ( 0.5*(box_radiusB(i_box,i_ring+1)-box_radiusB(i_box,i_ring-1)) )
+       kA(i_ring) = eddy_A(i_ring) &
+              / ( 0.5*(box_radiusA(i_box,i_ring+1)-box_radiusA(i_box,i_ring-1)) )
 
-         enddo ! i_ring
+       enddo ! 
 
-         ! For outest ring (i_ring = n_rings_max)
-         kB(n_rings_max) = eddy_B(n_rings_max) &
+       ! For outest ring (i_ring = n_rings_max)
+       kB(n_rings_max) = eddy_B(n_rings_max) &
                 /( box_radiusB(i_box,n_rings_max)-box_radiusB(i_box,n_rings_max-1) )
-         kA(n_rings_max) = eddy_A(n_rings_max) &
+       kA(n_rings_max) = eddy_A(n_rings_max) &
                 /( box_radiusA(i_box,n_rings_max)-box_radiusA(i_box,n_rings_max-1) )
 
 
+       !=======================================================================
+       ! Calculate the volume of each ring
+       !=======================================================================
+       V_ring(1) = PI * box_radiusA(i_box,1) * box_radiusB(i_box,1) &
+                * box_length(1) * 1.0e+6_fp ! [cm3]
+
+       DO i_ring = 2, n_rings_max
+          V_ring(i_ring) = PI*( box_radiusA(i_box,i_ring)*box_radiusB(i_box,i_ring) &
+                      - box_radiusA(i_box,i_ring-1) * box_radiusB(i_box,i_ring-1) ) &
+                                        * box_length(i_ring) * 1.0e+6_fp ! [cm3]
+       ENDDO
+
+
+       !========================================================================
+       ! Begin to calculate the dilution inside plume 
+       !========================================================================
        do i_species = 1,State_Chm%nSpecies
 
        Dt2 = 0.1
        do t1s=1,int(Dt/Dt2)
 
-       !==========================================================================
        ! Use classical Runge-Kutta method (RK4) to solve the diferential equation
-       !==========================================================================
        do Ki = 1,4
 
-         do i_ring = 1, n_rings_max
-           if(Ki==1)then
-             box_concnt_K(i_ring) = box_concnt(i_box,i_ring,i_species)
-           else if(Ki==4)then
-             box_concnt_K(i_ring) = box_concnt(i_box,i_ring,i_species) + RK(3,i_ring)*Dt2 !Dt
-           else
-             box_concnt_K(i_ring) = box_concnt(i_box,i_ring,i_species) + RK(Ki-1,i_ring)*Dt2*0.5 !Dt
-           endif
-         enddo ! i_ring
+       do i_ring = 1, n_rings_max
+         if(Ki==1)then
+           box_concnt_K(i_ring) = box_concnt(i_box,i_ring,i_species)
+         else if(Ki==4)then
+           box_concnt_K(i_ring) = box_concnt(i_box,i_ring,i_species) + RK(3,i_ring)*Dt2 !Dt
+         else
+           box_concnt_K(i_ring) = box_concnt(i_box,i_ring,i_species) + RK(Ki-1,i_ring)*Dt2*0.5 !Dt
+         endif
+       enddo ! i_ring
 
          ! For innest ring:
-         AA(1) = kA(1) * 2.0* ( box_concnt_K(2) - box_concnt_K(1) ) 
-         BB(1) = 0.0
-         DD(1) = D_radius
+         Outer(1) = 1.0e+6_fp * box_length(1) * PI &
+          * ( (box_radiusA(i_box,1)+0.5*kA(1)*Dt2)*(box_radiusB(i_box,1)+0.5*kB(1)*Dt2) &
+            - (box_radiusA(i_box,1)-0.5*kA(1)*Dt2)*(box_radiusB(i_box,1)-0.5*kB(1)*Dt2) ) &
+          * ( box_concnt_K(2) - box_concnt_K(1) ) ! [molec]
 
-         RK(Ki,1)          = ( AA(1)+BB(1) ) / DD(1)
+         Inner(1) = 0.0
 
+         RK(Ki,1) = ( Outer(1)+Inner(1) ) / V_ring(1) ! [molec/cm3]
 
          ! For rings from 2 to (n_rings_max - 1)
          do i_ring = 2, n_rings_max-1
+           Outer(i_ring) = 1.0e+6_fp * box_length(i_ring) * PI &
+              * ( (box_radiusA(i_box,i_ring) + 0.5*kA(i_ring)*Dt2) &
+                          * (box_radiusB(i_box,i_ring) + 0.5*kB(i_ring)*Dt2) &
+                 - (box_radiusA(i_box,i_ring) - 0.5*kA(i_ring)*Dt2) &
+                          * (box_radiusB(i_box,i_ring) - 0.5*kB(i_ring)*Dt2) ) &
+              * (box_concnt_K(i_ring+1)-box_concnt_K(i_ring)) ! [molec]
 
-           AA(i_ring) = kA(i_ring) *  box_radiusA(i_box,i_ring) &
-                        * ( box_concnt_K(i_ring+1) - box_concnt_K(i_ring) ) 
-           BB(i_ring) = kA(i_ring-1) * box_radiusA(i_box,i_ring-1) &
-                        * ( box_concnt_K(i_ring-1) - box_concnt_K(i_ring) )
-           DD(i_ring) = 0.5*( box_radiusA(i_box,i_ring) + box_radiusA(i_box,i_ring-1) ) * D_radius
 
-           RK(Ki,i_ring) = ( AA(i_ring)+BB(i_ring) ) / DD(i_ring)
+           Inner(i_ring) = 1.0e+6_fp * box_length(i_ring) * PI &
+              * ( (box_radiusA(i_box,i_ring-1) + 0.5*kA(i_ring-1)*Dt2) &
+                * (box_radiusB(i_box,i_ring-1) + 0.5*kB(i_ring-1)*Dt2) &
+                - (box_radiusA(i_box,i_ring-1) - 0.5*kA(i_ring-1)*Dt2) &
+                * (box_radiusB(i_box,i_ring-1) - 0.5*kB(i_ring-1)*Dt2) ) &
+              * (box_concnt_K(i_ring-1)-box_concnt_K(i_ring)) ! [molec]
+
+
+           RK(Ki,i_ring) = ( Outer(i_ring)+Inner(i_ring) ) / V_ring(i_ring)
 
          enddo ! i_ring
  
          ! For outest ring:
-         AA(n_rings_max) = kA(n_rings_max) * box_radiusA(i_box,n_rings_max) &
-            * ( State_Chm%Species(i_lon,i_lat,i_lev,i_species) - box_concnt_K(n_rings_max) ) 
-         BB(n_rings_max) = kA(n_rings_max-1) * box_radiusA(i_box,n_rings_max-1) &
-            * ( box_concnt_K(n_rings_max-1) - box_concnt_K(n_rings_max) )
-         DD(n_rings_max) = 0.5 * D_radius &
-            * ( box_radiusA(i_box,n_rings_max) + box_radiusA(i_box,n_rings_max-1) )
+         Outer(n_rings_max) = 1.0e+6_fp * box_length(n_rings_max) * PI &
+           * ( (box_radiusA(i_box,n_rings_max) + 0.5*kA(n_rings_max)*Dt2) &
+             * (box_radiusB(i_box,n_rings_max) + 0.5*kB(n_rings_max)*Dt2) &
+             - (box_radiusA(i_box,n_rings_max) - 0.5*kA(n_rings_max)*Dt2) &
+             * (box_radiusB(i_box,n_rings_max) - 0.5*kB(n_rings_max)*Dt2) ) &
+          * ( State_Chm%Species(i_lon,i_lat,i_lev,i_species) - box_concnt_K(n_rings_max) )
 
+         Inner(n_rings_max) = 1.0e+6_fp * box_length(n_rings_max) * PI &
+            * ( (box_radiusA(i_box,n_rings_max-1) + 0.5*kA(n_rings_max-1)*Dt2) &
+              * (box_radiusB(i_box,n_rings_max-1) + 0.5*kB(n_rings_max-1)*Dt2) &
+              - (box_radiusA(i_box,n_rings_max-1) - 0.5*kA(n_rings_max-1)*Dt2) &
+              * (box_radiusB(i_box,n_rings_max-1) - 0.5*kB(n_rings_max-1)*Dt2) ) &
+          * (box_concnt_K(n_rings_max-1)-box_concnt_K(n_rings_max)) ! [molec]
 
-         RK(Ki,n_rings_max) = (AA(n_rings_max)+BB(n_rings_max))/DD(n_rings_max)
+         RK(Ki,n_rings_max) = ( Outer(n_rings_max) + Inner(n_rings_max) ) &
+                              / V_ring(n_rings_max)
 
-         AA_env(Ki) = -1.0*AA(n_rings_max)
-
+         Outer2env(Ki) = -1.0 * Outer(n_rings_max) ! [molec]
 
        enddo ! Ki
 
-       if(MOD(t1s,10)==0)then
+       ! test for plume model:
+       if(MOD(t1s,600)==0)then
        if(i_box==1)then
-!        write(6,*) '= RK 1 =>', RK(1,1), RK(2,1), RK(3,1), RK(4,1)
+        write(6,*) '= success in plume model =>', t1s
 !        write(6,*) '= RK 2 =>', RK(1,10), RK(2,10), RK(3,10), RK(4,10)
        endif
        endif
 
        do i_ring = 1,n_rings_max
          box_concnt(i_box,i_ring,i_species) = box_concnt(i_box,i_ring,i_species) &
-                + Dt2*( RK(1,i_ring)+2.0*RK(2,i_ring)+2.0*RK(3,i_ring)+RK(4,i_ring) )/6.0 ! Dt
-! box_concnt(i_box,i_ring,i_species) = box_concnt(i_box,i_ring,i_species) + Dt2 * RK(1,i_ring) ! Dt
+                + ( RK(1,i_ring)+2.0*RK(2,i_ring)+2.0*RK(3,i_ring)+RK(4,i_ring) ) /6.0 
        enddo !i_ring
 
        ! env_amount is used to evalue whether mass is conserved or not
-        env_amount(i_box) = env_amount(i_box) &
-               + Dt2*( AA_env(1)+2.0*AA_env(2)+2.0*AA_env(3)+AA_env(4) )/6.0
+       env_amount(i_box) = env_amount(i_box) & ! [molec]
+          + ( Outer2env(1) + 2.0*Outer2env(2) &
+             + 2.0*Outer2env(3) + Outer2env(4) ) / 6.0
 
+       !================================================================
        ! Update the concentration in the background grid cell
        ! after the interaction with plume
+       !================================================================
        grid_volumn     = State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp ! [cm3]
-       exchange_amount = Dt2* ( AA_env(1)+2.0*AA_env(2)+2.0*AA_env(3)+AA_env(4) ) /6.0
+
+       exchange_amount = ( Outer2env(1) + 2.0*Outer2env(2) &
+                          + 2.0*Outer2env(3) + Outer2env(4) ) / 6.0
+
        backgrd_concnt(i_box,i_species) = &
          ( backgrd_concnt(i_box,i_species)*grid_volumn + exchange_amount ) / grid_volumn
 
@@ -615,16 +657,16 @@ CONTAINS
 
        Plume_Species(i_box,i_ring,i_species) = box_concnt(i_box,i_ring,i_species)
 
-        if(MOD(t1s,10)==0)then
-        if(i_box==1)then
+       if(MOD(t1s,10)==0)then
+       if(i_box==1)then
 
-         OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='OLD', &
-               FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+        OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='OLD', &
+              FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-!         write(262,*)box_concnt(1,:,1)
+!         write(262,*)box_concnt(1,:,N_inject)
 
-        endif
-        endif
+       endif
+       endif
 
        enddo ! t1s
        enddo ! do i_Species = 1,nSpecies
@@ -1012,15 +1054,8 @@ CONTAINS
 !-------------------------------------------------------------------
 !*********************************************************************
 !---------------------------------------------------------------------
-
-
   SUBROUTINE plume_write_std( am_I_Root, RC )
 
-
-    USE m_netCDF_io_define
-    USE m_netcdf_io_read
-    USE m_netcdf_io_open
-    USE Ncdf_Mod,            ONLY : NC_Open
     USE Ncdf_Mod,            ONLY : NC_Read_Time
     USE Ncdf_Mod,            ONLY : NC_Read_Arr
     USE Ncdf_Mod,            ONLY : NC_Create
@@ -1068,7 +1103,7 @@ CONTAINS
 !             FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
 !       Do i_ring = 1, n_rings_max
-!        WRITE(262,'(I0.4,3(x,E16.5E4))') i_ring, box_theta(2), box_radiusA(2,i_ring), box_radiusB(2,i_ring), box_concnt(2,i_ring,1)
+!        WRITE(262,'(I0.4,3(x,E16.5E4))') i_ring, box_theta(2), box_radiusA(2,i_ring), box_radiusB(2,i_ring), box_concnt(2,i_ring,N_inject)
 !       End Do
 
 
