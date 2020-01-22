@@ -154,7 +154,7 @@ CONTAINS
     ! For calculating chemical process inside Plume:
     USE Plume_Mod,            ONLY : Plume_I, Plume_J, Plume_L
     USE Plume_Mod,            ONLY : n_boxes_max, n_rings_max
-    USE Plume_Mod,            ONLY : Plume_Species
+    USE Plume_Mod,            ONLY : box_concnt !(i_box,i_ring,i_species)
 
 !
 ! !INPUT PARAMETERS:
@@ -833,7 +833,7 @@ CONTAINS
        ! otherwise move onto the next box.
        !====================================================================
 
-       ! If we are not in the troposphere don't do the chemistry! ???
+       ! If we are not in the troposphere don't do the chemistry!
        IF ( .not. State_Met%InChemGrid(I,J,L) ) CYCLE
 
        ! Skipping buffer zone (lzh, 08/10/2014)
@@ -1227,10 +1227,11 @@ CONTAINS
 ! Begin the chemical solver for Plume model !
 ! @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ !
 !
+!
 ! Define following variables for Plume Chemical Calculation:
 ! Plume_I, Plume_J, Plume_L,
 ! n_boxes_max, n_rings_max,
-! Plume_Species(n_boxes_max, n_rings_max, State_Chm%nSpecies)
+! box_concnt(i_box,i_ring,i_species)
 !
 ! P_I, P_J, P_L,
 ! i_box, i_ring,
@@ -1272,15 +1273,19 @@ CONTAINS
        PRESS     = GET_PCENTER( P_I, P_J, P_L )
 
        ! mje Calculate NUMDEN based on ideal gas law (# cm-3)
-       ! ???
+       ! keep this one, because number density only relared to pressure and
+       ! temperature.
        NUMDEN    = State_Met%AIRNUMDEN(P_I, P_J, P_L)
 
        ! mje H2O arrives in g/kg needs to be in mol cm-3 
-       ! ???
-       H2O       = State_Met%AVGW(P_I,P_J,P_L) * State_Met%AIRNUMDEN(P_I,P_J,P_L)
+       ! change this one, just use the chemical species inside the plume
+       ! H2O       = State_Met%AVGW(P_I,P_J,P_L) * State_Met%AIRNUMDEN(P_I,P_J,P_L)
 
  
        ! Ignore the photolysis here ???
+       ! should not be ignored, just use the background grids' value ???
+       
+
 
        !====================================================================
        ! Intialize KPP solver arrays: CFACTOR, VAR, FIX, etc.
@@ -1299,6 +1304,8 @@ CONTAINS
        IF ( DO_HETCHEM ) THEN
 
           ! Set hetchem rates ???
+          ! create a new function here:
+          ! KPP gckpp_hetrates
           CALL SET_HET( P_I, P_J, P_L, Input_Opt, State_Chm, State_Met )
 
 
@@ -1318,7 +1325,7 @@ CONTAINS
           IF ( SpcID .eq. 0) THEN
              C(N) = 0.0_dp
           ELSE
-             C(N) = Plume_Species(i_box,i_ring,SpcID)
+             C(N) = box_concnt(i_box,i_ring,SpcID)
           ENDIF
 
        ENDDO
@@ -1341,7 +1348,7 @@ CONTAINS
        IF ( .not. Input_Opt%LUCX ) THEN
           ! Need to copy H2O to the C array for KPP (mps, 4/25/16)
           ! NOTE: H2O is a tracer in UCX and is obtained from State_Chm%Species
-          C(ind_H2O) = H2O
+          ! C(ind_H2O) = H2O
        ENDIF
 
        !==================================================================
@@ -1364,12 +1371,7 @@ CONTAINS
        ! Archive 
        CALL Fun ( VAR, FIX, RCONST, Vloc, Aout=Aout ) ! Plume
 
-       ! Can we ignore all the diagnostics in Plume model ???
-       IF ( Input_Opt%NN_RxnRates > 0 ) THEN
-          DO N = 1, Input_Opt%NN_RxnRates ! ???
-             State_Diag%RxnRates(I,J,L,N) = Aout(Input_Opt%RxnRates_IDs(N))
-          ENDDO
-       ENDIF
+       ! We can ignore all the diagnostics in Plume model !!!
 
 #endif
 
@@ -1418,11 +1420,6 @@ CONTAINS
        ! Print grid box indices to screen if integrate failed
        IF ( IERR < 0 ) THEN
           WRITE(6,*) '### INTEGRATE RETURNED ERROR AT: ', P_I, P_J, P_L, i_box, i_ring
-
-          ! Can we ignore all the State_Diag in Plume ???
-          IF ( ASSOCIATED(State_Diag%KppError) ) THEN
-             State_Diag%KppError(P_I,P_J,P_L) = State_Diag%KppError(P_I,P_J,P_L) + 1.0
-          ENDIF
        ENDIF
 #endif
 
@@ -1450,9 +1447,6 @@ CONTAINS
                 VAR = C(1:NVAR)
                 FIX = C(NVAR+1:NSPEC)
              ENDIF
-             IF ( ASSOCIATED(State_Diag%KppError) ) THEN ! ???
-                State_Diag%KppError(P_I,P_J,P_L) = State_Diag%KppError(P_I,P_J,P_L) + 1.0
-             ENDIF
 #else
              CALL ERROR_STOP(ERRMSG, 'INTEGRATE_KPP')
 #endif
@@ -1464,11 +1458,11 @@ CONTAINS
        C(1:NVAR)       = VAR(:)
        C(NVAR+1:NSPEC) = FIX(:)
 
-       ! Save for next integration time step ???
-       State_Chm%KPPHvalue(P_I,P_J,P_L) = RSTATE(Nhnew)
+       ! Save for next integration time step - igonre
+!       State_Chm%KPPHvalue(P_I,P_J,P_L) = RSTATE(Nhnew)
 
-       ! Save rate constants in global array (not used) ???
-       GLOB_RCONST(P_I,P_J,P_L,:) = RCONST(:)
+       ! Save rate constants in global array (not used) - ignore
+!       GLOB_RCONST(P_I,P_J,P_L,:) = RCONST(:)
 
        !====================================================================
        ! Check we have no negative values and copy the concentrations
@@ -1487,14 +1481,14 @@ CONTAINS
           C(N) = MAX( C(N), 0.0E0_dp )
 
           ! Copy concentrations back into State_Chm%Species
-          Plume_Species(i_box,i_ring,SpcID) = REAL( C(N), kind=fp )
+          box_concnt(i_box,i_ring,SpcID) = REAL( C(N), kind=fp )
 
        ENDDO
        
-       WRITE(6,*)'= success for plume chemical solver ==========='
-
     ENDDO ! Do i_ring = 1, n_rings_max 
-    ENDDO ! DO i_ring = 1,n_boxes_max
+!       WRITE(6,*)'= success for plume chemical solver ==========='
+    ENDDO ! DO i_box = 1,n_boxes_max
+
 
 ! @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ !
 ! Stop the chemical solver for Plume model  !
