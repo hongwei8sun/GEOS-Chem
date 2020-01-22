@@ -18,8 +18,8 @@ MODULE Lagrange_Mod
   PUBLIC :: lagrange_cleanup
 
 
-  integer, parameter    :: n_boxes_max = 3600*4 !  6904224           ! 24*200*1 : lat*lon*lev
-  integer, parameter    :: N_parcels   = 0        
+  integer, parameter    :: n_boxes_max = 6904224           ! 24*200*1 : lat*lon*lev
+  integer, parameter    :: N_parcels   = 131        
   integer               :: tt, N_Dt, N_Dt_previous         ! Aircraft would release 131 aerosol parcels every time step
   integer               :: i_rec
 
@@ -41,6 +41,14 @@ CONTAINS
     USE State_Met_Mod,   ONLY : MetState
     USE GC_GRID_MOD,     ONLY : GET_AREA_M2
 
+    USE TIME_MOD,        ONLY : GET_YEAR
+    USE TIME_MOD,        ONLY : GET_MONTH
+    USE TIME_MOD,        ONLY : GET_DAY
+    USE TIME_MOD,        ONLY : GET_HOUR
+    USE TIME_MOD,        ONLY : GET_MINUTE
+    USE TIME_MOD,        ONLY : GET_SECOND
+
+
     LOGICAL,        INTENT(IN)    :: am_I_Root   ! Are we on the root CPU
     TYPE(MetState), intent(in)    :: State_Met
 
@@ -53,6 +61,21 @@ CONTAINS
     integer :: i_lev
 
     integer :: j_lat
+
+
+    INTEGER :: YEAR
+    INTEGER :: MONTH
+    INTEGER :: DAY
+    INTEGER :: HOUR
+    INTEGER :: MINUTE
+    INTEGER :: SECOND
+
+    CHARACTER(LEN=25) :: YEAR_C
+    CHARACTER(LEN=25) :: MONTH_C
+    CHARACTER(LEN=25) :: DAY_C
+    CHARACTER(LEN=25) :: HOUR_C
+    CHARACTER(LEN=25) :: MINUTE_C
+    CHARACTER(LEN=25) :: SECOND_C
 
     WRITE(6,'(a)') '--------------------------------------------------------'
     WRITE(6,'(a)') ' Initial Lagrnage Module (Using Dynamic time step)'
@@ -79,24 +102,24 @@ CONTAINS
 !--------------------------------------------------
 
     ! (2)
-!    do i_box = 1,n_boxes_max,1
-!        box_lon(i_box) = -141.0      
-!        box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
-!        box_lev(i_box) = 52.0e+0_fp       ! about 20 km
-!    enddo
-!    N_Dt_previous = 0
+    do i_box = 1,n_boxes_max,1
+        box_lon(i_box) = -141.0   ! 0   
+        box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
+        box_lev(i_box) = 52.0e+0_fp       ! about 20 km
+    enddo
+    N_Dt_previous = 0
 
 !--------------------------------------------------
 
-    ! (3)
-    do j_lat = 1,4,1
-    do i_box = (j_lat-1)*3600+1,j_lat*3600,1
-        box_lon(i_box) = (i_box+0.01)*0.1
-        box_lat(i_box)  = -76.1 - 3*j_lat
-        box_lev(i_box) = 52.0e+0_fp       ! about 20 km
-    enddo
-    enddo
-    N_Dt_previous = n_boxes_max
+    ! (3) Solid-body rotation test
+!    do j_lat = 1,4,1
+!    do i_box = (j_lat-1)*3600+1,j_lat*3600,1
+!        box_lon(i_box) = (i_box+0.01)*0.1
+!        box_lat(i_box)  = -76.1 - 3*j_lat
+!        box_lev(i_box) = 52.0e+0_fp       ! about 20 km
+!    enddo
+!    enddo
+!    N_Dt_previous = n_boxes_max
 
 !-------------------------------------------------
 
@@ -105,13 +128,30 @@ CONTAINS
     box_length = 0.0e+0_fp
 
 
-    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
+    YEAR        = GET_YEAR()
+    MONTH       = GET_MONTH()
+    DAY         = GET_DAY()
+    HOUR        = GET_HOUR()
+    MINUTE      = GET_MINUTE()
+    SECOND      = GET_SECOND()
+
+    WRITE(YEAR_C,*) YEAR
+    WRITE(MONTH_C,*) MONTH
+    WRITE(DAY_C,*) DAY
+    WRITE(HOUR_C,*) HOUR
+    WRITE(MINUTE_C,*) MINUTE
+    WRITE(SECOND_C,*) SECOND
+
+
+    FILENAME   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) // '-' //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
+    WRITE(6,*) '= lagrange =>', FILENAME
+
     tt   = 0
     N_Dt = N_Dt_previous + N_parcels 
 
-!    OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
+!    OPEN( 261,      FILE=TRIM(ILENAME   ), STATUS='REPLACE', &
 !          FORM='UNFORMATTED',    ACCESS='Direct', Recl=18 )
-    OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
+    OPEN( 261,      FILE=TRIM( FILENAME ), STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 ! Integer is 2 bytes, 2+4+4+4=18 bytes.
 
@@ -288,15 +328,15 @@ CONTAINS
 !=======================================================================================================
 
        ! test for solid-body rotation 
-       do ii=1,IIPAR,1
-       do jj=1,JJPAR,1
-       do kk=i_lev-2,i_lev+2,1
-         omeg(ii, jj, kk) = 0.0
-         u(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0) *( -1.0*sin(X_mid(ii)*PI/180.0)*0.0 +cos(X_mid(ii)*PI/180.0)*3.0 )
-         v(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0)**2 *( -1.0*cos(X_mid(ii)*PI/180.0)*0.0 -sin(X_mid(ii)*PI/180.0)*3.0 )
-       enddo
-       enddo
-       enddo
+!       do ii=1,IIPAR,1
+!       do jj=1,JJPAR,1
+!       do kk=i_lev-2,i_lev+2,1
+!         omeg(ii, jj, kk) = 0.0
+!         u(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0) *( -1.0*sin(X_mid(ii)*PI/180.0)*0.0 +cos(X_mid(ii)*PI/180.0)*3.0 )
+!         v(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0)**2 *( -1.0*cos(X_mid(ii)*PI/180.0)*0.0 -sin(X_mid(ii)*PI/180.0)*3.0 )
+!       enddo
+!       enddo
+!       enddo
        ! test:
 
 !=================================================================================
@@ -356,7 +396,6 @@ CONTAINS
          if(abs(curr_lat)>Y_mid(JJPAR))then 
             curr_u_PS = Interplt_uv_PS_polar(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
             curr_v_PS = Interplt_uv_PS_polar(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
-            write(6,*) '= polar wind interplation =>', curr_u_PS, curr_v_PS
          else
             curr_u_PS = Interplt_uv_PS(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
             curr_v_PS = Interplt_uv_PS(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
@@ -1144,6 +1183,13 @@ CONTAINS
 
     USE Input_Opt_Mod, ONLY : OptInput
 
+    USE TIME_MOD,        ONLY : GET_YEAR
+    USE TIME_MOD,        ONLY : GET_MONTH
+    USE TIME_MOD,        ONLY : GET_DAY
+    USE TIME_MOD,        ONLY : GET_HOUR
+    USE TIME_MOD,        ONLY : GET_MINUTE
+    USE TIME_MOD,        ONLY : GET_SECOND
+
     ! Parameters for netCDF routines
     include "netcdf.inc"
 
@@ -1167,16 +1213,47 @@ CONTAINS
 !    INTEGER                   :: L
     LOGICAL                   :: IsOldFile
 
+    INTEGER :: YEAR
+    INTEGER :: MONTH
+    INTEGER :: DAY
+    INTEGER :: HOUR
+    INTEGER :: MINUTE
+    INTEGER :: SECOND
+
     CHARACTER(LEN=255)            :: FILENAME
 
-    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
+    CHARACTER(LEN=25) :: YEAR_C
+    CHARACTER(LEN=25) :: MONTH_C
+    CHARACTER(LEN=25) :: DAY_C
+    CHARACTER(LEN=25) :: HOUR_C
+    CHARACTER(LEN=25) :: MINUTE_C
+    CHARACTER(LEN=25) :: SECOND_C
+
+    YEAR        = GET_YEAR()
+    MONTH       = GET_MONTH()
+    DAY         = GET_DAY()
+    HOUR        = GET_HOUR()
+    MINUTE      = GET_MINUTE()
+    SECOND      = GET_SECOND()
+
+    WRITE(YEAR_C,*) YEAR
+    WRITE(MONTH_C,*) MONTH
+    WRITE(DAY_C,*) DAY
+    WRITE(HOUR_C,*) HOUR
+    WRITE(MINUTE_C,*) MINUTE
+    WRITE(SECOND_C,*) SECOND
+
+    FILENAME   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) // '-' //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
+    WRITE(6,*) '= lagrange =>', FILENAME
+
+!    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
     tt = tt +1
 
     IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
 
 !       OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD', &
 !             FORM='UNFORMATTED', ACCESS='Direct', Recl=18 )
-    OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD', &
+    OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
        Do i_box = 1, n_boxes_max
