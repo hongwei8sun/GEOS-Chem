@@ -103,7 +103,7 @@ CONTAINS
 
     ! (2)
     do i_box = 1,n_boxes_max,1
-        box_lon(i_box) = -141.0   ! 0   
+        box_lon(i_box) = 0.0e+0_fp   ! 0   
         box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
         box_lev(i_box) = 52.0e+0_fp       ! about 20 km
     enddo
@@ -144,7 +144,6 @@ CONTAINS
 
 
     FILENAME   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) // '-' //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
-    WRITE(6,*) '= lagrange =>', FILENAME
 
     tt   = 0
     N_Dt = N_Dt_previous + N_parcels 
@@ -1244,8 +1243,6 @@ CONTAINS
     WRITE(SECOND_C,*) SECOND
 
     FILENAME   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) // '-' //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
-    WRITE(6,*) '= lagrange =>', FILENAME
-
 !    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
     tt = tt +1
 

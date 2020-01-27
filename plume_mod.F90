@@ -41,7 +41,7 @@ MODULE Plume_Mod
   real(fp), allocatable :: box_radiusB(:,:) ! horizontal radius
 
   ! Theta is the clockwise angle between z-axis (P) and vertical radiusA
-  real(fp), allocatable :: box_theta(:)    ! 0 ~ 180 degree
+  real(fp), allocatable :: box_theta(:)     ! 0 ~ 180 degree
   real(fp), allocatable :: box_length(:)
 
   ! D_radius should only be used at the beginning!
@@ -187,6 +187,11 @@ CONTAINS
     ENDIF
 
 
+    !======================================================================
+    ! identify the location of the plume box, 
+    ! put the corresponding concentration of backgound grid into the initial 
+    ! concentration inside plume in unit of [molec/cm3].
+    !======================================================================
     do i_box = 1,n_boxes_max
 
        curr_lon      = box_lon(i_box)
@@ -220,14 +225,13 @@ CONTAINS
     WRITE(6,*)'=== the unit for species currently is:', State_Chm%Spc_Units
 
 
-    do i_ring=1,n_rings_max
-       box_concnt_K(i_ring) = 0.0e+0_fp
-    enddo
+    box_concnt_K(:) = 0.0e+0_fp ! [n_ring_max]
 
 
     ! State_Chm%nAdvect: the last one is PASV
     N_inject = State_Chm%nAdvect
 
+    ! test:
     ! Sigma = 1000m, Dr = 100m, 
     box_concnt(1,1:100,N_inject) = 1.0e-20_fp * (/ 49.75062395963412, 47.799874091655, &
         44.124845129229776, 39.13522691209341, 33.34884054292372, 27.30372133198547, &
@@ -272,7 +276,7 @@ CONTAINS
     OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-     WRITE(262,*)box_concnt(1,:,N_inject)
+       WRITE(262,*)box_concnt(1,:,N_inject)
 
   END SUBROUTINE plume_init
 
@@ -464,6 +468,7 @@ CONTAINS
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
        backgrd_concnt(i_box,:) = State_Chm%Species(i_lon,i_lat,i_lev,:)
+       ! [molec/cm3]
 
 
        Plume_I(i_box) = i_lon
@@ -482,9 +487,10 @@ CONTAINS
        i_lat = Find_iLonLat(next_lat, Dy, Y_edge2)
        i_lev = Find_iPLev(next_pressure,P_edge)
 
-       !!!!!!
-       ! For deformation of cross-section caused by wind shear (A.D.Naiman et al., 2010):
-       !!!!!!
+       !=====================================================================
+       ! For deformation of cross-section caused by wind shear 
+       ! (A.D.Naiman et al., 2010):
+       !=====================================================================
 
        ! calculate the wind_s shear along pressure direction
        wind_s_shear = Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
@@ -507,10 +513,10 @@ CONTAINS
        enddo
 
 
-       !!!!!!
+       !=====================================================================
        ! For the concentration change caused by eddy diffusion:
        ! box_concnt(n_boxes_max,N_rings,N_species)
-       !!!!!!
+       !=====================================================================
 
        ! Calculate vertical eddy diffusivity (U.Schumann, 2012) :
        Cv = 0.2
@@ -712,9 +718,9 @@ CONTAINS
        enddo ! do i_Species = 1,nSpecies
 
        ! test
-       if(i_box==1)then
-          WRITE(6,*)'= plume =>',N_inject, box_concnt(1,1:20,N_inject)
-       endif
+!       if(i_box==1)then
+!          WRITE(6,*)'= plume =>',N_inject, box_concnt(1,1:20,N_inject)
+!       endif
 
     enddo ! i_box
 

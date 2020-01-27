@@ -864,7 +864,7 @@ CONTAINS
           CALL SET_HET( I, J, L, Input_Opt, State_Chm, State_Met )
 
 #if defined( BPCH_DIAG )
-          IF ( ND52 > 0 ) THEN
+          IF ( ND52 > 0 ) THEN ! ???
              ! Archive gamma values
              AD52(I,J,L,1) = AD52(I,J,L,1) + HET(ind_HO2,   1)
              AD52(I,J,L,2) = AD52(I,J,L,2) + HET(ind_IEPOXA,1) &
@@ -1163,7 +1163,7 @@ CONTAINS
              ! Hard-coded MW
              H2SO4_RATE(I,J,L) = VAR(KppID) / AVO * 98.e-3_fp * &
                                  State_Met%AIRVOL(I,J,L)  * &
-                                 1e+6_fp / DT
+                                 1e+6_fp / DT   ! State_Met%AIRVOL(I,J,L) ???
 
             IF ( H2SO4_RATE(I,J,L) < 0.0d0) THEN
               write(*,*) "H2SO4_RATE negative in flexchem_mod.F90!!", &
@@ -1279,12 +1279,149 @@ CONTAINS
 
        ! mje H2O arrives in g/kg needs to be in mol cm-3 
        ! change this one, just use the chemical species inside the plume
-       ! H2O       = State_Met%AVGW(P_I,P_J,P_L) * State_Met%AIRNUMDEN(P_I,P_J,P_L)
-
+       ! ??? H2O       = State_Met%AVGW(P_I,P_J,P_L) * State_Met%AIRNUMDEN(P_I,P_J,P_L)
+       H2O       = box_concnt(i_box, i_ring, ind_H2O)
  
+
        ! Ignore the photolysis here ???
        ! should not be ignored, just use the background grids' value ???
-       
+
+       !====================================================================
+       ! Get photolysis rates (daytime only)
+       !
+       ! NOTE: The ordering of the photolysis reactions here is
+       ! the order in the Fast-J definition file FJX_j2j.dat.
+       ! I've assumed that these are the same as in the text files
+       ! but this may have been changed.  This needs to be checked
+       ! through more thoroughly -- M. Long (3/28/16)
+       !
+       ! ALSO NOTE: We moved this section above the test to see if grid 
+       ! box (I,J,L) is in the chemistry grid.  This will ensure that
+       ! J-value diagnostics are defined for all levels in the column.
+       ! This modification was validated by a geosfp_4x5_standard
+       ! difference test. (bmy, 1/18/18)
+       !
+       ! Update SUNCOSmid threshold from 0 to cos(98 degrees) since
+       ! fast-jx allows for SZA down to 98 degrees. This is important in
+       ! the stratosphere-mesosphere where sunlight still illuminates at 
+       ! high altitudes if the sun is below the horizon at the surface
+       ! (update submitted by E. Fleming (NASA), 10/11/2018)
+       !====================================================================
+       IF ( State_Met%SUNCOSmid(P_I,P_J) > -0.1391731e+0_fp ) THEN
+
+          ! Get the fraction of H2SO4 that is available for photolysis
+          ! (this is only valid for UCX-enabled mechanisms)
+          IF ( Input_Opt%LUCX ) THEN
+             SO4_FRAC = SO4_PHOTFRAC( P_I, P_J, P_L ) ! ???
+          ELSE
+             SO4_FRAC = 0.0_fp
+          ENDIF
+
+          ! Adjust certain photolysis rates:
+          ! (1) H2SO4 + hv -> SO2 + OH + OH   (UCX-based mechanisms)
+          ! (2) O3    + hv -> O2  + O         (UCX-based mechanisms)
+          ! (2) O3    + hv -> OH  + OH        (trop-only mechanisms)
+          CALL PHOTRATE_ADJ( am_I_root, Input_Opt, State_Diag,               &
+                             P_I,       P_J,       P_L,                      &
+                             NUMDEN,    TEMP,      H2O,                      &
+                             SO4_FRAC,  IERR                                )
+                                ! H2O ???
+          ! Loop over the FAST-JX photolysis species
+          DO N = 1, JVN_
+
+             ! Copy photolysis rate from FAST_JX into KPP PHOTOL array
+             PHOTOL(N) = ZPJ(P_L,N,P_I,P_J)
+
+#if defined( MODEL_GEOS )
+             ! Archive in local array
+             ! GLOB_JVAL(I,J,L,N) = PHOTOL(N)
+#endif
+
+#if defined( NC_DIAG )      
+
+             !--------------------------------------------------------------
+             ! HISTORY (aka netCDF diagnostics)
+             !
+             ! Instantaneous photolysis rates [s-1] (aka J-values)
+             ! and noontime photolysis rates [s-1]
+             !
+             !    NOTE: Attach diagnostics here instead of in module 
+             !    fast_jx_mod.F so that we can get the adjusted photolysis
+             !    rates (output from routne PHOTRATE_ADJ above).
+             !
+             ! The mapping between the GEOS-Chem photolysis species and 
+             ! the FAST-JX photolysis species is contained in the lookup 
+             ! table in input file FJX_j2j.dat.
+             ! 
+             !    NOTE: Depending on the simulation, some GEOS-Chem 
+             !    species might not map to a of the FAST-JX species 
+             !    (e.g. SOA species will not be present in a tropchem run).
+             !
+             ! Some GEOS-Chem photolysis species may have multiple 
+             ! branches for photolysis reactions.  These will be 
+             ! represented by multiple entries in the FJX_j2j.dat
+             ! lookup table.
+             !
+             !    NOTE: For convenience, we have stored the GEOS-Chem 
+             !    photolysis species index (range: 1..State_Chm%nPhotol) 
+             !    for each of the FAST-JX photolysis species (range; 
+             !    1..JVN_) in the GC_PHOTO_ID array (located in module 
+             !    CMN_FJX_MOD.F).
+             !
+             ! To match the legacy bpch diagnostic, we archive the sum of 
+             ! photolysis rates for a given GEOS-Chem species over all of 
+             ! the reaction branches.
+             !
+             !    NOTE: The legacy ND22 bpch diagnostic divides by the
+             !    number of times the when grid box (I,J,L) was between
+             !    11am and 1pm local solar time.  Because the HISTORY
+             !    component can only divide by the number of times the
+             !    diagnostic was updated, we counteract this by multiplying
+             !    by the factor 86400 [sec/day] / chemistry timestep [sec].
+             !--------------------------------------------------------------
+
+             ! GC photolysis species index
+             P = GC_Photo_Id(N)
+
+             ! If this FAST_JX photolysis species maps to a valid 
+             ! GEOS-Chem photolysis species (for this simulation)...
+!             IF ( P > 0 ) THEN
+!
+!                ! Archive the instantaneous photolysis rate
+!                ! (summing over all reaction branches)
+!                IF ( State_Diag%Archive_JVal ) THEN
+!                   State_Diag%JVal(I,J,L,P) = State_Diag%JVal(I,J,L,P)    &
+!                                            + PHOTOL(N)
+!                ENDIF
+!
+!                ! Archive the noontime photolysis rate
+!                ! (summing over all reaction branches)
+!                IF ( State_Diag%Archive_JNoon .and. &
+!                     State_Met%IsLocalNoon(I,J) ) THEN
+!                   State_Diag%JNoon(I,J,L,P) = State_Diag%JNoon(I,J,L,P)  &
+!                                             + ( PHOTOL(N) * JNoon_Fac )
+!                ENDIF
+!
+!             ENDIF
+#endif
+          ENDDO
+       ENDIF
+
+       !====================================================================
+       ! Test if we need to do the chemistry for box (I,J,L),
+       ! otherwise move onto the next box.
+       !====================================================================
+
+       ! If we are not in the troposphere don't do the chemistry!
+       IF ( .not. State_Met%InChemGrid(I,J,L) ) CYCLE
+
+       ! Skipping buffer zone (lzh, 08/10/2014)
+       IF ( Input_Opt%ITS_A_NESTED_GRID ) THEN
+          IF ( J <=         Input_Opt%NESTED_J0W ) CYCLE
+          IF ( J >  JJPAR - Input_Opt%NESTED_J0E ) CYCLE
+          IF ( I <=         Input_Opt%NESTED_I0W ) CYCLE
+          IF ( I >  IIPAR - Input_Opt%NESTED_I0E ) CYCLE
+       ENDIF
 
 
        !====================================================================
