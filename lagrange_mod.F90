@@ -216,7 +216,7 @@ CONTAINS
     TYPE(ChmState), intent(inout) :: State_Chm
     TYPE(OptInput), intent(in)    :: Input_Opt
 
-    REAL :: Dt                  ! = 600.0e+0_fp          
+    REAL :: Dt(4)                  ! = 600.0e+0_fp          
 
     real(fp), pointer  :: PASV           
     integer            :: nAdv        
@@ -230,15 +230,20 @@ CONTAINS
 
     integer :: ii, jj, kk
 
-    real(fp) :: curr_lon
-    real(fp) :: curr_lat
-    real(fp) :: curr_pressure
+    integer :: Ki
+
+    real(fp) :: curr_lon, curr_lat, curr_pressure
+    real(fp) :: RK_lon, RK_lat
     real(fp) :: X_edge2
     real(fp) :: Y_edge2
 
     real(fp) :: dbox_lon, dbox_lat, dbox_lev
     real(fp) :: dbox_x_PS, dbox_y_PS
     real(fp) :: box_x_PS, box_y_PS
+
+    real(fp) :: RK_Dlon(4), RK_Dlat(4), RK_Dlev(4)
+    real(fp) :: RK_x_PS, RK_y_PS
+    real(fp) :: RK_Dx_PS, RK_Dy_PS
 
     real(fp), pointer :: u(:,:,:)
     real(fp), pointer :: v(:,:,:)
@@ -259,7 +264,10 @@ CONTAINS
 
     real(fp), pointer :: P_I, R_e     
 
-    Dt = GET_TS_DYN()
+    Dt(1) = GET_TS_DYN()
+    Dt(2) = 0.5*GET_TS_DYN()
+    Dt(3) = 0.5*GET_TS_DYN()
+    Dt(4) = GET_TS_DYN()
 
     ! Establish pointers
     ! P_I = PI
@@ -295,11 +303,11 @@ CONTAINS
 
        ! make sure the location is not out of range
        do while (box_lat(i_box) > Y_edge(JJPAR+1))
-          box_lat(i_box) = Y_edge(JJPAR+1) - ( box_lat(i_box)-Y_edge(JJPAR+1) )
+          box_lat(i_box) = Y_edge(JJPAR+1) - ( curr_lat-Y_edge(JJPAR+1) )
        end do
 
        do while (box_lat(i_box) < Y_edge(1))
-          box_lat(i_box) = Y_edge(1) + ( box_lat(i_box)-Y_edge(1) )
+          box_lat(i_box) = Y_edge(1) + ( curr_lat-Y_edge(1) )
        end do
 
        do while (box_lon(i_box) > X_edge(IIPAR+1))
@@ -310,35 +318,19 @@ CONTAINS
           box_lon(i_box) = box_lon(i_box) + 360.0
        end do
 
-
        curr_lon      = box_lon(i_box)
        curr_lat      = box_lat(i_box)
        curr_pressure = box_lev(i_box)        ! hPa
 
+      DO Ki = 1,4,1
 
+       ! check this grid box is the neast one or the one located in left-bottom
+       ! ???
        i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
-       i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2) 
-       i_lev = Find_iPLev(curr_pressure,P_mid)
-
-
        if(i_lon==IIPAR+1) i_lon=1
 
-
-!=======================================================================================================
-
-       ! test for solid-body rotation 
-!       do ii=1,IIPAR,1
-!       do jj=1,JJPAR,1
-!       do kk=i_lev-2,i_lev+2,1
-!         omeg(ii, jj, kk) = 0.0
-!         u(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0) *( -1.0*sin(X_mid(ii)*PI/180.0)*0.0 +cos(X_mid(ii)*PI/180.0)*3.0 )
-!         v(ii, jj, kk) = sin(Y_mid(jj)*PI/180.0)**2 *( -1.0*cos(X_mid(ii)*PI/180.0)*0.0 -sin(X_mid(ii)*PI/180.0)*3.0 )
-!       enddo
-!       enddo
-!       enddo
-       ! test:
-
-!=================================================================================
+       i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2) 
+       i_lev = Find_iPLev(curr_pressure,P_mid)
 
 
        ! For vertical direction:
@@ -349,30 +341,14 @@ CONTAINS
           curr_omeg = Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        endif
 
+       ! For 
+       dbox_lev = Dt(Ki) * curr_omeg / 100.0     ! Pa => hPa
+       curr_pressure = box_lev(i_box) + dbox_lev
 
-       dbox_lev = Dt * curr_omeg / 100.0     ! Pa => hPa
-       box_lev(i_box) = box_lev(i_box) + dbox_lev
+       RK_Dlev(Ki) = Dt(1) * curr_omeg / 100.0     ! Pa => hPa
 
-       if(box_lev(i_box)<P_mid(LLPAR)) box_lev(i_box) = P_mid(LLPAR) + ( P_mid(LLPAR) - box_lev(i_box) )
-       if(box_lev(i_box)>P_mid(1)) box_lev(i_box) = P_mid(1) - ( box_lev(i_box) - P_mid(1) )
-
-
-!======================================================================================================
-
-       ! test: replace the same wind around polar with adjacent different values
-!       do ii=1,IIPAR,1
-!       do kk=1,LLPAR,1
-
-!        u(ii,1,kk) = u(ii,2,kk)*0.6
-!        v(ii,1,kk) = v(ii,2,kk)*0.6
-
-!        u(ii,JJPAR,kk) = u(ii,JJPAR-1,kk)*0.6
-!        v(ii,JJPAR,kk) = v(ii,JJPAR-1,kk)*0.6
-
-!       enddo
-!       enddo
-
-!=======================================================================================================
+       if(curr_pressure<P_mid(LLPAR)) curr_pressure = P_mid(LLPAR) + ( P_mid(LLPAR) - curr_pressure )
+       if(curr_pressure>P_mid(1)) curr_pressure = P_mid(1) - ( curr_pressure - P_mid(1) )
 
 
        if(abs(curr_lat)<=72.0)then
@@ -381,12 +357,15 @@ CONTAINS
            curr_u    = Interplt_wind_RLL(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
            curr_v    = Interplt_wind_RLL(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
 
-           dbox_lon = (Dt*curr_u) / (2.0*PI*Re*cos(curr_lat*PI/180.0)) * 360.0
-           dbox_lat = (Dt*curr_v) / (PI*Re) * 180.0
+           dbox_lon  = (Dt(Ki)*curr_u) / (2.0*PI*Re*cos(box_lat(i_box)*PI/180.0)) * 360.0
+           dbox_lat  = (Dt(Ki)*curr_v) / (PI*Re) * 180.0
 
-           box_lon(i_box) = box_lon(i_box) + dbox_lon
-           box_lat(i_box) = box_lat(i_box) + dbox_lat
+           curr_lon  = box_lon(i_box) + dbox_lon
+           curr_lat  = box_lat(i_box) + dbox_lat
  
+           RK_Dlon(Ki) = (Dt(1)*curr_u) / (2.0*PI*Re*cos(box_lat(i_box)*PI/180.0)) * 360.0
+           RK_Dlat(Ki) = (Dt(1)*curr_v) / (PI*Re) * 180.0
+
        endif
 
        if(abs(curr_lat)>72.0)then
@@ -400,39 +379,73 @@ CONTAINS
             curr_v_PS = Interplt_uv_PS(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
          endif
 
-         dbox_x_PS = Dt*curr_u_PS
-         dbox_y_PS = Dt*curr_v_PS
+         dbox_x_PS = Dt(Ki)*curr_u_PS
+         dbox_y_PS = Dt(Ki)*curr_v_PS
+
+         RK_Dx_PS = Dt(1)*curr_u_PS
+         RK_Dy_PS = Dt(1)*curr_v_PS
+
 
          ! change from (lon,lat) in RLL to (x,y) in PS: 
-         if(curr_lat<0)then
-           box_x_PS = -1.0* Re* cos(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
-           box_y_PS = -1.0* Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+         if(box_lat(i_box)<0)then
+           box_x_PS = -1.0* Re* cos(box_lon(i_box)*PI/180.0) / tan(box_lat(i_box)*PI/180.0)
+           box_y_PS = -1.0* Re* sin(box_lon(i_box)*PI/180.0) / tan(box_lat(i_box)*PI/180.0)
          else
-           box_x_PS = Re* cos(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
-           box_y_PS = Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+           box_x_PS = Re* cos(box_lon(i_box)*PI/180.0) / tan(box_lat(i_box)*PI/180.0)
+           box_y_PS = Re* sin(box_lon(i_box)*PI/180.0) / tan(box_lat(i_box)*PI/180.0)
          endif
+
+         RK_x_PS  = box_x_PS + RK_Dx_PS
+         RK_y_PS  = box_y_PS + RK_Dy_PS
 
          box_x_PS  = box_x_PS + dbox_x_PS
          box_y_PS  = box_y_PS + dbox_y_PS
 
+
+         ! change from (x,y) in PS to (lon,lat) in RLL
          if(box_x_PS>0.0)then
-           box_lon(i_box) = atan( box_y_PS / box_x_PS )*180.0/PI 
+           curr_lon = atan( box_y_PS / box_x_PS )*180.0/PI 
          endif
          if(box_x_PS<0.0 .and. box_y_PS<=0.0)then
-           box_lon(i_box) = atan( box_y_PS / box_x_PS )*180.0/PI -180.0
+           curr_lon = atan( box_y_PS / box_x_PS )*180.0/PI -180.0
          endif
          if(box_x_PS<0.0 .and. box_y_PS>0.0)then
-           box_lon(i_box) = atan( box_y_PS / box_x_PS )*180.0/PI +180.0
+           curr_lon = atan( box_y_PS / box_x_PS )*180.0/PI +180.0
          endif
            
          if(curr_lat<0.0)then
-           box_lat(i_box) = -1 * atan( Re / sqrt(box_x_PS**2+box_y_PS**2) ) *180.0/PI
+           curr_lat = -1 * atan( Re / sqrt(box_x_PS**2+box_y_PS**2) ) *180.0/PI
          else
-           box_lat(i_box) = atan( Re / sqrt(box_x_PS**2+box_y_PS**2) ) *180.0/PI
+           curr_lat = atan( Re / sqrt(box_x_PS**2+box_y_PS**2) ) *180.0/PI
          endif
 
+         ! For 4th order Runge Kutta
+         if(RK_x_PS>0.0)then
+           RK_lon = atan( RK_y_PS / RK_x_PS )*180.0/PI
+         endif
+         if(RK_x_PS<0.0 .and. RK_y_PS<=0.0)then
+           RK_lon = atan( RK_y_PS / RK_x_PS )*180.0/PI -180.0
+         endif
+         if(RK_x_PS<0.0 .and. RK_y_PS>0.0)then
+           RK_lon = atan( RK_y_PS / RK_x_PS )*180.0/PI +180.0
+         endif
+
+         if(RK_lat<0.0)then
+           RK_lat = -1 * atan( Re / sqrt(RK_x_PS**2+RK_y_PS**2) ) *180.0/PI
+         else
+           RK_lat = atan( Re / sqrt(RK_x_PS**2+RK_y_PS**2) ) *180.0/PI
+         endif
+
+         RK_Dlon(Ki) = RK_lon - box_lon(i_box)
+         RK_Dlat(Ki) = RK_lat - box_lat(i_box)
 
        endif
+
+      ENDDO ! Ki = 1,4,1
+
+      box_lon(i_box) = box_lon(i_box) + (RK_Dlon(1)+2.0*RK_Dlon(2)+2.0*RK_Dlon(3)+RK_Dlon(4))/6.0
+      box_lat(i_box) = box_lat(i_box) + (RK_Dlat(1)+2.0*RK_Dlat(2)+2.0*RK_Dlat(3)+RK_Dlat(4))/6.0
+      box_lev(i_box) = box_lev(i_box) + (RK_Dlev(1)+2.0*RK_Dlev(2)+2.0*RK_Dlev(3)+RK_Dlev(4))/6.0
 
        ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in corresponding with injected parcels in Lagrangian model
        if(i_box>N_Dt_previous)then
