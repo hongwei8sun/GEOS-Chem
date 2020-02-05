@@ -103,7 +103,7 @@ CONTAINS
 
     ! (2)
     do i_box = 1,n_boxes_max,1
-        box_lon(i_box) = 0.0e+0_fp   ! 0   
+        box_lon(i_box) = -141.0e+0_fp   ! 0   
         box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) * (-1.0)**FLOOR(i_box/6000.0)      ! -29.95S : 29.95N : 0.1
         box_lev(i_box) = 52.0e+0_fp       ! about 20 km
     enddo
@@ -277,15 +277,16 @@ CONTAINS
     v => State_Met%V   ! V [m s-1]
     omeg => State_Met%OMEGA  ! Updraft velocity [Pa/s]
 
+
     P_edge => State_Met%PEDGE(1,1,:)  ! Wet air press @ level edges [hPa]
-    P_mid => State_Met%PMID(1,1,:)  ! Pressure (w/r/t moist air) at level centers (hPa)
+    P_mid  => State_Met%PMID(1,1,:)  ! Pressure (w/r/t moist air) at level centers (hPa)
 
     Dx = DLON(1,1,1)
     Dy = DLAT(1,2,1)  ! DLAT(1,1,1) is half of DLAT(1,2,1) !!!
     X_edge => XEDGE(:,1,1)   ! IIPAR+1
     Y_edge => YEDGE(1,:,1)  
-    X_mid => XMID(:,1,1)   ! IIPAR
-    Y_mid => YMID(1,:,1)  
+    X_mid  => XMID(:,1,1)   ! IIPAR
+    Y_mid  => YMID(1,:,1)  
     ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
 
     X_edge2       = X_edge(2)
