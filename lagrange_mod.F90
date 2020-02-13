@@ -35,32 +35,34 @@ MODULE Lagrange_Mod
 
   PUBLIC :: Plume_I, Plume_J, Plume_L ! (n_boxes_max)
   PUBLIC :: n_rings_max
-  PUBLIC :: box_concnt ! (n_boxes_max, n_rings_max, State_Chm%nSpecies)
+  PUBLIC :: Max_rings
+  PUBLIC :: box_concnt ! (n_boxes_max, n_rings_max, N_species)
 
 
   real(fp), allocatable :: box_lon(:), box_lat(:), box_lev(:)
-  integer, parameter    :: n_boxes_max = 20 ! 6904224     
+  integer, parameter    :: n_boxes_max = 6904224     
   integer               :: N_curr, N_prev
   real(fp), allocatable :: box_u(:), box_v(:), box_omeg(:)
   real(fp), allocatable :: box_Ptemp(:)
 
   integer, allocatable  :: Plume_I(:), Plume_J(:), Plume_L(:) !(n_boxes_max)
+  integer, allocatable  :: Max_rings(:)
   integer, parameter    :: n_rings_max = 50 ! number of rings in one box
   ! medical concentration of each ring [molec/cm3]
   real(fp), allocatable :: box_concnt(:,:,:) !(n_boxes_max,N_rings,N_species)
 
 
+  real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
 
-  integer, parameter    :: N_parcels   = 2 ! 131        
+  REAL(fp), allocatable :: V_ring(:) !(n_rings_max)
+
+  integer, parameter    :: N_parcels   = 131        
   integer               :: tt     
   ! Aircraft would release 131 aerosol parcels every time step
 
 !  integer               :: i_rec
   integer               :: N_species
 
- 
-  ! integer, parameter    :: n_boxes_max = 3  
-  integer               :: i_inject
 
   ! box_radius(n_boxes_max,N_rings) of the cross-section
   real(fp), allocatable :: box_radiusA(:,:) ! vertical radius
@@ -98,6 +100,7 @@ CONTAINS
     USE State_Met_Mod, ONLY : MetState
     USE State_Chm_Mod, ONLY : ChmState
 
+    USE GC_GRID_MOD,   ONLY : XMID, YMID
     USE GC_GRID_MOD,     ONLY : GET_AREA_M2
 
     USE TIME_MOD,        ONLY : GET_YEAR
@@ -122,7 +125,7 @@ CONTAINS
     integer :: i_lon, i_lat, i_lev            !1:IIPAR
 
     REAL(fp) :: lon1, lat1, lon2, lat2
-
+        
     INTEGER :: YEAR
     INTEGER :: MONTH
     INTEGER :: DAY
@@ -149,6 +152,8 @@ CONTAINS
     allocate(box_omeg(n_boxes_max))
     allocate(box_Ptemp(n_boxes_max))
 
+    allocate(Max_rings(n_boxes_max))
+    allocate(V_ring(n_rings_max))
 !--------------------------------------------------
 ! Allocate following variables for plume_run
 !--------------------------------------------------
@@ -162,7 +167,10 @@ CONTAINS
     allocate(box_theta(n_boxes_max))
     allocate(box_length(n_boxes_max))
 
-    allocate(box_concnt(n_boxes_max,n_rings_max,State_Chm%nSpecies))
+!    N_species = State_Chm%nSpecies
+    N_species = 1
+
+    allocate(box_concnt(n_boxes_max,n_rings_max,N_species))
     allocate(box_concnt_K(n_rings_max))
     allocate(RK(4,n_rings_max))
     allocate(Outer2env(4))
@@ -174,9 +182,14 @@ CONTAINS
     allocate(kB(n_rings_max))
 
     allocate(env_amount(n_boxes_max))
-    allocate(backgrd_concnt(n_boxes_max,State_Chm%nSpecies))
+    allocate(backgrd_concnt(n_boxes_max,N_species))
 
-    N_species = State_Chm%nSpecies
+    X_mid  => XMID(:,1,1)   ! IIPAR
+    Y_mid  => YMID(1,:,1)
+    P_mid  => State_Met%PMID(1,1,:)  ! Pressure at level centers (hPa)
+
+    Max_rings = n_rings_max
+
 !--------------------------------------------------
 ! Set the initail value of box location, length
 !--------------------------------------------------
@@ -243,16 +256,15 @@ CONTAINS
 ! Set the initial concentration of injected aerosols
 !--------------------------------------------------------
     ! State_Chm%nAdvect: the last one is PASV
-    i_inject   = State_Chm%nAdvect
     box_concnt = 0.0e+0_fp
 
     ! Injection rate is 30 [kg/km] ~ 30 [g/m] 
     DO i_box = 1, n_boxes_max
-      box_concnt(i_box,1,i_inject) = 3.0e+1_fp * box_length(i_box) &
+      box_concnt(i_box,1,N_species) = 3.0e+1_fp * box_length(i_box) &
        /( PI*box_radiusA(i_box,1)*box_radiusB(i_box,1)*box_length(i_box) )
       ! Change from [g/m3] to [molec/cm3],
       ! 98.0 g/mol is the molar mass of H2SO4
-       box_concnt(i_box,1,i_inject) = box_concnt(i_box,1,i_inject)/1.0e+6_fp &
+       box_concnt(i_box,1,N_species) = box_concnt(i_box,1,N_species)/1.0e+6_fp &
                                     / 98.0 * AVO
     ENDDO
 
@@ -299,7 +311,7 @@ CONTAINS
 !-----------------------------------------------------------------
 ! Output box concentration
 !-----------------------------------------------------------------
-    FILENAME2   = 'Plume_concentration_' // TRIM(ADJUSTL(YEAR_C)) // '-' &
+    FILENAME2   = 'Plume_concentration_molec_' // TRIM(ADJUSTL(YEAR_C)) // '-' &
         //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' // &
         TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) // ':' // &
         TRIM(ADJUSTL(SECOND_C)) // '.txt'
@@ -308,7 +320,8 @@ CONTAINS
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
     DO i_box = 1, n_boxes_max
-        WRITE(262,*) i_box, tt, box_concnt(i_box,:,i_inject)
+      V_ring = PI*box_radiusA(i_box,:)*box_radiusB(i_box,:)*box_length(i_box)
+      WRITE(262,*) i_box, box_concnt(i_box,:,N_species)*V_ring*1.0e+6_fp
     ENDDO
 
 !-----------------------------------------------------------------
@@ -353,7 +366,7 @@ CONTAINS
 
     USE TIME_MOD,      ONLY : GET_TS_DYN
 
-    USE GC_GRID_MOD,   ONLY : XEDGE, YEDGE, XMID, YMID                 
+    USE GC_GRID_MOD,   ONLY : XEDGE, YEDGE              
     USE CMN_SIZE_Mod,  ONLY : DLAT, DLON 
 
     logical, intent(in)           :: am_I_Root
@@ -362,7 +375,7 @@ CONTAINS
     TYPE(OptInput), intent(in)    :: Input_Opt
     INTEGER,        INTENT(OUT)   :: RC         ! Success or failure
 
-    REAL :: Dt(4)                  ! = 600.0e+0_fp          
+    REAL :: Dt, RK_Dt(4)                  ! = 600.0e+0_fp          
 
     real(fp), pointer  :: PASV_EU           
     integer            :: nAdv        
@@ -399,22 +412,19 @@ CONTAINS
     real(fp) :: curr_u, curr_v, curr_omeg
     real(fp) :: curr_u_PS, curr_v_PS
 
-    real(fp), pointer :: P_edge(:)
-    real(fp), pointer :: P_mid(:)
+    real(fp), pointer :: X_edge(:), Y_edge(:), P_edge(:)
 
     real(fp) :: Dx
     real(fp) :: Dy
-    real(fp), pointer :: X_edge(:)    
-    real(fp), pointer :: Y_edge(:)       
-    real(fp), pointer :: X_mid(:)    
-    real(fp), pointer :: Y_mid(:)       
 
     real(fp), pointer :: P_I, R_e     
 
-    Dt(1) = GET_TS_DYN()
-    Dt(2) = 0.5*GET_TS_DYN()
-    Dt(3) = 0.5*GET_TS_DYN()
-    Dt(4) = GET_TS_DYN()
+    Dt = GET_TS_DYN()
+
+    RK_Dt(1) = Dt
+    RK_Dt(2) = 0.5*Dt
+    RK_Dt(3) = 0.5*Dt
+    RK_Dt(4) = Dt
 
     u => State_Met%U   ! figure out state_met%U is based on lat/lon or modelgrid(i,j)
     v => State_Met%V   ! V [m s-1]
@@ -423,14 +433,11 @@ CONTAINS
     Ptemp => State_Met%THETA ! Potential temperature [K]
 
     P_edge => State_Met%PEDGE(1,1,:)  ! Wet air press @ level edges [hPa]
-    P_mid  => State_Met%PMID(1,1,:)  ! Pressure (w/r/t moist air) at level centers (hPa)
 
     Dx = DLON(1,1,1)
     Dy = DLAT(1,2,1)  ! DLAT(1,1,1) is half of DLAT(1,2,1) !!!
     X_edge => XEDGE(:,1,1)   ! IIPAR+1
     Y_edge => YEDGE(1,:,1)  
-    X_mid  => XMID(:,1,1)   ! IIPAR
-    Y_mid  => YMID(1,:,1)  
     ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
 
     X_edge2       = X_edge(2)
@@ -473,19 +480,19 @@ CONTAINS
 
        ! check this grid box is the neast one or the one located in left-bottom
        ! ???
-       i_lon = Find_iLonLat_SW(curr_lon, Dx, X_edge2)
+       i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
        if(i_lon==IIPAR+1) i_lon=1
 
-       i_lat = Find_iLonLat_SW(curr_lat, Dy, Y_edge2) 
-       i_lev = Find_iPLev_SW(curr_pressure,P_mid)
+       i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2) 
+       i_lev = Find_iPLev(curr_pressure,P_mid)
 
        !-----------------------------------------------------------------
        ! interpolate temperature for Plume module:
        !-----------------------------------------------------------------
        if(abs(curr_lat)>Y_mid(JJPAR))then
-          box_Ptemp(i_box) = Interplt_wind_RLL_polar(Ptemp, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+          box_Ptemp(i_box) = Interplt_wind_RLL_polar(Ptemp, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        else
-          box_Ptemp(i_box) = Interplt_wind_RLL(Ptemp, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+          box_Ptemp(i_box) = Interplt_wind_RLL(Ptemp, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        endif
 
        !------------------------------------------------------------------
@@ -493,18 +500,18 @@ CONTAINS
        ! pay attention for the polar region * * *
        !------------------------------------------------------------------
        if(abs(curr_lat)>Y_mid(JJPAR))then
-          curr_omeg = Interplt_wind_RLL_polar(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+          curr_omeg = Interplt_wind_RLL_polar(omeg, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        else
-          curr_omeg = Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+          curr_omeg = Interplt_wind_RLL(omeg, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        endif
 
        box_omeg(i_box) = curr_omeg
 
        ! For 
-       dbox_lev = Dt(Ki) * curr_omeg / 100.0     ! Pa => hPa
+       dbox_lev = RK_Dt(Ki) * curr_omeg / 100.0     ! Pa => hPa
        curr_pressure = box_lev(i_box) + dbox_lev
 
-       RK_Dlev(Ki) = Dt(1) * curr_omeg / 100.0     ! Pa => hPa
+       RK_Dlev(Ki) = RK_Dt(1) * curr_omeg / 100.0     ! Pa => hPa
 
        if(curr_pressure<P_mid(LLPAR)) &
              curr_pressure = P_mid(LLPAR) + ( P_mid(LLPAR) - curr_pressure )
@@ -517,22 +524,22 @@ CONTAINS
        !------------------------------------------------------------------
        if(abs(curr_lat)<=72.0)then
 
-           curr_u    = Interplt_wind_RLL(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
-           curr_v    = Interplt_wind_RLL(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+           curr_u    = Interplt_wind_RLL(u, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+           curr_v    = Interplt_wind_RLL(v, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
 
            box_u(i_box) = curr_u
            box_v(i_box) = curr_v
 
-           dbox_lon  = (Dt(Ki)*curr_u) &
+           dbox_lon  = (RK_Dt(Ki)*curr_u) &
                         / (2.0*PI*Re*cos(box_lat(i_box)*PI/180.0)) * 360.0
-           dbox_lat  = (Dt(Ki)*curr_v) / (PI*Re) * 180.0
+           dbox_lat  = (RK_Dt(Ki)*curr_v) / (PI*Re) * 180.0
 
            curr_lon  = box_lon(i_box) + dbox_lon
            curr_lat  = box_lat(i_box) + dbox_lat
  
-           RK_Dlon(Ki) = (Dt(1)*curr_u) &
+           RK_Dlon(Ki) = (RK_Dt(1)*curr_u) &
                         / (2.0*PI*Re*cos(box_lat(i_box)*PI/180.0)) * 360.0
-           RK_Dlat(Ki) = (Dt(1)*curr_v) / (PI*Re) * 180.0
+           RK_Dlat(Ki) = (RK_Dt(1)*curr_v) / (PI*Re) * 180.0
 
        endif
 
@@ -542,21 +549,21 @@ CONTAINS
        if(abs(curr_lat)>72.0)then
 
          if(abs(curr_lat)>Y_mid(JJPAR))then 
-            curr_u_PS = Interplt_uv_PS_polar(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
-            curr_v_PS = Interplt_uv_PS_polar(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+            curr_u_PS = Interplt_uv_PS_polar(1, u, v, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+            curr_v_PS = Interplt_uv_PS_polar(0, u, v, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
          else
-            curr_u_PS = Interplt_uv_PS(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
-            curr_v_PS = Interplt_uv_PS(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
+            curr_u_PS = Interplt_uv_PS(1, u, v, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
+            curr_v_PS = Interplt_uv_PS(0, u, v, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
          endif
 
          box_u(i_box) = curr_u_PS
          box_v(i_box) = curr_v_PS
 
-         dbox_x_PS = Dt(Ki)*curr_u_PS
-         dbox_y_PS = Dt(Ki)*curr_v_PS
+         dbox_x_PS = RK_Dt(Ki)*curr_u_PS
+         dbox_y_PS = RK_Dt(Ki)*curr_v_PS
 
-         RK_Dx_PS = Dt(1)*curr_u_PS
-         RK_Dy_PS = Dt(1)*curr_v_PS
+         RK_Dx_PS = RK_Dt(1)*curr_u_PS
+         RK_Dy_PS = RK_Dt(1)*curr_v_PS
 
 
          !------------------------------------------------------------------
@@ -674,65 +681,19 @@ CONTAINS
     nullify(X_edge)
     nullify(Y_edge)
     nullify(P_edge)
-    nullify(X_mid)
-    nullify(Y_mid)
-    nullify(P_mid)
 
   END SUBROUTINE lagrange_run
 
-!--------------------------------------------------------------------
-! functions to find the grid point (i,j,k) which is nearest to location of boxes 
-
-  integer function Find_iLonLat_SW(curr_xy,  Dxy,  XY_edge2)
-    implicit none
-    real(fp) :: curr_xy, Dxy, XY_edge2
-    Find_iLonLat_SW = INT( (curr_xy - (XY_edge2 - Dxy)) / Dxy )+1
-    ! Notice the difference between INT(), FLOOR(), AINT()
-    ! for lon: Xedge_Sec - Dx = Xedge_first
-    return
-  end function
-
-
-  !integer function find_latitude(curr_lat, Dy, Y_edge2)
-  !  implicit none
-  !  real :: curr_lat, Dy, Y_edge2
-  !  find_latitude = INT( (curr_lat - (Y_edge2 - Dy)) / Dy )+1
-  !  ! for lat: (Yedge_Sec - Dy) may be different from Yedge_first
-  !  ! region for 4*5: (-89,-86:4:86,89))
-  !  return
-  !end function
-
-
-  integer function Find_iPLev_SW(curr_pressure,P_mid)
-    implicit none
-    real(fp) :: curr_pressure
-    real(fp), pointer :: P_mid(:)
-    integer :: i_lon, i_lat
-    integer :: locate(1)
-    locate = MINLOC(abs( P_mid(:)-curr_pressure ))
-
-    if(P_mid(locate(1))-curr_pressure >= 0 )then
-       Find_iPLev_SW = locate(1)
-    else
-       Find_iPLev_SW = locate(1) - 1
-    endif
-
-    if(Find_iPLev_SW==0) Find_iPLev_SW = 1
-    if(Find_iPLev_SW==LLPAR) Find_iPLev_SW = LLPAR-1
-
-    return
-  end function
 
 !------------------------------------------------------------------
 ! functions to interpolate wind speed (u,v,omeg) 
 ! based on the surrounding 4 points.
 
-  real function Interplt_wind_RLL(wind, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+  real function Interplt_wind_RLL(wind, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
     implicit none
     real(fp)          :: curr_lon, curr_lat, curr_pressure
     !real(fp), pointer :: PI, Re
     real(fp), pointer :: wind(:,:,:)
-    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
     integer           :: i_lon, i_lat, i_lev
     integer           :: init_lon, init_lat, init_lev
     integer           :: i, ii, j, jj, k, kk
@@ -858,12 +819,11 @@ CONTAINS
 ! based on the surrounding 3 points, one of the points is the north/south polar
 ! point. The w value at polar point is the average of all surrounding grid points.
 
-  real function Interplt_wind_RLL_polar(wind, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+  real function Interplt_wind_RLL_polar(wind, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
     implicit none
     real(fp)          :: curr_lon, curr_lat, curr_pressure
     !real(fp), pointer :: PI, Re
     real(fp), pointer :: wind(:,:,:)
-    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
     integer           :: i_lon, i_lat, i_lev
     integer           :: init_lon, init_lat, init_lev
     integer           :: i, ii, j, jj, k, kk
@@ -980,14 +940,13 @@ CONTAINS
 ! based on the surrounding 3 points, one of the points is the north/south polar
 ! point. The u/v value at polar point is the average of all surrounding grid points.
 
-  real function Interplt_uv_PS_polar(i_uv, u_RLL, v_RLL, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+  real function Interplt_uv_PS_polar(i_uv, u_RLL, v_RLL, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
 
     implicit none
 
     real(fp)          :: curr_lon, curr_lat, curr_pressure
     real(fp)          :: curr_x, curr_y
     real(fp), pointer :: u_RLL(:,:,:), v_RLL(:,:,:)
-    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
 
     integer           :: i_uv
     integer           :: i_lon, i_lat, i_lev
@@ -1202,14 +1161,13 @@ CONTAINS
 ! functions to interpolate wind speed (u,v,omeg) 
 ! based on the surrounding 4 points.
 
-  real function Interplt_uv_PS(i_uv, u_RLL, v_RLL, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+  real function Interplt_uv_PS(i_uv, u_RLL, v_RLL, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
 
     implicit none
 
     real(fp)          :: curr_lon, curr_lat, curr_pressure
     real(fp)          :: curr_x, curr_y
     real(fp), pointer :: u_RLL(:,:,:), v_RLL(:,:,:)
-    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
 
     integer           :: i_uv
     integer           :: i_lon, i_lat, i_lev
@@ -1402,6 +1360,7 @@ CONTAINS
 
     REAL :: Dt          ! = 600.0e+0_fp          
     REAL :: Dt2
+    REAL :: RK_Dt2(4)
 
     integer  :: i_box, i_ring, i_species
 
@@ -1429,7 +1388,6 @@ CONTAINS
     real(fp)          :: U_shear, V_shear, UV_shear
 
     real(fp), pointer :: P_edge(:)
-    real(fp), pointer :: P_mid(:)
 
     real(fp)          :: Dx, Dy
     real(fp)          :: wind_s_shear
@@ -1440,8 +1398,6 @@ CONTAINS
 
     real(fp), pointer :: X_edge(:)
     real(fp), pointer :: Y_edge(:)
-    real(fp), pointer :: X_mid(:)
-    real(fp), pointer :: Y_mid(:)
 
     real(fp), pointer :: P_I, R_e
 
@@ -1475,7 +1431,6 @@ CONTAINS
     Ptemp => State_Met%THETA ! ! Potential temperature [K]
 
     P_edge => State_Met%PEDGE(1,1,:)  ! Wet air press @ level edges [hPa]
-    P_mid => State_Met%PMID(1,1,:) ![hPa] Pressure (moist air)@level centers
 
     P_BXHEIGHT => State_Met%BXHEIGHT  ![IIPAR,JJPAR,KKPAR]
 
@@ -1483,8 +1438,6 @@ CONTAINS
     Dy = DLAT(1,2,1)  ! DLAT(1,1,1) is half of DLAT(1,2,1) !!!
     X_edge => XEDGE(:,1,1)   ! IIPAR+1
     Y_edge => YEDGE(1,:,1)
-    X_mid => XMID(:,1,1)   ! IIPAR+1
-    Y_mid => YMID(1,:,1)
     ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
 
     X_edge2       = X_edge(2)
@@ -1514,26 +1467,32 @@ CONTAINS
     ! put the corresponding concentration of backgound grid into the initial 
     ! concentration inside plume in unit of [molec/cm3].
     !======================================================================
-    IF(N_prev<n_boxes_max)THEN
-    do i_box = N_prev+1, N_box, 1
 
-       curr_lon      = box_lon(i_box)
-       curr_lat      = box_lat(i_box)
-       curr_pressure = box_lev(i_box)        ! hPa
+!======================================================================
+! This part would not be used now for the inert aerosols
+! But need to be involved once the chemistry module is taken into consideration
+!======================================================================
 
-       i_lon = Find_iLonLat_Near(curr_lon, Dx, X_edge2)
-       i_lat = Find_iLonLat_Near(curr_lat, Dy, Y_edge2)
-       i_lev = Find_iPLev_Near(curr_pressure,P_edge)
+!    IF(N_prev<n_boxes_max)THEN
+!    do i_box = N_prev+1, N_box, 1
 
-       do i_ring = 1,n_rings_max
-       do i_species = 1,N_species
-          box_concnt(i_box,i_ring,i_species) = &
-                             State_Chm%Species(i_lon,i_lat,i_lev,i_species)
-       enddo ! do i_ring = 1,N_species
-       enddo ! do i_species = 1,N_species
+!       curr_lon      = box_lon(i_box)
+!       curr_lat      = box_lat(i_box)
+!       curr_pressure = box_lev(i_box)        ! hPa
 
-    enddo ! i_box = N_prev+1, N_curr
-    ENDIF
+!       i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+!       i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+!       i_lev = Find_iPLev(curr_pressure,P_edge)
+
+!       do i_ring = 1,n_rings_max
+!       do i_species = 1,N_species
+!          box_concnt(i_box,i_ring,i_species) = &
+!                             State_Chm%Species(i_lon,i_lat,i_lev,i_species)
+!       enddo ! do i_ring = 1,N_species
+!       enddo ! do i_species = 1,N_species
+
+!    enddo ! i_box = N_prev+1, N_curr
+!    ENDIF
 
     !=====================================================================
     ! Run Plume distortion & dilution HERE
@@ -1586,11 +1545,12 @@ CONTAINS
          box_alpha = -0.5*PI
        endif
 
-       i_lon = Find_iLonLat_Near(curr_lon, Dx, X_edge2)
-       i_lat = Find_iLonLat_Near(curr_lat, Dy, Y_edge2)
-       i_lev = Find_iPLev_Near(curr_pressure,P_edge)
+       i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+       i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+       i_lev = Find_iPLev(curr_pressure,P_edge)
 
-       backgrd_concnt(i_box,:) = State_Chm%Species(i_lon,i_lat,i_lev,:)
+!       backgrd_concnt(i_box,:) = State_Chm%Species(i_lon,i_lat,i_lev,:)
+       backgrd_concnt(i_box,1) = State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nSpecies-1)
        ! [molec/cm3]
 
 
@@ -1610,7 +1570,7 @@ CONTAINS
        !====================================================================
 
        ! calculate the wind_s shear along pressure direction
-       wind_s_shear = Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
+       wind_s_shear = Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
        ! *** attention *** ???
        wind_s_shear = 0.0
 
@@ -1619,7 +1579,7 @@ CONTAINS
        box_theta(i_box) = ATAN( TAN(box_theta(i_box)) + wind_s_shear*Dt )
 
 
-       do i_ring=1,n_rings_max
+       do i_ring=1,Max_rings(i_box)
        ! make sure use box_theta or TAN(box_theta)  ??? 
        box_radiusA(i_box,i_ring) = box_radiusA(i_box,i_ring) &
                                   * (TAN(box_theta(i_box))**2+1)**0.5 &
@@ -1637,7 +1597,7 @@ CONTAINS
        ! Calculate vertical eddy diffusivity (U.Schumann, 2012) :
        Cv = 0.2
        Omega_N = 0.1
-       Ptemp_shear = Vertical_shear(Ptemp, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
+       Ptemp_shear = Vertical_shear(Ptemp, P_BXHEIGHT, P_edge, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
        ! *** attention *** ???
        ! eddy_v = Cv * Omega_N**2 / sqrt(Ptemp_shear*g0/curr_Ptemp)
        eddy_v = 1.0
@@ -1645,10 +1605,10 @@ CONTAINS
 
        ! Calculate horizontal eddy diffusivity:
        Ch = 0.1
-       U_shear = Vertical_shear(u, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
-       V_shear = Vertical_shear(v, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       U_shear = Vertical_shear(u, P_BXHEIGHT, P_edge, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       V_shear = Vertical_shear(v, P_BXHEIGHT, P_edge, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        UV_shear = sqrt( U_shear**2 + V_shear**2 )
-       do i_ring=1,n_rings_max
+       do i_ring=1,Max_rings(i_box)
         ! *** attention *** ??? D_radius ???
           eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
           eddy_h(i_ring) = 1.0
@@ -1673,7 +1633,7 @@ CONTAINS
        kA(1) = eddy_A(1) / ( 0.5*box_radiusA(i_box,2) )
 
 
-       do i_ring = 2, n_rings_max-1
+       do i_ring = 2, Max_rings(i_box)-1
 
        kB(i_ring) = eddy_B(i_ring) &
          / ( 0.5*(box_radiusB(i_box,i_ring+1)-box_radiusB(i_box,i_ring-1)) )
@@ -1683,10 +1643,10 @@ CONTAINS
        enddo ! 
 
        ! For outest ring (i_ring = n_rings_max)
-       kB(n_rings_max) = eddy_B(n_rings_max) &
-        /( box_radiusB(i_box,n_rings_max)-box_radiusB(i_box,n_rings_max-1) )
-       kA(n_rings_max) = eddy_A(n_rings_max) &
-        /( box_radiusA(i_box,n_rings_max)-box_radiusA(i_box,n_rings_max-1) )
+       kB(Max_rings(i_box)) = eddy_B(Max_rings(i_box)) &
+        /( box_radiusB(i_box,Max_rings(i_box))-box_radiusB(i_box,Max_rings(i_box)-1) )
+       kA(Max_rings(i_box)) = eddy_A(Max_rings(i_box)) &
+        /( box_radiusA(i_box,Max_rings(i_box))-box_radiusA(i_box,Max_rings(i_box)-1) )
 
 
        !===================================================================
@@ -1695,7 +1655,7 @@ CONTAINS
        V_ring(1) = PI * box_radiusA(i_box,1) * box_radiusB(i_box,1) &
                 * box_length(i_box) * 1.0e+6_fp ! [cm3]
 
-       DO i_ring = 2, n_rings_max
+       DO i_ring = 2, Max_rings(i_box)
           V_ring(i_ring) = 1.0e+6_fp* box_length(i_box) * PI* & ! [cm3]
               ( box_radiusA(i_box,i_ring)*box_radiusB(i_box,i_ring) &
               - box_radiusA(i_box,i_ring-1)*box_radiusB(i_box,i_ring-1) )
@@ -1704,32 +1664,41 @@ CONTAINS
        !==================================================================
        ! Begin to calculate the dilution inside plume 
        !==================================================================
-       do i_species = 1,State_Chm%nSpecies
 
        Dt2 = 1.0
+
+       RK_Dt2(1) = Dt2
+       RK_Dt2(2) = 0.5*Dt2
+       RK_Dt2(3) = 0.5*Dt2
+       RK_Dt2(4) = Dt2
+
+!       DO i_species = 1,N_species
+       DO i_species = 1, 1
        do t1s=1,int(Dt/Dt2)
 
+       !---------------------------------------------------------------------
        ! Use Runge-Kutta method (RK4) to solve diferential equation
+       !---------------------------------------------------------------------
        do Ki = 1,4
 
-       do i_ring = 1, n_rings_max
+       do i_ring = 1, Max_rings(i_box)
          if(Ki==1)then
            box_concnt_K(i_ring) = box_concnt(i_box,i_ring,i_species)
          else if(Ki==4)then
            box_concnt_K(i_ring) = box_concnt(i_box,i_ring,i_species) &
-                                + RK(3,i_ring)*Dt2 !Dt
+                                + RK(3,i_ring) !Dt
          else
            box_concnt_K(i_ring) = box_concnt(i_box,i_ring,i_species) &
-                                + RK(Ki-1,i_ring)*Dt2*0.5 !Dt
+                                + 0.5*RK(Ki-1,i_ring) !Dt
          endif
        enddo ! i_ring
 
          ! For innest ring:
          Outer(1) = 1.0e+6_fp * box_length(i_box) * PI &
-          * ( (box_radiusA(i_box,1)+0.5*kA(1)*Dt2) &
-            * (box_radiusB(i_box,1)+0.5*kB(1)*Dt2) &
-            - (box_radiusA(i_box,1)-0.5*kA(1)*Dt2) &
-            * (box_radiusB(i_box,1)-0.5*kB(1)*Dt2) ) &
+          * ( (box_radiusA(i_box,1)+0.5*kA(1)*RK_Dt2(Ki)) &
+            * (box_radiusB(i_box,1)+0.5*kB(1)*RK_Dt2(Ki)) &
+            - (box_radiusA(i_box,1)-0.5*kA(1)*RK_Dt2(Ki)) &
+            * (box_radiusB(i_box,1)-0.5*kB(1)*RK_Dt2(Ki)) ) &
           * ( box_concnt_K(2) - box_concnt_K(1) ) ! [molec]
 
          Inner(1) = 0.0
@@ -1737,20 +1706,20 @@ CONTAINS
          RK(Ki,1) = ( Outer(1)+Inner(1) ) / V_ring(1) ! [molec/cm3]
 
          ! For rings from 2 to (n_rings_max - 1)
-         do i_ring = 2, n_rings_max-1
+         do i_ring = 2, Max_rings(i_box)-1
            Outer(i_ring) = 1.0e+6_fp * box_length(i_box) * PI &
-              * ( (box_radiusA(i_box,i_ring) + 0.5*kA(i_ring)*Dt2) &
-                * (box_radiusB(i_box,i_ring) + 0.5*kB(i_ring)*Dt2) &
-                - (box_radiusA(i_box,i_ring) - 0.5*kA(i_ring)*Dt2) &
-                * (box_radiusB(i_box,i_ring) - 0.5*kB(i_ring)*Dt2) ) &
+              * ( (box_radiusA(i_box,i_ring) + 0.5*kA(i_ring)*RK_Dt2(Ki)) &
+                * (box_radiusB(i_box,i_ring) + 0.5*kB(i_ring)*RK_Dt2(Ki)) &
+                - (box_radiusA(i_box,i_ring) - 0.5*kA(i_ring)*RK_Dt2(Ki)) &
+                * (box_radiusB(i_box,i_ring) - 0.5*kB(i_ring)*RK_Dt2(Ki)) ) &
               * (box_concnt_K(i_ring+1)-box_concnt_K(i_ring)) ! [molec]
 
 
            Inner(i_ring) = 1.0e+6_fp * box_length(i_box) * PI &
-              * ( (box_radiusA(i_box,i_ring-1) + 0.5*kA(i_ring-1)*Dt2) &
-                * (box_radiusB(i_box,i_ring-1) + 0.5*kB(i_ring-1)*Dt2) &
-                - (box_radiusA(i_box,i_ring-1) - 0.5*kA(i_ring-1)*Dt2) &
-                * (box_radiusB(i_box,i_ring-1) - 0.5*kB(i_ring-1)*Dt2) ) &
+              * ( (box_radiusA(i_box,i_ring-1) + 0.5*kA(i_ring-1)*RK_Dt2(Ki)) &
+                * (box_radiusB(i_box,i_ring-1) + 0.5*kB(i_ring-1)*RK_Dt2(Ki)) &
+                - (box_radiusA(i_box,i_ring-1) - 0.5*kA(i_ring-1)*RK_Dt2(Ki)) &
+                * (box_radiusB(i_box,i_ring-1) - 0.5*kB(i_ring-1)*RK_Dt2(Ki)) ) &
               * (box_concnt_K(i_ring-1)-box_concnt_K(i_ring)) ! [molec]
 
 
@@ -1760,36 +1729,29 @@ CONTAINS
          enddo ! i_ring
 
          ! For outest ring:
-         Outer(n_rings_max) = 1.0e+6_fp * box_length(i_box) * PI &
-          * ( (box_radiusA(i_box,n_rings_max) + 0.5*kA(n_rings_max)*Dt2) &
-            * (box_radiusB(i_box,n_rings_max) + 0.5*kB(n_rings_max)*Dt2) &
-            - (box_radiusA(i_box,n_rings_max) - 0.5*kA(n_rings_max)*Dt2) &
-            * (box_radiusB(i_box,n_rings_max) - 0.5*kB(n_rings_max)*Dt2) ) &
-          * (backgrd_concnt(i_box,i_species) - box_concnt_K(n_rings_max) )
+         Outer(Max_rings(i_box)) = 1.0e+6_fp * box_length(i_box) * PI &
+          * ( (box_radiusA(i_box,Max_rings(i_box)) + 0.5*kA(Max_rings(i_box))*RK_Dt2(Ki)) &
+            * (box_radiusB(i_box,Max_rings(i_box)) + 0.5*kB(Max_rings(i_box))*RK_Dt2(Ki)) &
+            - (box_radiusA(i_box,Max_rings(i_box)) - 0.5*kA(Max_rings(i_box))*RK_Dt2(Ki)) &
+            * (box_radiusB(i_box,Max_rings(i_box)) - 0.5*kB(Max_rings(i_box))*RK_Dt2(Ki)) ) &
+          * (backgrd_concnt(i_box,i_species) - box_concnt_K(Max_rings(i_box)) )
 
-         Inner(n_rings_max) = 1.0e+6_fp * box_length(i_box) * PI &
-         * ( (box_radiusA(i_box,n_rings_max-1)+0.5*kA(n_rings_max-1)*Dt2) &
-          * (box_radiusB(i_box,n_rings_max-1)+0.5*kB(n_rings_max-1)*Dt2) &
-          - (box_radiusA(i_box,n_rings_max-1)-0.5*kA(n_rings_max-1)*Dt2) &
-          * (box_radiusB(i_box,n_rings_max-1)-0.5*kB(n_rings_max-1)*Dt2) ) &
-         * (box_concnt_K(n_rings_max-1)-box_concnt_K(n_rings_max)) ! [molec]
+         Inner(Max_rings(i_box)) = 1.0e+6_fp * box_length(i_box) * PI &
+         * ( (box_radiusA(i_box,Max_rings(i_box)-1)+0.5*kA(Max_rings(i_box)-1)*RK_Dt2(Ki)) &
+          * (box_radiusB(i_box,Max_rings(i_box)-1)+0.5*kB(Max_rings(i_box)-1)*RK_Dt2(Ki)) &
+          - (box_radiusA(i_box,Max_rings(i_box)-1)-0.5*kA(Max_rings(i_box)-1)*RK_Dt2(Ki)) &
+          * (box_radiusB(i_box,Max_rings(i_box)-1)-0.5*kB(Max_rings(i_box)-1)*RK_Dt2(Ki)) ) &
+         * (box_concnt_K(Max_rings(i_box)-1)-box_concnt_K(Max_rings(i_box))) ! [molec]
 
-         RK(Ki,n_rings_max) = ( Outer(n_rings_max) + Inner(n_rings_max) ) &
-                              / V_ring(n_rings_max)
+         RK(Ki,Max_rings(i_box)) = ( Outer(Max_rings(i_box)) + Inner(Max_rings(i_box)) ) &
+                              / V_ring(Max_rings(i_box))
 
-         Outer2env(Ki) = -1.0 * Outer(n_rings_max) ! [molec]
+         Outer2env(Ki) = -1.0 * Outer(Max_rings(i_box)) ! [molec]
 
        enddo ! Ki
 
-       ! test for plume model:
-       if(MOD(t1s,600)==0)then
-       if(i_box==1)then
-!        write(6,*) '= success in plume model =>', t1s
-!        write(6,*) '= RK 2 =>', RK(1,10), RK(2,10), RK(3,10), RK(4,10)
-       endif
-       endif
 
-       do i_ring = 1,n_rings_max
+       do i_ring = 1,Max_rings(i_box)
           box_concnt(i_box,i_ring,i_species) = &
                 box_concnt(i_box,i_ring,i_species) &
                         + ( RK(1,i_ring) + 2.0*RK(2,i_ring) &
@@ -1813,27 +1775,31 @@ CONTAINS
        backgrd_concnt(i_box,i_species) = ( exchange_amount + &
                 backgrd_concnt(i_box,i_species)*grid_volumn ) / grid_volumn
 
-       State_Chm%Species(i_lon,i_lat,i_lev,i_species) = backgrd_concnt(i_box,i_species)
+!       State_Chm%Species(i_lon,i_lat,i_lev,i_species) = backgrd_concnt(i_box,i_species)
+       State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nSpecies-1) = backgrd_concnt(i_box,i_species)
 
-       !================================================================
-       ! test: Output the concentration into a txt file
-       !================================================================
-!       if(MOD(t1s,10)==0)then
-!       if(i_box==1)then
-!          OPEN( 262, FILE=TRIM( FILENAME2   ), STATUS='OLD', &
-!                         FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-!
-!             WRITE(262,*)box_concnt(1,:,i_inject)
-!       endif
-!       endif
+       !===================================================================
+       ! test whether the concentration difference between outest ring and
+       ! background grid cell is small enough (compared with 0.1), so 
+       ! that the outest ring need to dilute into background grid cell, 
+       ! based on how 
+       !===================================================================
+
+       IF(abs(box_concnt(i_box, Max_rings(i_box), 1)-backgrd_concnt(i_box, i_species))<0.1)THEN
+
+         backgrd_concnt(i_box,i_species) = &
+            ( box_concnt(i_box, Max_rings(i_box), 1)*V_ring(Max_rings(i_box)) &
+                               + backgrd_concnt(i_box,i_species)*grid_volumn ) / grid_volumn
+
+         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nSpecies-1) = backgrd_concnt(i_box,i_species) 
+
+         Max_rings(i_box) = Max_rings(i_box) - 1
+
+       ENDIF
+
 
        enddo ! t1s
-       enddo ! do i_Species = 1,nSpecies
-
-       ! test
-!       if(i_box==1)then
-!          WRITE(6,*)'= plume =>',i_inject, box_concnt(1,1:20,i_inject)
-!       endif
+       ENDDO ! do i_Species = 1,nSpecies
 
     enddo ! i_box
 
@@ -1856,26 +1822,24 @@ CONTAINS
     nullify(X_edge)
     nullify(Y_edge)
     nullify(P_edge)
-    nullify(X_mid)
-    nullify(Y_mid)
-    nullify(P_mid)
 
   END SUBROUTINE plume_run
 
 !--------------------------------------------------------------------
-! functions to find location (i,j,k) of boxes 
+! functions to which grid cell (i,j,k) contains the box
+!--------------------------------------------------------------------
 
-  integer function Find_iLonLat_Near(curr_xy,  Dxy,  XY_edge2)
+  integer function Find_iLonLat(curr_xy,  Dxy,  XY_edge2)
     implicit none
     real(fp) :: curr_xy, Dxy, XY_edge2
-    Find_iLonLat_Near = INT( (curr_xy - (XY_edge2 - Dxy)) / Dxy )+1
+    Find_iLonLat = INT( (curr_xy - (XY_edge2 - Dxy)) / Dxy )+1
     ! Notice the difference between INT(), FLOOR(), AINT()
     ! for lon: Xedge_Sec - Dx = Xedge_first
     return
   end function
 
-!-------------------------------------------------------------------
-  integer function Find_iPLev_Near(curr_pressure,P_edge)
+
+  integer function Find_iPLev(curr_pressure,P_edge)
     implicit none
     real(fp) :: curr_pressure
     real(fp), pointer :: P_edge(:)
@@ -1884,9 +1848,9 @@ CONTAINS
     locate = MINLOC(abs( P_edge(:)-curr_pressure ))
 
     if(P_edge(locate(1))-curr_pressure >= 0 )then
-       Find_iPLev_Near = locate(1)
+       Find_iPLev = locate(1)
     else
-       Find_iPLev_Near = locate(1) - 1
+       Find_iPLev = locate(1) - 1
     endif
 
     return
@@ -1896,6 +1860,7 @@ CONTAINS
   !-------------------------------------------------------------------
   ! calculation the great-circle distance between two points on the earth
   ! surface
+  !-------------------------------------------------------------------
 
   real function Distance_Circle(x1, y1, x2, y2)
     implicit none
@@ -1913,15 +1878,16 @@ CONTAINS
   !-------------------------------------------------------------------  
   ! calculate the wind_s (inside a plume sross-section) shear along pressure
   ! direction
+  !-------------------------------------------------------------------  
 
-  real function Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, X_mid, Y_mid, P_mid, P_edge,  i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+  real function Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, P_edge,  i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
     implicit none
     real(fp)          :: curr_lon, curr_lat, curr_pressure
     real(fp)          :: box_alpha
     !real(fp), pointer :: PI, Re
     real(fp), pointer :: u(:,:,:), v(:,:,:)
     real(fp), pointer :: P_BXHEIGHT(:,:,:)
-    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:), P_edge(:)
+    real(fp), pointer :: P_edge(:)
     integer           :: i_lon, i_lat, i_lev
     integer           :: init_lon, init_lat, init_lev
     integer           :: i, ii, j, jj, k, kk
@@ -2011,7 +1977,8 @@ CONTAINS
   end function
 
 !-------------------------------------------------------------------
-  ! transform the pressure level [Pa] to the height level [m]
+! transform the pressure level [Pa] to the height level [m]
+!-------------------------------------------------------------------
 
   real function Pa2meter(Box_height, P1, P2, Judge)
   ! Judge: 0 for bottom, 1 for top
@@ -2041,13 +2008,13 @@ CONTAINS
   !-------------------------------------------------------------------  
   ! calculate the vertical shear for calculating eddy difussivity
 
-  real function Vertical_shear(var, P_BXHEIGHT, X_mid, Y_mid, P_mid, P_edge,i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+  real function Vertical_shear(var, P_BXHEIGHT, P_edge,i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
     implicit none
     real(fp)          :: curr_lon, curr_lat, curr_pressure
     !real(fp), pointer :: PI, Re
     real(fp), pointer :: var(:,:,:)
     real(fp), pointer :: P_BXHEIGHT(:,:,:)
-    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:), P_edge(:)
+    real(fp), pointer :: P_edge(:)
     integer           :: i_lon, i_lat, i_lev
     integer           :: init_lon, init_lat, init_lev
     integer           :: i, ii, j, jj, k, kk
@@ -2223,7 +2190,7 @@ CONTAINS
 ! Output plume location
 !-------------------------------------------------------------------
 
-    FILENAME2   = 'Plume_concentration_' // TRIM(ADJUSTL(YEAR_C)) // '-' &
+    FILENAME2   = 'Plume_concentration_molec_' // TRIM(ADJUSTL(YEAR_C)) // '-' &
 //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' // &
 TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) // ':' // &
 TRIM(ADJUSTL(SECOND_C)) // '.txt'
@@ -2235,9 +2202,10 @@ TRIM(ADJUSTL(SECOND_C)) // '.txt'
        OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE', &
              FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-       Do i_box = 1, n_boxes_max
-          WRITE(262,*)i_box, tt, box_concnt(i_box,:,i_inject)
-       End Do
+       DO i_box = 1, n_boxes_max
+         V_ring = PI*box_radiusA(i_box,:)*box_radiusB(i_box,:)*box_length(i_box)
+         WRITE(262,*) i_box, box_concnt(i_box,:,N_species)*V_ring*1.0e+6_fp
+       ENDDO
 
     ENDIF
 !    ENDIF
