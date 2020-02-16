@@ -1,7 +1,7 @@
 #!/bin/sh 
     git add .
     git status
-    git commit -m " in/out flow between adjacent rings has same volume "
+    git commit -m " update "
 #    git remote add origin https://github.com/hongwei8sun/GEOS-Chem.git
     git pull origin master
     git push origin master
