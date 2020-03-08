@@ -88,7 +88,7 @@ MODULE Lagrange_Mod
   real(fp), allocatable :: env_amount(:)
   real(fp), allocatable :: backgrd_concnt(:,:)
 
-  real(fp), allocatable :: Extra_amount(:,:,:)
+  real(fp), allocatable :: Extra_amount(:,:)
 
 CONTAINS
 
@@ -182,7 +182,7 @@ CONTAINS
     allocate(env_amount(n_boxes_max))
     allocate(backgrd_concnt(n_boxes_max,N_species))
 
-    allocate(Extra_amount(n_boxes_max,n_rings_max,N_species))
+    allocate(Extra_amount(n_boxes_max,N_species))
 
     X_mid  => XMID(:,1,1)   ! IIPAR
     Y_mid  => YMID(1,:,1)
@@ -341,8 +341,10 @@ CONTAINS
     OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-    DO i_box = 1, n_boxes_max
-      WRITE(262,*) i_box, SUM( box_concnt(i_box,:,N_species)*V_ring(i_box,:) )       ! [molec]
+    DO i_box = 1, 1001, 100
+      WRITE(262,*) i_box
+      WRITE(262,*) SUM( box_concnt(i_box,:,N_species)*V_ring(i_box,:) )       ! [molec]
+      WRITE(262,*) box_concnt(i_box,:,N_species)
     ENDDO
 
 !     WRITE(262,*) box_concnt(1,:,N_species)
@@ -1534,14 +1536,13 @@ CONTAINS
        i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
-       do i_ring = 2,n_rings_max ! innest ring contains injectred aerosols
        do i_species = 1,N_species
+        DO i_ring = 2,n_rings_max ! innest ring contains injectred aerosols
           box_concnt(i_box,i_ring,i_species) = &
                              State_Chm%Species(i_lon,i_lat,i_lev,i_species)
-
-          Extra_amount(i_box,i_ring,i_species) = & ! [molec]
-                box_concnt(i_box,i_ring,i_species) * V_ring(i_box,i_ring)
-       enddo 
+        ENDDO
+          Extra_amount(i_box,i_species) = SUM(V_ring(i_box,2:n_rings_max)  &
+                      * box_concnt(i_box,2:n_rings_max,i_species) ) ![molec]
        enddo 
 
     ENDDO
@@ -1778,11 +1779,12 @@ CONTAINS
        ! dissolve the plume into the background grid cell
        !===================================================================
        IF(Max_rings(i_box)==1)THEN
-         backgrd_concnt(i_box,i_species) = &
+         backgrd_concnt(i_box,1) = &
             ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring(i_box,1:Max_rings(i_box) )) &
-                               + backgrd_concnt(i_box,i_species)*grid_volumn ) / grid_volumn
+             +backgrd_concnt(i_box,1)*grid_volumn - Extra_amount(i_box,1) ) &
+           / grid_volumn
 
-         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nSpecies-1) = backgrd_concnt(i_box,i_species)
+         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nSpecies-1) = backgrd_concnt(i_box,1)
 
          Max_rings(i_box) = 0
          WRITE(6,*)'Plume Report: Only 1 ring left in plume!'
@@ -1901,7 +1903,7 @@ CONTAINS
 
          backgrd_concnt(i_box,i_species) = &
             ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring( i_box,1:Max_rings(i_box) )) &
-                               + backgrd_concnt(i_box,i_species)*grid_volumn ) / grid_volumn
+             +backgrd_concnt(i_box,i_species)*grid_volumn - Extra_amount(i_box,1) ) / grid_volumn
 
          State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nSpecies-1) = backgrd_concnt(i_box,i_species) 
 
@@ -2325,7 +2327,7 @@ CONTAINS
 !-------------------------------------------------------------------
 ! Output plume location
 !-------------------------------------------------------------------
-    IF(mod(tt,6)==0)THEN     ! output once every hour
+!    IF(mod(tt,6)==0)THEN     ! output once every hour
 !    IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
 
        FILENAME2   = 'Plume_concentration_molec_' // TRIM(ADJUSTL(YEAR_C)) // &
@@ -2348,7 +2350,7 @@ CONTAINS
 
 !        WRITE(262,*) box_concnt(1,:,N_species)
 
-    ENDIF
+!    ENDIF
 !    ENDIF
 
     tt = tt + 1
