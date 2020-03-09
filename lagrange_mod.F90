@@ -168,7 +168,7 @@ CONTAINS
     allocate(box_theta(n_boxes_max))
     allocate(box_length(n_boxes_max))
 
-!    N_species = State_Chm%nSpecies
+!    N_species = State_Chm%nAdvect
     N_species = 1
 
     allocate(box_concnt(n_boxes_max,n_rings_max,N_species))
@@ -1608,9 +1608,12 @@ CONTAINS
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
 !       backgrd_concnt(i_box,:) = State_Chm%Species(i_lon,i_lat,i_lev,:)
-       backgrd_concnt(i_box,1) = State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nSpecies-1)
+       backgrd_concnt(i_box,1) = State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
        ! [molec/cm3]
 
+       WRITE(6,*)'shw test:'
+       WRITE(6,*)State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+       WRITE(6,*)State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect)
 
        Plume_I(i_box) = i_lon
        Plume_J(i_box) = i_lat
@@ -1784,7 +1787,7 @@ CONTAINS
              +backgrd_concnt(i_box,1)*grid_volumn - Extra_amount(i_box,1) ) &
            / grid_volumn
 
-         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nSpecies-1) = backgrd_concnt(i_box,1)
+         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(i_box,1)
 
          Max_rings(i_box) = 0
          WRITE(6,*)'Plume Report: Only 1 ring left in plume!'
@@ -1892,7 +1895,7 @@ CONTAINS
                 backgrd_concnt(i_box,i_species)*grid_volumn ) / grid_volumn
 
 !       State_Chm%Species(i_lon,i_lat,i_lev,i_species) = backgrd_concnt(i_box,i_species)
-       State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nSpecies-1) = backgrd_concnt(i_box,i_species)
+       State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(i_box,i_species)
 
        !===================================================================
        ! Once the concentration in different rings don't have big difference
@@ -1905,7 +1908,7 @@ CONTAINS
             ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring( i_box,1:Max_rings(i_box) )) &
              +backgrd_concnt(i_box,i_species)*grid_volumn - Extra_amount(i_box,1) ) / grid_volumn
 
-         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nSpecies-1) = backgrd_concnt(i_box,i_species) 
+         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(i_box,i_species) 
 
          Max_rings(i_box) = 0
          GOTO 200 ! skip this box, go to next box
