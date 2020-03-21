@@ -1726,13 +1726,13 @@ CONTAINS
        Dt2 = Dt
 
        IF(MINVAL(box_radiusA(i_box,:)-2.0*kA(:)*Dt2)<0.0 &
-                        .or. MINVAL(box_radiusB(i_box,:)-2.0*kB(:)*Dt2)<0.0 )THEN
+                     .or. MINVAL(box_radiusB(i_box,:)-2.0*kB(:)*Dt2)<0.0 )THEN
           Dt2 = Dt*0.1
        ENDIF
 
 
        if(MINVAL(box_radiusA(i_box,:)-2.0*kA(:)*Dt2)<0.0 &
-                        .or. MINVAL(box_radiusB(i_box,:)-2.0*kB(:)*Dt2)<0.0 )then
+                    .or. MINVAL(box_radiusB(i_box,:)-2.0*kB(:)*Dt2)<0.0 )then
          Dt2 = Dt*0.01
          WRITE(6,*)"Plume Reporting: it's time to merge rings!"
 
