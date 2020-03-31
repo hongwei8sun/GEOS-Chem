@@ -714,16 +714,24 @@ CONTAINS
     box_radiusB(i_box,:) = box_radiusB(i_box,:)*SQRT(length0/box_length(i_box))
 
     DO i_box = 2, n_boxes_max-1
-      lon1 = 0.5 * ( box_lon(i_box) + box_lon(i_box-1) )
-      lon2 = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) )
+
+      IF(ABS(box_lon(i_box)-box_lon(i_box-1))>200.0)THEN
+        lon1 = 0.5 * ( box_lon(i_box) + box_lon(i_box-1) + 360.0 )
+      ELSE
+        lon1 = 0.5 * ( box_lon(i_box) + box_lon(i_box-1) )
+      ENDIF
+      IF(ABS(box_lon(i_box)-box_lon(i_box+1))>200.0)THEN
+        lon2 = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) + 360.0 )
+      ELSE
+        lon2 = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) )
+      ENDIF
+
       lat1 = 0.5 * ( box_lat(i_box) + box_lat(i_box-1) )
       lat2 = 0.5 * ( box_lat(i_box) + box_lat(i_box+1) )
 
-      length0            = box_length(i_box)
-      box_length(i_box)  = Distance_Circle(lon1, lat1, lon2, lat2)  ! [m]
-
-      IF(box_length(i_box)==0) WRITE(6,*)'shw', i_box, lon1, lat1, lon2, lat2
-      IF(length0/box_length(i_box)<=0) WRITE(6,*)'shw', i_box, lon1, lat1, lon2, lat2
+      length0           = box_length(i_box)
+      box_length(i_box) = Distance_Circle(lon1,lat1,box_lon(i_box),box_lat(i_box)) &
+                         +Distance_Circle(box_lon(i_box),box_lat(i_box),lon2,lat2)  ! [m]
 
       box_radiusA(i_box,:) = box_radiusA(i_box,:)*SQRT(length0/box_length(i_box))
       box_radiusB(i_box,:) = box_radiusB(i_box,:)*SQRT(length0/box_length(i_box))
@@ -2440,7 +2448,9 @@ CONTAINS
              FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
        DO i_box = 1,1001,50
-          WRITE(262,*) i_box, Max_rings(i_box)
+          WRITE(262,*) i_box
+          WRITE(262,*) box_radiusA(i_box,Max_rings(i_box)), box_radiusB(i_box,Max_rings(i_box)), box_length(i_box)
+          WRITE(262,*) box_lon(i_box), box_lat(i_box), box_lev(i_box)
           WRITE(262,*) box_concnt(i_box,:,N_species)*V_ring(i_box,:)
           WRITE(262,*) box_concnt(i_box,1:n_rings_max/2,N_species)
           WRITE(262,*) box_concnt(i_box,n_rings_max/2+1:n_rings_max,N_species)
