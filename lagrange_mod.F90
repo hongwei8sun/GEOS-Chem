@@ -80,7 +80,8 @@ MODULE Lagrange_Mod
 
   ! D_radius should only be used at the beginning!
   real(fp), parameter   :: Init_radius = 100.0e+0_fp ! [m]
-  real(fp), parameter   :: D_radius    = 100.0e+0_fp ! [m], the width of ring
+  real(fp), parameter   :: D_radiusA   = 10.0e+0_fp ! [m], the width of ring
+  real(fp), parameter   :: D_radiusB   = 100.0e+0_fp ! [m], the width of ring
 
 
   ! Used for plume_run subroutine:
@@ -250,9 +251,10 @@ CONTAINS
 
 
     do i_ring=1,n_rings_max
-      box_radiusA(:,i_ring) = i_ring * D_radius
-      box_radiusB(:,i_ring) = i_ring * D_radius
+      box_radiusA(:,i_ring) = i_ring * D_radiusA
+      box_radiusB(:,i_ring) = i_ring * D_radiusB
     enddo
+
 
 
     tt   = 0
@@ -702,19 +704,26 @@ CONTAINS
     ! Adjust the length/radius of the box based on new location
     !------------------------------------------------------------------
     i_box = 1
-    lon1 = box_lon(i_box) - 0.5 * ( box_lon(i_box+1) - box_lon(i_box) )
-    lon2 = box_lon(i_box) + 0.5 * ( box_lon(i_box+1) - box_lon(i_box) )
+    IF(ABS(box_lon(i_box)-box_lon(i_box+1))>200.0)THEN
+      lon1 = box_lon(i_box) - 0.5 * ( 360.0 - ABS(box_lon(i_box+1)-box_lon(i_box)) )
+      lon2 = box_lon(i_box) + 0.5 * ( 360.0 - ABS(box_lon(i_box+1)-box_lon(i_box)) )
+    ELSE
+      lon1 = box_lon(i_box) - 0.5 * ( box_lon(i_box+1) - box_lon(i_box) )
+      lon2 = box_lon(i_box) + 0.5 * ( box_lon(i_box+1) - box_lon(i_box) )
+    ENDIF
+
     lat1 = box_lat(i_box) - 0.5 * ( box_lat(i_box+1) - box_lat(i_box) )
     lat2 = box_lat(i_box) + 0.5 * ( box_lat(i_box+1) - box_lat(i_box) )
 
     length0           = box_length(i_box)
-    box_length(i_box) = Distance_Circle(lon1, lat1, lon2, lat2)
+    box_length(i_box) = Distance_Circle(lon1,lat1,box_lon(i_box),box_lat(i_box)) &
+                       +Distance_Circle(box_lon(i_box),box_lat(i_box),lon2,lat2)
 
     box_radiusA(i_box,:) = box_radiusA(i_box,:)*SQRT(length0/box_length(i_box))
     box_radiusB(i_box,:) = box_radiusB(i_box,:)*SQRT(length0/box_length(i_box))
 
-    DO i_box = 2, n_boxes_max-1
 
+    DO i_box = 2, n_boxes_max-1
       IF(ABS(box_lon(i_box)-box_lon(i_box-1))>200.0)THEN
         lon1 = 0.5 * ( box_lon(i_box) + box_lon(i_box-1) + 360.0 )
       ELSE
@@ -737,14 +746,23 @@ CONTAINS
       box_radiusB(i_box,:) = box_radiusB(i_box,:)*SQRT(length0/box_length(i_box))
     ENDDO
 
+
     i_box = n_boxes_max
-    lon1 = box_lon(i_box) - 0.5 * ( box_lon(i_box) - box_lon(i_box-1) )
-    lon2 = box_lon(i_box) + 0.5 * ( box_lon(i_box) - box_lon(i_box-1) )
+    IF(ABS(box_lon(i_box)-box_lon(i_box-1))>200.0)THEN
+      lon1 = box_lon(i_box) - 0.5 * ( 360.0 - ABS(box_lon(i_box-1)-box_lon(i_box)) )
+      lon2 = box_lon(i_box) + 0.5 * ( 360.0 - ABS(box_lon(i_box-1)-box_lon(i_box)) )
+    ELSE
+      lon1 = box_lon(i_box) - 0.5 * ( box_lon(i_box) - box_lon(i_box-1) )
+      lon2 = box_lon(i_box) + 0.5 * ( box_lon(i_box) - box_lon(i_box-1) )
+    ENDIF
+
     lat1 = box_lat(i_box) - 0.5 * ( box_lat(i_box) - box_lat(i_box-1) )
     lat2 = box_lat(i_box) + 0.5 * ( box_lat(i_box) - box_lat(i_box-1) )
 
     length0           = box_length(i_box)
-    box_length(i_box) = Distance_Circle(lon1, lat1, lon2, lat2)
+    box_length(i_box) = Distance_Circle(lon1,lat1,box_lon(i_box),box_lat(i_box)) &
+                       +Distance_Circle(box_lon(i_box),box_lat(i_box),lon2,lat2)
+
 
     box_radiusA(i_box,:) = box_radiusA(i_box,:)*SQRT(length0/box_length(i_box))
     box_radiusB(i_box,:) = box_radiusB(i_box,:)*SQRT(length0/box_length(i_box))
@@ -838,8 +856,8 @@ CONTAINS
     enddo
     enddo
 
-    ! Calculate the inverse distance weight
 
+    ! Calculate the inverse distance weight
     do i = 1,2
     do j = 1,2
 
@@ -849,7 +867,7 @@ CONTAINS
           GOTO 100
        endif
 
-          Weight(i,j) = 1.0/distance(i,j) / sum( 1.0/distance(:,:) )
+       Weight(i,j) = 1.0/distance(i,j) / SUM( 1.0/distance(:,:) )
 
     enddo
     enddo
@@ -1490,6 +1508,8 @@ CONTAINS
     !real(fp) :: RK(4,n_rings_max)
     !real(fp) :: box_concnt_K(n_rings_max)
 
+    real(fp) :: Rate_Mix, Rate_Eul, Eul_concnt
+
     CHARACTER(LEN=255)     :: FILENAME2
     CHARACTER(LEN=63)      :: OrigUnit
     CHARACTER(LEN=255)     :: ErrMsg
@@ -1811,13 +1831,6 @@ CONTAINS
 
        endif
 
-       !===================================================================
-       ! if long radius is similar to horizontal resolution, 
-       ! short radius is similar to vertical resolution,
-       ! dissolve the plume into the background grid cell
-       !===================================================================
-       ! shw
-
 
        IF(MINVAL(box_radiusA(i_box,:)-2.0*kA(:)*Dt2)<0.0 &
                         .or. MINVAL(box_radiusB(i_box,:)-2.0*kB(:)*Dt2)<0.0 )THEN
@@ -1876,9 +1889,15 @@ CONTAINS
 
          ! For outest ring:
          D_concnt = backgrd_concnt(i_box,i_species) - box_concnt_K(Max_rings(i_box))
+
+         IF(tt>1314)THEN
+           WRITE(6,*)'shw', box_radiusA(i_box,Max_rings(i_box)), box_radiusB(i_box,Max_rings(i_box)), &
+                   kA(Max_rings(i_box)), kB(Max_rings(i_box)), Dt2
+         ENDIF
+
          Outer(Max_rings(i_box)) = Amount_Dilute(D_concnt , &
               box_radiusA(i_box,Max_rings(i_box)), box_radiusB(i_box,Max_rings(i_box)), &
-                       kA(Max_rings(i_box)), kB(Max_rings(i_box)), Dt2, box_length(i_box))
+                       kA(Max_rings(i_box)), kB(Max_rings(i_box)), Dt2, box_length(i_box)) ! shw
 
          D_concnt = box_concnt_K(Max_rings(i_box)-1)-box_concnt_K(Max_rings(i_box))
          Inner(Max_rings(i_box)) = Amount_Dilute(D_concnt , &
@@ -1920,21 +1939,32 @@ CONTAINS
 !       State_Chm%Species(i_lon,i_lat,i_lev,i_species) = backgrd_concnt(i_box,i_species)
        State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(i_box,i_species)
 
+
        !===================================================================
-       ! Once the concentration in different rings don't have big difference
-       ! dissolve the plume into the background grid cell
+       ! According to a 2-order process rate, if there is no big difference
+       ! between PIG and Eulerian model, then dissolve the PIG into
+       ! background grid cell.                                          shw
+       ! test this once everyday
        !===================================================================
+       IF(mod(tt,144)==0)THEN
+         Rate_Mix = SUM( box_concnt(i_box,1:Max_rings(i_box),1)**2 * V_ring(i_box,1:Max_rings(i_box)) ) &
+                     +backgrd_concnt(i_box,i_species)**2*grid_volumn
 
-       IF( box_concnt(i_box,1,1)<box_concnt(i_box,2,1) )THEN ! ??? this criteria should be changed
+         Eul_concnt = ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring(i_box,1:Max_rings(i_box) )) &
+              +backgrd_concnt(i_box,i_species)*grid_volumn ) / grid_volumn
+         Rate_Eul = Eul_concnt**2*grid_volumn
 
-         backgrd_concnt(i_box,i_species) = &
-            ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring( i_box,1:Max_rings(i_box) )) &
-             +backgrd_concnt(i_box,i_species)*grid_volumn - Extra_amount(i_box,1) ) / grid_volumn
+         IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.01)THEN
+           backgrd_concnt(i_box,i_species) = &
+             ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring(i_box,1:Max_rings(i_box) )) &
+              +backgrd_concnt(i_box,i_species)*grid_volumn - Extra_amount(i_box,1) ) / grid_volumn
 
-         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(i_box,i_species) 
+           State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(i_box,i_species)
 
-         Max_rings(i_box) = 0
-         GOTO 200 ! skip this box, go to next box
+           Max_rings(i_box) = 0
+           GOTO 200 ! skip this box, go to next box
+         ENDIF
+
        ENDIF
 
 
@@ -2011,12 +2041,21 @@ CONTAINS
   real function Distance_Circle(x1, y1, x2, y2)
     implicit none
     real(fp)     :: x1, y1, x2, y2  ! unit is degree
+    real(fp)     :: xx1, yy1, xx2, yy2  ! unit is degree
     !real(fp) :: PI, Re
 
-    Distance_Circle = Re * 2.0 * &
-                ASIN( (sin( (y1-y2)*PI/180.0 ))**2.0 &
-                       + cos(x1*PI/180.0) * cos(x2*PI/180.0) &
-                         * (sin( 0.5*(x1-x2)*PI/180.0 ))**2.0 )
+    xx1 = x1/180.0*PI
+    yy1 = y1/180.0*PI
+    xx2 = x2/180.0*PI
+    yy2 = y2/180.0*PI
+
+!     Distance_Circle = Re * 
+!       ATAN( SQRT( (COS(y2)*SIN(x2-x1))**2 + &
+!              ( COS(y1)*SIN(y2)-SIN(y1)*OCS(y2)COS((x2-x1)) )**2 ) &
+!            / (SIN(y1)*SIN(y2)+COS(y1)*COS(y2)*COS(x2-x1)) )
+
+    Distance_Circle = Re * 2.0 * ASIN(SQRT( (sin((yy1-yy2)*0.5))**2.0 &
+                     +cos(yy1)*cos(yy2)*(sin((xx1-xx2)*0.5))**2.0 ))
     return
   end function
 
@@ -2315,16 +2354,16 @@ CONTAINS
 !
 !===================================================================
 
-  REAL FUNCTION Amount_Dilute(D_concnt, Ra, Rb, kA, kB, Dt, length)
+  REAL FUNCTION Amount_Dilute(D_concnt, Ra, Rb, k_A, k_B, Dt, length)
 
     IMPLICIT NONE
      
-    REAL(fp)    :: D_concnt, Ra, Rb, kA, kB, length
+    REAL(fp)    :: D_concnt, Ra, Rb, k_A, k_B, length
     REAL        :: Dt
-
+!      IF(tt>1314) WRITE(6,*)'shw0',Ra, Rb, k_A, k_B, Dt
       Amount_Dilute = D_concnt * 1.0e+6_fp * length * PI &
-                    * (  (Ra+0.5*kA*Dt) * (Rb+0.5*kB*Dt) &
-                       - (Ra-0.5*kA*Dt) * (Rb-0.5*kB*Dt)  ) 
+                    * (  (Ra+0.5*k_A*Dt) * (Rb+0.5*k_B*Dt) &
+                       - (Ra-0.5*k_A*Dt) * (Rb-0.5*k_B*Dt)  ) ! shw
 
     return
 
@@ -2448,12 +2487,13 @@ CONTAINS
              FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
        DO i_box = 1,1001,50
-          WRITE(262,*) i_box
-          WRITE(262,*) box_radiusA(i_box,Max_rings(i_box)), box_radiusB(i_box,Max_rings(i_box)), box_length(i_box)
-          WRITE(262,*) box_lon(i_box), box_lat(i_box), box_lev(i_box)
-          WRITE(262,*) box_concnt(i_box,:,N_species)*V_ring(i_box,:)
-          WRITE(262,*) box_concnt(i_box,1:n_rings_max/2,N_species)
-          WRITE(262,*) box_concnt(i_box,n_rings_max/2+1:n_rings_max,N_species)
+          IF(Max_rings(i_box)==0)THEN
+            WRITE(262,*)'This plume is dissolved already:', i_box
+          ELSE
+            WRITE(262,*) i_box, box_radiusA(i_box,Max_rings(i_box)), box_radiusB(i_box,Max_rings(i_box)), box_length(i_box)
+!          WRITE(262,*) box_concnt(i_box,:,N_species)*V_ring(i_box,:)
+            WRITE(262,*) box_concnt(i_box,1:n_rings_max,N_species)
+          ENDIF
        ENDDO
 
 !       DO i_box = 1, n_boxes_max
