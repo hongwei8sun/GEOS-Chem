@@ -29,7 +29,7 @@ x = [0.5*Dr]
 z = [0.0]
 C = [0.0]
 
-N_time = 3600*24	# For 10 days
+N_time = 3600*25	# For 10 days
 N_ring = 150
 
 for i in range(N_ring-1):
