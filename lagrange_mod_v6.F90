@@ -2,8 +2,12 @@
 !                  GEOS-Chem Global Chemical Transport Model
 !--------------------------------------------------------------------------
 
-! this version could combining rings to meet CFL condition,
-! and add new rings to plume to ensure total number of rings is conserved.
+! Changes in this version:
+! (1) The extra mass wouldn't be totally minused at the end, 
+!     but decrease at every time step.
+! (2) Add a new process: adjust the long/short radius length
+!     caused by dilution process.
+
 
 MODULE Lagrange_Mod
 
@@ -52,7 +56,7 @@ MODULE Lagrange_Mod
 
   integer, allocatable  :: Plume_I(:), Plume_J(:), Plume_L(:) !(n_boxes_max)
   integer, allocatable  :: Max_rings(:)
-  integer, parameter    :: n_rings_max = 128 ! 2^7, number of rings in one box
+  integer, parameter    :: n_rings_max = 100 ! 2^7, number of rings in one box
   ! medical concentration of each ring [molec/cm3]
   real(fp), allocatable :: box_concnt(:,:,:) !(n_boxes_max,N_rings,N_species)
 
@@ -88,7 +92,7 @@ MODULE Lagrange_Mod
   real(fp), allocatable :: box_concnt_K(:) ! box_concnt_K(N_rings_max)
   real(fp), allocatable :: RK(:,:), Outer2env(:)  ! for Runge-Kutta method
 
-  real(fp), allocatable :: kA(:), kB(:)
+  real(fp), allocatable :: kA, kB
 
   real(fp), allocatable :: env_amount(:)
   real(fp), allocatable :: backgrd_concnt(:,:)
@@ -180,9 +184,6 @@ CONTAINS
     allocate(box_concnt_K(n_rings_max))
     allocate(RK(4,n_rings_max))
     allocate(Outer2env(4))
-
-    allocate(kA(n_rings_max))
-    allocate(kB(n_rings_max))
 
     allocate(env_amount(n_boxes_max))
     allocate(backgrd_concnt(n_boxes_max,N_species))
@@ -1504,6 +1505,8 @@ CONTAINS
 
     real(fp)  :: grid_volumn, exchange_amount
 
+    real(fp)  :: Ratio_radius, Ra_Rb
+
     real(fp) ::L_b, L_O, Ee
     !real(fp) :: RK(4,n_rings_max)
     !real(fp) :: box_concnt_K(n_rings_max)
@@ -1592,6 +1595,8 @@ CONTAINS
     ! Run Plume distortion & dilution HERE
     !=====================================================================
     do i_box = 1,N_box
+
+       WRITE(6,*) 'shw00', i_box
 
        IF(Max_rings(i_box)==0) GOTO 200
 
@@ -1726,26 +1731,26 @@ CONTAINS
 
 
        !=================================================================
+       ! Adjust the long/short radius because the plume deformation
+       ! caused by dilution;
+       ! let: Ratio_radius = Ra/Rb; Ra_Rb = Ra*Rb
+       ! then: Rb = sqrt(Ra_Rb/Ratio_radius); Ra = Rb*Ratio_radius
+       !=================================================================
+       Ratio_radius = SQRT(box_radiusA(i_box,1)+2.0*eddy_A*Dt) / SQRT(box_radiusA(i_box,1)+2.0*eddy_B*Dt)
+       Ra_Rb        = box_radiusA(i_box,1)*box_radiusB(i_box,1)
+
+       DO i_ring=1,Max_rings(i_box)
+         box_radiusB(i_box,i_ring) = SQRT(Ra_Rb/Ratio_radius)
+         box_radiusA(i_box,i_ring) = Ra_Rb * Ratio_radius
+       ENDDO
+
+
+       !=================================================================
        ! Calculate the transport rate
        ! kB should be rewrite in a more accurate equation !!!
        !=================================================================
-       ! For innest ring:
-       kB(1) = eddy_B / ( 0.5*box_radiusB(i_box,2) )
-       kA(1) = eddy_A / ( 0.5*box_radiusA(i_box,2) )
-
-       do i_ring = 2, Max_rings(i_box)-1
-         kB(i_ring) = eddy_B &
-          /( 0.5*(box_radiusB(i_box,i_ring+1)-box_radiusB(i_box,i_ring-1)) )
-         kA(i_ring) = eddy_A &
-          /( 0.5*(box_radiusA(i_box,i_ring+1)-box_radiusA(i_box,i_ring-1)) )
-       enddo ! 
-
-       ! For outest ring (i_ring = n_rings_max)
-       kB(Max_rings(i_box)) = eddy_B &
-        /( box_radiusB(i_box,Max_rings(i_box))-box_radiusB(i_box,Max_rings(i_box)-1) )
-       kA(Max_rings(i_box)) = eddy_A &
-        /( box_radiusA(i_box,Max_rings(i_box))-box_radiusA(i_box,Max_rings(i_box)-1) )
-
+       kB = eddy_B / box_radiusB(i_box,1)
+       kA = eddy_A / box_radiusA(i_box,1) 
 
        !==================================================================
        ! Begin to calculate the dilution inside plume 
@@ -1756,17 +1761,22 @@ CONTAINS
 
        Dt2 = Dt
 
-       IF(MINVAL(box_radiusA(i_box,:)-2.0*kA(:)*Dt2)<0.0 &
-                        .or. MINVAL(box_radiusB(i_box,:)-2.0*kB(:)*Dt2)<0.0 )THEN
+       IF(box_radiusA(i_box,1)-2.0*kA*Dt2<0.0 &
+                        .or. box_radiusB(i_box,1)-2.0*kB*Dt2<0.0 )THEN
           Dt2 = Dt*0.1
        ENDIF
 
-
-       if(MINVAL(box_radiusA(i_box,:)-2.0*kA(:)*Dt2)<0.0 &
-                        .or. MINVAL(box_radiusB(i_box,:)-2.0*kB(:)*Dt2)<0.0 )then
+       IF(box_radiusA(i_box,1)-2.0*kA*Dt2<0.0 &
+                        .or. box_radiusB(i_box,1)-2.0*kB*Dt2<0.0 )THEN
          Dt2 = Dt*0.01
+       ENDIF
+
 
  300     CONTINUE
+
+
+       IF(box_radiusA(i_box,1)-2.0*kA*Dt2<0.0 &
+                        .or. box_radiusB(i_box,1)-2.0*kB*Dt2<0.0 )THEN
 
          !-------------------------------------------------------------------
          ! Decrease half of rings by combining 2 rings into 1 ring
@@ -1815,27 +1825,14 @@ CONTAINS
          ! kB should be rewrite in a more accurate equation !!!
          !=================================================================
          ! For innest ring:
-         kB(1) = eddy_B / ( 0.5*box_radiusB(i_box,2) )
-         kA(1) = eddy_A / ( 0.5*box_radiusA(i_box,2) )
+         kB = eddy_B / box_radiusB(i_box,1)
+         kA = eddy_A / box_radiusA(i_box,1)
 
-         do i_ring = 2, Max_rings(i_box)-1
-           kB(i_ring) = eddy_B &
-            /( 0.5*(box_radiusB(i_box,i_ring+1)-box_radiusB(i_box,i_ring-1)) )
-           kA(i_ring) = eddy_A &
-            /( 0.5*(box_radiusA(i_box,i_ring+1)-box_radiusA(i_box,i_ring-1)) )
-         enddo ! 
-
-         ! For outest ring (i_ring = n_rings_max)
-         kB(Max_rings(i_box)) = eddy_B /( box_radiusB(i_box,Max_rings(i_box)) &
-                                       -box_radiusB(i_box,Max_rings(i_box)-1) )
-         kA(Max_rings(i_box)) = eddy_A /( box_radiusA(i_box,Max_rings(i_box)) &
-                                       -box_radiusA(i_box,Max_rings(i_box)-1) )
-
-       endif
+       ENDIF
 
 
-       IF(MINVAL(box_radiusA(i_box,:)-2.0*kA(:)*Dt2)<0.0 &
-                        .or. MINVAL(box_radiusB(i_box,:)-2.0*kB(:)*Dt2)<0.0 )THEN
+       IF(box_radiusA(i_box,1)-2.0*kA*Dt2<0.0 &
+                        .or. box_radiusB(i_box,1)-2.0*kB*Dt2<0.0 )THEN
          GOTO 300
        ENDIF
 
@@ -1869,7 +1866,7 @@ CONTAINS
          D_concnt = box_concnt_K(2) - box_concnt_K(1)
          Outer(1) = Amount_Dilute(i_box, i_ring, D_concnt, &
                          box_radiusA(i_box,1), box_radiusB(i_box,1), &
-                                 kA(1), kB(1), Dt2, box_length(i_box))
+                                 kA, kB, Dt2, box_length(i_box))
 
          Inner(1) = 0.0
 
@@ -1880,12 +1877,12 @@ CONTAINS
          D_concnt      = box_concnt_K(i_ring+1)-box_concnt_K(i_ring)
          Outer(i_ring) = Amount_Dilute(i_box, i_ring, D_concnt, &
                        box_radiusA(i_box,i_ring), box_radiusB(i_box,i_ring), &
-                               kA(i_ring), kB(i_ring), Dt2, box_length(i_box))
+                               kA, kB, Dt2, box_length(i_box))
 
          D_concnt      = box_concnt_K(i_ring-1)-box_concnt_K(i_ring)
          Inner(i_ring) = Amount_Dilute(i_box, i_ring, D_concnt, &
                        box_radiusA(i_box,i_ring-1), box_radiusB(i_box,i_ring-1), &
-                               kA(i_ring-1), kB(i_ring-1), Dt2, box_length(i_box))
+                               kA, kB, Dt2, box_length(i_box))
 
          RK(Ki,i_ring) = ( Outer(i_ring)+Inner(i_ring) ) / V_ring(i_box,i_ring)
          ENDDO ! i_ring
@@ -1896,13 +1893,13 @@ CONTAINS
          D_concnt = backgrd_concnt(i_box,i_species) - box_concnt_K(Max_rings(i_box))
          Outer(Max_rings(i_box)) = Amount_Dilute(i_box, i_ring, D_concnt , &
               box_radiusA(i_box,Max_rings(i_box)), box_radiusB(i_box,Max_rings(i_box)), &
-                       kA(Max_rings(i_box)), kB(Max_rings(i_box)), Dt2, box_length(i_box)) ! shw
+                       kA, kB, Dt2, box_length(i_box)) ! shw
 
 
          D_concnt = box_concnt_K(Max_rings(i_box)-1)-box_concnt_K(Max_rings(i_box))
          Inner(Max_rings(i_box)) = Amount_Dilute(i_box, i_ring, D_concnt , &
-              box_radiusA(i_box,Max_rings(i_box)), box_radiusB(i_box,Max_rings(i_box)), &
-                       kA(Max_rings(i_box)), kB(Max_rings(i_box)), Dt2, box_length(i_box))
+              box_radiusA(i_box,Max_rings(i_box)-1), box_radiusB(i_box,Max_rings(i_box)-1), &
+                       kA, kB, Dt2, box_length(i_box))
 
          RK(Ki,Max_rings(i_box)) = ( Outer(Max_rings(i_box)) + Inner(Max_rings(i_box)) ) &
                               / V_ring(i_box,Max_rings(i_box))
@@ -1913,12 +1910,23 @@ CONTAINS
        enddo ! Ki
 
 
+!       IF(tt==1356.or.tt==1357) WRITE(6,*) box_concnt(i_box,i_ring,i_species)
+
+
        do i_ring = 1,Max_rings(i_box)
           box_concnt(i_box,i_ring,i_species) = &
                 box_concnt(i_box,i_ring,i_species) &
                         + ( RK(1,i_ring) + 2.0*RK(2,i_ring) &
                            + 2.0*RK(3,i_ring) + RK(4,i_ring) ) /6.0
        enddo !i_ring
+
+
+       IF(box_concnt(i_box,Max_rings(i_box),i_species)<0.0)THEN
+         WRITE(6,*)'shw333',RK(:,Max_rings(i_box))
+         WRITE(6,*)'shw333',box_concnt(i_box,Max_rings(i_box)-1,i_species),box_concnt(i_box,Max_rings(i_box),i_species),backgrd_concnt(i_box,i_species)
+
+       ENDIF
+
 
        ! env_amount is used to evalue whether mass is conserved or not
        env_amount(i_box) = env_amount(i_box) & ! [molec]
@@ -1941,30 +1949,80 @@ CONTAINS
        State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(i_box,i_species)
 
 
+       !================================================================
+       ! minus some extra amount based on the amount of particle diluting
+       ! from outermost ring to backgroud grid, shw
+       !================================================================
+       IF(exchange_amount>0)THEN
+         Extra_amount(i_box,1) = Extra_amount(i_box,1) - exchange_amount*Extra_amount(i_box,1) &
+           /( SUM(box_concnt(i_box,1:Max_rings(i_box),1)*V_ring(i_box,1:Max_rings(i_box))) + exchange_amount )
+       ENDIF
+
        !===================================================================
+       ! First judge:
+       ! If the size of plume is bigger than the grid cell volume,
+       ! dissolve the plume into grid cell
+       !===================================================================
+       IF(SUM( V_ring(i_box,1:Max_rings(i_box)) ) > grid_volumn)THEN
+
+         WRITE(6,*)'SHW1 before', backgrd_concnt(i_box,i_species), backgrd_concnt(i_box,i_species)*grid_volumn
+
+         backgrd_concnt(i_box,i_species) = &
+           ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring(i_box,1:Max_rings(i_box) )) &
+            +backgrd_concnt(i_box,i_species)*grid_volumn - Extra_amount(i_box,1) ) / grid_volumn
+
+         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(i_box,i_species)
+
+         WRITE(6,*)'SHW2', box_concnt( i_box, 1:Max_rings(i_box), 1 )
+         WRITE(6,*)'SHW3', V_ring( i_box,1:Max_rings(i_box) )
+         WRITE(6,*)'SHW4', SUM(box_concnt( i_box, 1:Max_rings(i_box),1)*V_ring(i_box,1:Max_rings(i_box) )), Extra_amount(i_box,1)
+         WRITE(6,*)'SHW5', SUM( V_ring(i_box,1:Max_rings(i_box)) ), grid_volumn
+         WRITE(6,*)'SHW6 after', backgrd_concnt(i_box,i_species), backgrd_concnt(i_box,i_species)*grid_volumn
+
+         Max_rings(i_box) = 0
+
+         GOTO 200 ! skip this box, go to next box
+
+       ENDIF
+
+       !===================================================================
+       ! Second judge:
        ! According to a 2-order process rate, if there is no big difference
        ! between PIG and Eulerian model, then dissolve the PIG into
        ! background grid cell.                                          shw
        ! test this once everyday
        !===================================================================
-       IF(mod(tt,144)==0)THEN
-         Rate_Mix = SUM( box_concnt(i_box,1:Max_rings(i_box),1)**2 * V_ring(i_box,1:Max_rings(i_box)) ) &
-                     +backgrd_concnt(i_box,i_species)**2*grid_volumn
+       Rate_Mix = SUM( box_concnt(i_box,1:Max_rings(i_box),1)**2 * V_ring(i_box,1:Max_rings(i_box)) ) &
+                   +backgrd_concnt(i_box,i_species)**2*grid_volumn
 
-         Eul_concnt = ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring(i_box,1:Max_rings(i_box) )) &
-              +backgrd_concnt(i_box,i_species)*grid_volumn ) / grid_volumn
-         Rate_Eul = Eul_concnt**2*grid_volumn
+       Eul_concnt = ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring(i_box,1:Max_rings(i_box) )) &
+            +backgrd_concnt(i_box,i_species)*grid_volumn ) / grid_volumn
+       Rate_Eul = Eul_concnt**2*grid_volumn
 
-         IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.01)THEN
-           backgrd_concnt(i_box,i_species) = &
-             ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring(i_box,1:Max_rings(i_box) )) &
-              +backgrd_concnt(i_box,i_species)*grid_volumn - Extra_amount(i_box,1) ) / grid_volumn
+       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.01)THEN
 
-           State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(i_box,i_species)
+         WRITE(6,*)'shw1 before', backgrd_concnt(i_box,i_species), backgrd_concnt(i_box,i_species)*grid_volumn
 
-           Max_rings(i_box) = 0
-           GOTO 200 ! skip this box, go to next box
-         ENDIF
+
+         backgrd_concnt(i_box,i_species) = &
+           ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring(i_box,1:Max_rings(i_box) )) &
+            +backgrd_concnt(i_box,i_species)*grid_volumn - Extra_amount(i_box,1) ) / grid_volumn
+
+         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(i_box,i_species)
+
+         IF(State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)<0.0) WRITE(6,*)'SHW', State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+
+
+         WRITE(6,*)'shw2', box_concnt( i_box, 1:Max_rings(i_box), 1 )
+         WRITE(6,*)'shw3', V_ring( i_box,1:Max_rings(i_box) )
+         WRITE(6,*)'shw4', SUM(box_concnt( i_box, 1:Max_rings(i_box), 1)*V_ring(i_box,1:Max_rings(i_box) )), Extra_amount(i_box,1)
+         WRITE(6,*)'shw5', SUM( V_ring(i_box,1:Max_rings(i_box)) ), grid_volumn
+         WRITE(6,*)'shw6 after', backgrd_concnt(i_box,i_species), backgrd_concnt(i_box,i_species)*grid_volumn
+
+
+         Max_rings(i_box) = 0
+
+         GOTO 200 ! skip this box, go to next box
 
        ENDIF
 
@@ -2480,7 +2538,7 @@ CONTAINS
 ! Output plume location
 !-------------------------------------------------------------------
 !    IF(mod(tt,6)==0)THEN     ! output once every hour
-    IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
+!    IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
 
        FILENAME2   = 'Plume_concentration_molec_' // TRIM(ADJUSTL(YEAR_C)) // &
           '-' //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) //      &
@@ -2490,11 +2548,11 @@ CONTAINS
        OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE', &
              FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-       DO i_box = 1,1001,50
+       DO i_box = 1,n_boxes_max,1
           IF(Max_rings(i_box)==0)THEN
             WRITE(262,*)'This plume is dissolved already:', i_box
           ELSE
-            WRITE(262,*) i_box, box_radiusA(i_box,Max_rings(i_box)), box_radiusB(i_box,Max_rings(i_box)), box_length(i_box)
+            WRITE(262,*) tt, i_box, backgrd_concnt(i_box,N_species)
 !          WRITE(262,*) box_concnt(i_box,:,N_species)*V_ring(i_box,:)
             WRITE(262,*) box_concnt(i_box,1:n_rings_max,N_species)
           ENDIF
@@ -2506,7 +2564,7 @@ CONTAINS
 
 !        WRITE(262,*) box_concnt(1,:,N_species)
 
-    ENDIF
+!    ENDIF
 !    ENDIF
 
     tt = tt + 1

@@ -1,0 +1,1330 @@
+!------------------------------------------------------------------------------
+!                  GEOS-Chem Global Chemical Transport Model                  !
+!-----------------------------------------------------------------------------!
+
+MODULE Lagrange_Mod
+
+  USE precision_mod
+  USE ERROR_MOD
+  USE ErrCode_Mod
+  USE PhysConstants, ONLY : PI, Re, AIRMW
+  USE CMN_SIZE_Mod,  ONLY : IIPAR, JJPAR, LLPAR
+
+  USE TIME_MOD,        ONLY : GET_YEAR
+  USE TIME_MOD,        ONLY : GET_MONTH
+  USE TIME_MOD,        ONLY : GET_DAY
+  USE TIME_MOD,        ONLY : GET_HOUR
+  USE TIME_MOD,        ONLY : GET_MINUTE
+  USE TIME_MOD,        ONLY : GET_SECOND
+
+  IMPLICIT NONE
+
+
+  ! !PUBLIC MEMBER FUNCTIONS:
+  PUBLIC :: lagrange_init
+  PUBLIC :: lagrange_run
+  PUBLIC :: lagrange_write_std
+  PUBLIC :: lagrange_cleanup
+
+  PUBLIC :: box_lon, box_lat, box_lev
+  PUBLIC :: n_boxes_max
+  PUBLIC :: N_curr, N_prev
+  PUBLIC :: box_u, box_v, box_omeg
+  PUBLIC :: box_Ptemp
+
+  integer, parameter    :: n_boxes_max = 20 ! 6904224     
+  integer, parameter    :: N_parcels   = 2 ! 131        
+  integer               :: tt, N_curr, N_prev         
+  ! Aircraft would release 131 aerosol parcels every time step
+  integer               :: i_rec
+
+  real(fp), allocatable :: box_lon(:), box_lat(:), box_lev(:)    
+  real(fp), allocatable :: box_depth(:)
+  real(fp), allocatable :: box_width(:)
+  real(fp), allocatable :: box_length(:)
+  real(fp), allocatable :: box_u(:), box_v(:), box_omeg(:)
+  real(fp), allocatable :: box_Ptemp(:)
+
+CONTAINS
+
+
+!-----------------------------------------------------------------
+
+  SUBROUTINE lagrange_init(am_I_root, Input_Opt, State_Chm, State_Met, RC)
+
+    USE Input_Opt_Mod, ONLY : OptInput
+    USE State_Met_Mod, ONLY : MetState
+    USE State_Chm_Mod, ONLY : ChmState
+
+    USE GC_GRID_MOD,     ONLY : GET_AREA_M2
+
+    USE TIME_MOD,        ONLY : GET_YEAR
+    USE TIME_MOD,        ONLY : GET_MONTH
+    USE TIME_MOD,        ONLY : GET_DAY
+    USE TIME_MOD,        ONLY : GET_HOUR
+    USE TIME_MOD,        ONLY : GET_MINUTE
+    USE TIME_MOD,        ONLY : GET_SECOND
+
+
+    LOGICAL,        INTENT(IN)    :: am_I_Root   ! Are we on the root CPU
+    TYPE(MetState), intent(in)    :: State_Met
+    TYPE(ChmState), intent(inout) :: State_Chm
+    TYPE(OptInput), intent(in)    :: Input_Opt
+    INTEGER,        INTENT(OUT)   :: RC         ! Success or failure
+
+    INTEGER                       :: i_box, iibox
+    INTEGER                       :: ii, jj, kk
+    CHARACTER(LEN=255)            :: FILENAME, FILENAME_INIT
+
+    integer :: i_lon            !1:IIPAR
+    integer :: i_lat
+    integer :: i_lev
+
+    integer :: j_lat
+
+
+    INTEGER :: YEAR
+    INTEGER :: MONTH
+    INTEGER :: DAY
+    INTEGER :: HOUR
+    INTEGER :: MINUTE
+    INTEGER :: SECOND
+
+    CHARACTER(LEN=25) :: YEAR_C
+    CHARACTER(LEN=25) :: MONTH_C
+    CHARACTER(LEN=25) :: DAY_C
+    CHARACTER(LEN=25) :: HOUR_C
+    CHARACTER(LEN=25) :: MINUTE_C
+    CHARACTER(LEN=25) :: SECOND_C
+
+    WRITE(6,'(a)') '--------------------------------------------------------'
+    WRITE(6,'(a)') ' Initial Lagrnage Module (Using Dynamic time step)'
+    WRITE(6,'(a)') '--------------------------------------------------------'
+
+    allocate(box_lon(n_boxes_max))
+    allocate(box_lat(n_boxes_max))
+    allocate(box_lev(n_boxes_max))
+    allocate(box_width(n_boxes_max))
+    allocate(box_depth(n_boxes_max))
+    allocate(box_length(n_boxes_max))
+    allocate(box_u(n_boxes_max))
+    allocate(box_v(n_boxes_max))
+    allocate(box_omeg(n_boxes_max))
+    allocate(box_Ptemp(n_boxes_max))
+
+
+!--------------------------------------------------
+
+    ! (1) run month by month
+!    FILENAME_INIT   = '/n/home12/hongwei/hongwei/merra2_2x25_standard_Dec/Lagrange_Init_box_i_lon_lat_lev.txt'
+!    OPEN( 361,      FILE=TRIM( FILENAME_INIT   ), STATUS='old', &
+!          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+!    Do i_box = 1, n_boxes_max
+!       READ(361,'( 2(x,I8) , 3(x,E12.5) )') N_prev, iibox, box_lon(i_box), box_lat(i_box), box_lev(i_box)
+!    End Do
+    
+!--------------------------------------------------
+
+    ! (2)
+    do i_box = 1,n_boxes_max,1
+        box_lon(i_box) = -141.0e+0_fp   ! 0   
+        box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) &
+                        * (-1.0)**FLOOR(i_box/6000.0) ! -29.95S : 29.95N : 0.1
+        box_lev(i_box) = 52.0e+0_fp       ! about 20 km
+    enddo
+    N_prev = 0
+
+
+    box_width  = 0.0e+0_fp
+    box_depth  = 0.0e+0_fp
+    box_length = 0.0e+0_fp
+
+
+    YEAR        = GET_YEAR()
+    MONTH       = GET_MONTH()
+    DAY         = GET_DAY()
+    HOUR        = GET_HOUR()
+    MINUTE      = GET_MINUTE()
+    SECOND      = GET_SECOND()
+
+    WRITE(YEAR_C,*) YEAR
+    WRITE(MONTH_C,*) MONTH
+    WRITE(DAY_C,*) DAY
+    WRITE(HOUR_C,*) HOUR
+    WRITE(MINUTE_C,*) MINUTE
+    WRITE(SECOND_C,*) SECOND
+
+
+    FILENAME   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) &
+                // '-' //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) &
+                // '-' // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
+                // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
+
+    tt   = 0
+    N_curr = N_prev + N_parcels 
+
+    OPEN( 261,      FILE=TRIM( FILENAME ), STATUS='REPLACE', &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+
+    Do i_box = 1, n_boxes_max
+       WRITE(261,'( 2(x,I8) , 3(x,E12.5) )') N_prev, i_box, box_lon(i_box), &
+                                            box_lat(i_box), box_lev(i_box)
+    End Do
+
+
+! Output State_Met%AD(i_lon,i_lat,i_lev) into State_Met_AD.txt
+    OPEN( 314,      FILE='State_Met_AD.txt', STATUS='REPLACE', &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+    Do i_lon = 1, IIPAR
+    Do i_lat = 1, JJPAR
+    Do i_lev = 1, LLPAR
+       WRITE(314,'(x,E12.5)') State_Met%AD(i_lon,i_lat,i_lev)
+    End Do
+    End Do
+    End Do
+
+
+! Output State_Met%AREA_M2(i_lon,i_lat,i_lev) into State_Met_AREA_M2.txt
+    OPEN( 315,      FILE='State_Met_AREA_M2.txt', STATUS='REPLACE', &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+    Do i_lon = 1, IIPAR
+    Do i_lat = 1, JJPAR
+    Do i_lev = 1, LLPAR
+       WRITE(315,'(x,E12.5)') GET_AREA_M2(i_lon,i_lat,i_lev)
+    End Do
+    End Do
+    End Do
+
+  CALL plume_init(am_I_root, Input_Opt, State_Chm, State_Met, &
+                    box_lon, box_lat, box_lev, n_boxes_max, RC)
+
+  END SUBROUTINE lagrange_init
+
+
+!-----------------------------------------------------------------
+!=================================================================
+
+  SUBROUTINE lagrange_run(am_I_Root, State_Chm, State_Met, Input_Opt, RC)
+
+    USE Input_Opt_Mod, ONLY : OptInput
+
+    USE State_Chm_Mod, ONLY : ChmState
+    USE State_Met_Mod, ONLY : MetState
+
+    USE TIME_MOD,      ONLY : GET_TS_DYN
+
+    USE GC_GRID_MOD,   ONLY : XEDGE, YEDGE, XMID, YMID                 
+    USE CMN_SIZE_Mod,  ONLY : DLAT, DLON 
+
+    logical, intent(in)           :: am_I_Root
+    TYPE(MetState), intent(in)    :: State_Met
+    TYPE(ChmState), intent(inout) :: State_Chm
+    TYPE(OptInput), intent(in)    :: Input_Opt
+    INTEGER,        INTENT(OUT)   :: RC         ! Success or failure
+
+    REAL :: Dt(4)                  ! = 600.0e+0_fp          
+
+    real(fp), pointer  :: PASV_EU           
+    integer            :: nAdv        
+    REAL(fp)           :: MW_g
+
+    integer :: i_box, N_box
+
+    integer :: i_lon            !1:IIPAR
+    integer :: i_lat
+    integer :: i_lev
+
+    integer :: ii, jj, kk
+
+    integer :: Ki
+
+    real(fp) :: curr_lon, curr_lat, curr_pressure
+    real(fp) :: RK_lon, RK_lat
+    real(fp) :: X_edge2
+    real(fp) :: Y_edge2
+
+    real(fp) :: dbox_lon, dbox_lat, dbox_lev
+    real(fp) :: dbox_x_PS, dbox_y_PS
+    real(fp) :: box_x_PS, box_y_PS
+
+    real(fp) :: RK_Dlon(4), RK_Dlat(4), RK_Dlev(4)
+    real(fp) :: RK_x_PS, RK_y_PS
+    real(fp) :: RK_Dx_PS, RK_Dy_PS
+
+    real(fp), pointer :: u(:,:,:)
+    real(fp), pointer :: v(:,:,:)
+    real(fp), pointer :: omeg(:,:,:)
+    real(fp), pointer :: Ptemp(:,:,:)
+
+    real(fp) :: curr_u, curr_v, curr_omeg
+    real(fp) :: curr_u_PS, curr_v_PS
+    real(fp) :: curr_Ptemp
+
+    real(fp), pointer :: P_edge(:)
+    real(fp), pointer :: P_mid(:)
+
+    real(fp) :: Dx
+    real(fp) :: Dy
+    real(fp), pointer :: X_edge(:)    
+    real(fp), pointer :: Y_edge(:)       
+    real(fp), pointer :: X_mid(:)    
+    real(fp), pointer :: Y_mid(:)       
+
+    real(fp), pointer :: P_I, R_e     
+
+    Dt(1) = GET_TS_DYN()
+    Dt(2) = 0.5*GET_TS_DYN()
+    Dt(3) = 0.5*GET_TS_DYN()
+    Dt(4) = GET_TS_DYN()
+
+    u => State_Met%U   ! figure out state_met%U is based on lat/lon or modelgrid(i,j)
+    v => State_Met%V   ! V [m s-1]
+    omeg => State_Met%OMEGA  ! Updraft velocity [Pa/s]
+
+    Ptemp => State_Met%THETA ! Potential temperature [K]
+
+    P_edge => State_Met%PEDGE(1,1,:)  ! Wet air press @ level edges [hPa]
+    P_mid  => State_Met%PMID(1,1,:)  ! Pressure (w/r/t moist air) at level centers (hPa)
+
+    Dx = DLON(1,1,1)
+    Dy = DLAT(1,2,1)  ! DLAT(1,1,1) is half of DLAT(1,2,1) !!!
+    X_edge => XEDGE(:,1,1)   ! IIPAR+1
+    Y_edge => YEDGE(1,:,1)  
+    X_mid  => XMID(:,1,1)   ! IIPAR
+    Y_mid  => YMID(1,:,1)  
+    ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
+
+    X_edge2       = X_edge(2)
+    Y_edge2       = Y_edge(2)
+     
+    
+    if(N_curr<=n_boxes_max)then
+      N_box = N_curr
+    else
+      N_box = n_boxes_max
+    endif
+
+    ! Run Lagrangian advection HERE
+    do i_box = 1,N_box,1
+
+       ! make sure the location is not out of range
+       do while (box_lat(i_box) > Y_edge(JJPAR+1))
+          box_lat(i_box) = Y_edge(JJPAR+1) - ( curr_lat-Y_edge(JJPAR+1) )
+       end do
+
+       do while (box_lat(i_box) < Y_edge(1))
+          box_lat(i_box) = Y_edge(1) + ( curr_lat-Y_edge(1) )
+       end do
+
+       do while (box_lon(i_box) > X_edge(IIPAR+1))
+          box_lon(i_box) = box_lon(i_box) - 360.0
+       end do
+
+       do while (box_lon(i_box) < X_edge(1))
+          box_lon(i_box) = box_lon(i_box) + 360.0
+       end do
+
+       curr_lon      = box_lon(i_box)
+       curr_lat      = box_lat(i_box)
+       curr_pressure = box_lev(i_box)        ! hPa
+
+      DO Ki = 1,4,1
+
+       ! check this grid box is the neast one or the one located in left-bottom
+       ! ???
+       i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+       if(i_lon==IIPAR+1) i_lon=1
+
+       i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2) 
+       i_lev = Find_iPLev(curr_pressure,P_mid)
+
+       ! interpolate temperature for Plume module:
+       if(abs(curr_lat)>Y_mid(JJPAR))then
+          curr_Ptemp = Interplt_wind_RLL_polar(Ptemp, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       else
+          curr_Ptemp = Interplt_wind_RLL(Ptemp, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       endif
+
+       box_Ptemp(i_box) = curr_Ptemp
+
+
+       ! For vertical wind speed:
+       ! pay attention for the polar region * * *
+       if(abs(curr_lat)>Y_mid(JJPAR))then
+          curr_omeg = Interplt_wind_RLL_polar(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       else
+          curr_omeg = Interplt_wind_RLL(omeg,X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+       endif
+
+       box_omeg(i_box) = curr_omeg
+
+       ! For 
+       dbox_lev = Dt(Ki) * curr_omeg / 100.0     ! Pa => hPa
+       curr_pressure = box_lev(i_box) + dbox_lev
+
+       RK_Dlev(Ki) = Dt(1) * curr_omeg / 100.0     ! Pa => hPa
+
+       if(curr_pressure<P_mid(LLPAR)) curr_pressure = P_mid(LLPAR) + ( P_mid(LLPAR) - curr_pressure )
+       if(curr_pressure>P_mid(1)) curr_pressure = P_mid(1) - ( curr_pressure - P_mid(1) )
+
+
+       if(abs(curr_lat)<=72.0)then
+       ! Regualr Longitude-Latitude Mesh:
+
+           curr_u    = Interplt_wind_RLL(u,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+           curr_v    = Interplt_wind_RLL(v,   X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+
+           box_u(i_box) = curr_u
+           box_v(i_box) = curr_v
+
+           dbox_lon  = (Dt(Ki)*curr_u) / (2.0*PI*Re*cos(box_lat(i_box)*PI/180.0)) * 360.0
+           dbox_lat  = (Dt(Ki)*curr_v) / (PI*Re) * 180.0
+
+           curr_lon  = box_lon(i_box) + dbox_lon
+           curr_lat  = box_lat(i_box) + dbox_lat
+ 
+           RK_Dlon(Ki) = (Dt(1)*curr_u) / (2.0*PI*Re*cos(box_lat(i_box)*PI/180.0)) * 360.0
+           RK_Dlat(Ki) = (Dt(1)*curr_v) / (PI*Re) * 180.0
+
+       endif
+
+       if(abs(curr_lat)>72.0)then
+       ! Polar Stereographic plane (Dong and Wang, 2012):
+
+         if(abs(curr_lat)>Y_mid(JJPAR))then 
+            curr_u_PS = Interplt_uv_PS_polar(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+            curr_v_PS = Interplt_uv_PS_polar(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+         else
+            curr_u_PS = Interplt_uv_PS(1, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
+            curr_v_PS = Interplt_uv_PS(0, u, v, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
+         endif
+
+         box_u(i_box) = curr_u_PS
+         box_v(i_box) = curr_v_PS
+
+         dbox_x_PS = Dt(Ki)*curr_u_PS
+         dbox_y_PS = Dt(Ki)*curr_v_PS
+
+         RK_Dx_PS = Dt(1)*curr_u_PS
+         RK_Dy_PS = Dt(1)*curr_v_PS
+
+
+         ! change from (lon,lat) in RLL to (x,y) in PS: 
+         if(box_lat(i_box)<0)then
+           box_x_PS = -1.0* Re* cos(box_lon(i_box)*PI/180.0) / tan(box_lat(i_box)*PI/180.0)
+           box_y_PS = -1.0* Re* sin(box_lon(i_box)*PI/180.0) / tan(box_lat(i_box)*PI/180.0)
+         else
+           box_x_PS = Re* cos(box_lon(i_box)*PI/180.0) / tan(box_lat(i_box)*PI/180.0)
+           box_y_PS = Re* sin(box_lon(i_box)*PI/180.0) / tan(box_lat(i_box)*PI/180.0)
+         endif
+
+         RK_x_PS  = box_x_PS + RK_Dx_PS
+         RK_y_PS  = box_y_PS + RK_Dy_PS
+
+         box_x_PS  = box_x_PS + dbox_x_PS
+         box_y_PS  = box_y_PS + dbox_y_PS
+
+
+         ! change from (x,y) in PS to (lon,lat) in RLL
+         if(box_x_PS>0.0)then
+           curr_lon = atan( box_y_PS / box_x_PS )*180.0/PI 
+         endif
+         if(box_x_PS<0.0 .and. box_y_PS<=0.0)then
+           curr_lon = atan( box_y_PS / box_x_PS )*180.0/PI -180.0
+         endif
+         if(box_x_PS<0.0 .and. box_y_PS>0.0)then
+           curr_lon = atan( box_y_PS / box_x_PS )*180.0/PI +180.0
+         endif
+           
+         if(curr_lat<0.0)then
+           curr_lat = -1 * atan( Re / sqrt(box_x_PS**2+box_y_PS**2) ) *180.0/PI
+         else
+           curr_lat = atan( Re / sqrt(box_x_PS**2+box_y_PS**2) ) *180.0/PI
+         endif
+
+         ! For 4th order Runge Kutta
+         if(RK_x_PS>0.0)then
+           RK_lon = atan( RK_y_PS / RK_x_PS )*180.0/PI
+         endif
+         if(RK_x_PS<0.0 .and. RK_y_PS<=0.0)then
+           RK_lon = atan( RK_y_PS / RK_x_PS )*180.0/PI -180.0
+         endif
+         if(RK_x_PS<0.0 .and. RK_y_PS>0.0)then
+           RK_lon = atan( RK_y_PS / RK_x_PS )*180.0/PI +180.0
+         endif
+
+         if(RK_lat<0.0)then
+           RK_lat = -1 * atan( Re / sqrt(RK_x_PS**2+RK_y_PS**2) ) *180.0/PI
+         else
+           RK_lat = atan( Re / sqrt(RK_x_PS**2+RK_y_PS**2) ) *180.0/PI
+         endif
+
+         RK_Dlon(Ki) = RK_lon - box_lon(i_box)
+         RK_Dlat(Ki) = RK_lat - box_lat(i_box)
+
+       endif
+
+      ENDDO ! Ki = 1,4,1
+
+      box_lon(i_box) = box_lon(i_box) + (RK_Dlon(1)+2.0*RK_Dlon(2)+2.0*RK_Dlon(3)+RK_Dlon(4))/6.0
+      box_lat(i_box) = box_lat(i_box) + (RK_Dlat(1)+2.0*RK_Dlat(2)+2.0*RK_Dlat(3)+RK_Dlat(4))/6.0
+      box_lev(i_box) = box_lev(i_box) + (RK_Dlev(1)+2.0*RK_Dlev(2)+2.0*RK_Dlev(3)+RK_Dlev(4))/6.0
+
+
+       ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in corresponding with injected parcels in Lagrangian model
+       if(i_box>N_prev)then
+          ! ============================================================================
+          ! For conventional GEOS-Chem for comparison with Lagrangian Model:
+          !
+          !  AD(I,J,L) = grid box dry air mass [kg]
+          !  AIRMW     = dry air molecular wt [g/mol]
+          !  MW_G(N)   = species molecular wt [g/mol]
+          !     
+          ! the conversion is:
+          ! 
+          !====================================================================
+          nAdv = State_Chm%nAdvect         ! the last one is PASV_EU
+          PASV_EU => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)     ! Unit: [kg/kg]
+ 
+          MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
+          ! Assume every parcle has 110kg H2SO4
+          ! write(6,*)'== test 1 ==>', State_Chm%Spc_Units
+          PASV_EU = PASV_EU + 110.0/State_Met%AD(i_lon,i_lat,i_lev)
+
+          !WRITE(6,*) '= Lagrange for Eulerian =>', i_box
+       endif
+
+
+       !call
+       !grow_box(box_length(i_box),box_width(i_box),box_depth(i_box),i_lon,i_lat,i_lev)
+    end do  !do i_box = 1,n_boxes_max
+
+        N_prev = N_curr
+        N_curr = N_prev + N_parcels        
+        ! N_curr is used to add particles, here add 5 parcles every time step
+
+
+    ! Everything is done, clean up pointers
+    nullify(u)
+    nullify(v)
+    nullify(omeg)
+    nullify(X_edge)
+    nullify(Y_edge)
+    nullify(P_edge)
+    nullify(X_mid)
+    nullify(Y_mid)
+    nullify(P_mid)
+
+    CALL plume_run(am_I_Root, State_Chm, State_Met, Input_Opt, &
+                N_curr, N_prev, box_lon, box_lat, box_lev, &
+                box_u, box_v, box_omeg, box_Ptemp, RC)
+
+  END SUBROUTINE lagrange_run
+
+!--------------------------------------------------------------------
+! functions to find the grid point (i,j,k) which is nearest to location of boxes 
+
+  integer function Find_iLonLat(curr_xy,  Dxy,  XY_edge2)
+    implicit none
+    real(fp) :: curr_xy, Dxy, XY_edge2
+    Find_iLonLat = INT( (curr_xy - (XY_edge2 - Dxy)) / Dxy )+1
+    ! Notice the difference between INT(), FLOOR(), AINT()
+    ! for lon: Xedge_Sec - Dx = Xedge_first
+    return
+  end function
+
+
+  !integer function find_latitude(curr_lat, Dy, Y_edge2)
+  !  implicit none
+  !  real :: curr_lat, Dy, Y_edge2
+  !  find_latitude = INT( (curr_lat - (Y_edge2 - Dy)) / Dy )+1
+  !  ! for lat: (Yedge_Sec - Dy) may be different from Yedge_first
+  !  ! region for 4*5: (-89,-86:4:86,89))
+  !  return
+  !end function
+
+
+  integer function Find_iPLev(curr_pressure,P_mid)
+    implicit none
+    real(fp) :: curr_pressure
+    real(fp), pointer :: P_mid(:)
+    integer :: i_lon, i_lat
+    integer :: locate(1)
+    locate = MINLOC(abs( P_mid(:)-curr_pressure ))
+
+    if(P_mid(locate(1))-curr_pressure >= 0 )then
+       Find_iPLev = locate(1)
+    else
+       Find_iPLev = locate(1) - 1
+    endif
+
+    if(Find_iPLev==0) Find_iPLev=1
+    if(Find_iPLev==LLPAR) Find_iPLev=LLPAR-1
+
+    return
+  end function
+
+!------------------------------------------------------------------
+! functions to interpolate wind speed (u,v,omeg) 
+! based on the surrounding 4 points.
+
+  real function Interplt_wind_RLL(wind, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+    implicit none
+    real(fp)          :: curr_lon, curr_lat, curr_pressure
+    !real(fp), pointer :: PI, Re
+    real(fp), pointer :: wind(:,:,:)
+    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
+    integer           :: i_lon, i_lat, i_lev
+    integer           :: init_lon, init_lat, init_lev
+    integer           :: i, ii, j, jj, k, kk
+    real(fp)          ::  distance(2,2), Weight(2,2)
+    real(fp)          ::wind_lonlat(2), wind_lonlat_lev
+
+    ! Identify wether particle is exactly located on the grid point
+    if(curr_pressure==P_mid(i_lev))then
+    if(curr_lon==X_mid(i_lon))then
+    if(curr_lat==Y_mid(i_lat))then
+
+          Interplt_wind_RLL = wind(i_lon, i_lat, i_lev)
+          return
+
+    endif
+    endif
+    endif
+
+
+    ! first interpolate horizontally (Inverse Distance Weighting)
+
+    ! identify the grid point located in the southwest of the particle or under
+    ! the particle
+    if(curr_lon>=X_mid(i_lon))then
+      init_lon = i_lon
+    else
+      init_lon = i_lon - 1
+    endif
+
+    if(curr_lat>=Y_mid(i_lat))then
+      init_lat = i_lat
+    else
+      init_lat = i_lat - 1
+    endif
+
+    ! For pressure level, P_mid(1) is about surface pressure
+    if(curr_pressure<=P_mid(i_lev))then
+      init_lev = i_lev
+    else
+      init_lev = i_lev - 1
+    endif
+
+    if(init_lev==0) init_lev = 1
+    if(init_lev==LLPAR) init_lev = LLPAR-1
+
+
+    ! calculate the distance between particle and grid point
+    do i = 1,2
+    do j = 1,2
+        ii = i + init_lon - 1
+        jj = j + init_lat - 1
+
+        ! For some special circumstance:
+        if(ii==0)then
+          distance(i,j) = Distance_Circle(curr_lon, curr_lat, X_mid(ii+IIPAR), Y_mid(jj))
+        else if(ii==(IIPAR+1))then
+          distance(i,j) = Distance_Circle(curr_lon, curr_lat, X_mid(ii-IIPAR), Y_mid(jj))
+        else
+          distance(i,j) = Distance_Circle(curr_lon, curr_lat, X_mid(ii), Y_mid(jj))
+        endif
+
+    enddo
+    enddo
+
+    ! Calculate the inverse distance weight
+
+    do i = 1,2
+    do j = 1,2
+
+       if(distance(i,j)==0)then
+          Weight(:,:) = 0
+          Weight(i,j) = 1
+          GOTO 100
+       endif
+
+          Weight(i,j) = 1.0/distance(i,j) / sum( 1.0/distance(:,:) )
+
+    enddo
+    enddo
+
+ 100 CONTINUE
+
+
+    do k = 1,2     
+        kk = k + init_lev - 1 
+        if(init_lon==0)then
+            wind_lonlat(k) =  Weight(1,1) * wind(IIPAR,init_lat,kk)     &
+                          + Weight(1,2) * wind(IIPAR,init_lat+1,kk)   &
+                          + Weight(2,1) * wind(init_lon+1,init_lat,kk)   &
+                          + Weight(2,2) * wind(init_lon+1,init_lat+1,kk)
+        else if(init_lon==IIPAR)then
+            wind_lonlat(k) =  Weight(1,1) * wind(init_lon,init_lat,kk)     &
+                          + Weight(1,2) * wind(init_lon,init_lat+1,kk)   &
+                          + Weight(2,1) * wind(1,init_lat,kk)   &
+                          + Weight(2,2) * wind(1,init_lat+1,kk)
+        else
+            wind_lonlat(k) =  Weight(1,1) * wind(init_lon,init_lat,kk)     &
+                          + Weight(1,2) * wind(init_lon,init_lat+1,kk)   &
+                          + Weight(2,1) * wind(init_lon+1,init_lat,kk)   &
+                          + Weight(2,2) * wind(init_lon+1,init_lat+1,kk)
+        endif
+    enddo
+
+
+    ! second interpolate vertically (Linear)
+
+    wind_lonlat_lev = wind_lonlat(1)    &
+                     + (wind_lonlat(2)-wind_lonlat(1)) / (P_mid(init_lev+1)-P_mid(init_lev)) * (curr_pressure-P_mid(init_lev))
+
+    !Line_Interplt( wind_lonlat(1), wind_lonlat(2), P_mid(i_lev), P_mid(i_lev+1), curr_pressure )
+
+    Interplt_wind_RLL = wind_lonlat_lev
+
+    return
+  end function
+
+
+! functions to interpolate vertical wind speed (w)
+! based on the surrounding 3 points, one of the points is the north/south polar
+! point. The w value at polar point is the average of all surrounding grid points.
+
+  real function Interplt_wind_RLL_polar(wind, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+    implicit none
+    real(fp)          :: curr_lon, curr_lat, curr_pressure
+    !real(fp), pointer :: PI, Re
+    real(fp), pointer :: wind(:,:,:)
+    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
+    integer           :: i_lon, i_lat, i_lev
+    integer           :: init_lon, init_lat, init_lev
+    integer           :: i, ii, j, jj, k, kk
+    real(fp)          :: distance(3), Weight(3)
+    real(fp)          :: wind_lonlat(2), wind_lonlat_lev
+    real(fp)          :: wind_polar
+
+    ! first interpolate horizontally (Inverse Distance Weighting)
+
+    ! identify the grid point located in the southwest of the particle or under
+    ! the particle
+    if(curr_lon>=X_mid(i_lon))then
+      init_lon = i_lon
+    else
+      init_lon = i_lon - 1
+    endif
+
+    if(curr_lat>=Y_mid(i_lat))then
+      init_lat = i_lat
+    else
+      init_lat = i_lat - 1
+    endif
+    
+    if(init_lat==0)then
+      init_lat = 1
+    endif
+
+    ! For pressure level, P_mid(1) is about surface pressure
+    if(curr_pressure<=P_mid(i_lev))then
+      init_lev = i_lev
+    else
+      init_lev = i_lev - 1
+    endif
+
+    if(init_lev==0) init_lev = 1
+    if(init_lev==LLPAR) init_lev = LLPAR-1
+
+
+    ! calculate the distance between particle and grid point
+    j = 1
+    do i = 1,2
+        ii = i + init_lon - 1
+        jj = j + init_lat - 1
+
+        ! For some special circumstance:
+        if(ii==0)then
+          distance(i) = Distance_Circle(curr_lon, curr_lat, X_mid(ii+IIPAR), Y_mid(jj))
+        else if(ii==(IIPAR+1))then
+          distance(i) = Distance_Circle(curr_lon, curr_lat, X_mid(1), Y_mid(jj))
+        else
+          distance(i) = Distance_Circle(curr_lon, curr_lat, X_mid(ii), Y_mid(jj))
+        endif
+
+    enddo
+
+
+   if(ii==0)then
+       distance(3) = Distance_Circle(curr_lon, curr_lat, X_mid(ii+IIPAR), 90.0e+0_fp)
+   else if(ii==(IIPAR+1))then
+       distance(3) = Distance_Circle(curr_lon, curr_lat, X_mid(1), 90.0e+0_fp)
+   else
+       distance(3) = Distance_Circle(curr_lon, curr_lat, X_mid(ii), 90.0e+0_fp)
+   endif
+
+
+   if(distance(3)==0.0)then
+       do k=1,2
+         kk = k + init_lev - 1
+         wind_lonlat(k) = SUM(wind(:,init_lat,kk))/IIPAR
+       enddo
+   else
+       ! Calculate the inverse distance weight
+       do i=1,3
+          Weight(i) = 1.0/distance(i) / sum( 1.0/distance(:) )
+       enddo
+
+       do k=1,2
+           kk = k + init_lev - 1
+
+           wind_polar = SUM(wind(:,init_lat,kk))/IIPAR      
+
+           if(init_lon==0)then    
+               wind_lonlat(k) =  Weight(1)*wind(IIPAR,init_lat,kk)   &
+                               + Weight(2)*wind(init_lon+1,init_lat,kk)   &
+                               + Weight(3)*wind_polar
+           else if(init_lon==IIPAR)then
+               wind_lonlat(k) =  Weight(1)*wind(init_lon,init_lat,kk)   &
+                               + Weight(2)*wind(1,init_lat,kk)   &
+                               + Weight(3)*wind_polar
+           else
+               wind_lonlat(k) =  Weight(1)*wind(init_lon,init_lat,kk)   &
+                               + Weight(2)*wind(init_lon+1,init_lat,kk)   &
+                               + Weight(3)*wind_polar
+           endif
+       enddo
+    endif
+
+    ! second interpolate vertically (Linear)
+    wind_lonlat_lev =   wind_lonlat(1) &
+                      + (wind_lonlat(2)-wind_lonlat(1)) &
+                      / (P_mid(init_lev+1)-P_mid(init_lev)) &
+                      * (curr_pressure-P_mid(init_lev))
+
+    !Line_Interplt( wind_lonlat(1), wind_lonlat(2), P_mid(i_lev),
+    !P_mid(i_lev+1), curr_pressure )
+
+    Interplt_wind_RLL_polar = wind_lonlat_lev
+
+    return
+  end function
+
+
+!------------------------------------------------------------------
+! functions to interpolate wind speed (u,v) 
+! based on the surrounding 3 points, one of the points is the north/south polar
+! point. The u/v value at polar point is the average of all surrounding grid points.
+
+  real function Interplt_uv_PS_polar(i_uv, u_RLL, v_RLL, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+
+    implicit none
+
+    real(fp)          :: curr_lon, curr_lat, curr_pressure
+    real(fp)          :: curr_x, curr_y
+    real(fp), pointer :: u_RLL(:,:,:), v_RLL(:,:,:)
+    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
+
+    integer           :: i_uv
+    integer           :: i_lon, i_lat, i_lev
+    integer           :: init_lon, init_lat, init_lev
+    integer           :: i, ii, j, jj, k, kk
+
+    real(fp)          :: x_PS(3), y_PS(3)  ! the third value x_PS(3) is the polar point
+    real(fp)          :: uv_PS(3,2)
+    real(fp)          :: uv_polars(IIPAR)
+    real(fp)          :: distance_PS(3), Weight_PS(3)
+    real(fp)          :: uv_xy(2), uv_xy_lev
+
+    ! first interpolate horizontally (Inverse Distance Weighting)
+
+    ! identify the grid point located in the southwest of the particle or under
+    ! the particle
+    if(curr_lon>=X_mid(i_lon))then
+      init_lon = i_lon
+    else
+      init_lon = i_lon - 1
+    endif
+
+    if(curr_lat>=Y_mid(i_lat))then
+      init_lat = i_lat
+    else
+      init_lat = i_lat - 1
+    endif
+
+    ! For pressure level, P_mid(1) is about surface pressure, has biggerst
+    ! value.
+    if(curr_pressure<=P_mid(i_lev))then
+      init_lev = i_lev
+    else
+      init_lev = i_lev - 1
+    endif
+
+    if(init_lev==0) init_lev = 1
+    if(init_lev==LLPAR) init_lev = LLPAR-1
+
+
+    ! change from (lon,lat) in RLL to (x,y) in PS: 
+    if(curr_lat<0)then
+      curr_x = -1.0* Re* cos(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+      curr_y = -1.0* Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+    else
+      curr_x = Re* cos(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+      curr_y = Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+    endif
+
+    ! i,j means the four grid point value that surround around the particle
+!    do i=1,2
+!    do j=1,2
+
+!      ii = i + init_lon - 1
+!      jj = j + init_lat - 1
+!
+      ! For lon=180 deg:
+!      if(ii==IIPAR+1)then
+!        ii = 1
+!      endif
+!      if(ii==0)then
+!        ii = IIPAR
+!      endif
+
+      ! Get the right ii and jj for interpolation at polar point:
+
+      ! For South Polar Point:
+ !     if(jj==0)then
+ !       jj = jj+1
+ !     endif
+
+      ! For North Polar Point:
+!      if(jj==JJPAR+1)then
+!        jj = jj-1
+!      endif
+
+
+    if(init_lat==0)then
+           jj = init_lat + 1    ! south polar
+       else
+           jj = init_lat
+    endif
+
+
+    
+    do i=1,2  ! Interpolate location and wind of grid points into Polar Stereographic Plane
+   
+       ii = i + init_lon - 1
+
+       ! For lon=180 deg:
+       if(ii==IIPAR+1)then
+          ii = 1
+       endif
+       if(ii==0)then
+          ii = IIPAR
+       endif
+
+      ! Interpolate location and wind into Polar Stereographic Plane
+      if(Y_mid(jj)>0)then
+          x_PS(i) = Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+          y_PS(i) = Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+      else
+          x_PS(i) = -1.0* Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+          y_PS(i) = -1.0* Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+      endif
+
+
+       do k=1,2
+          kk = k + init_lev - 1
+          if(i_uv==1)then ! i_ux==1 for u
+             if(Y_mid(jj)>0)then
+                 uv_PS(i,k) = -1.0* ( u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
+             else
+                 uv_PS(i,k) = u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+             endif
+          endif
+
+          if(i_uv==0)then ! for v
+             if(Y_mid(jj)>0)then
+                 uv_PS(i,k) = u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) - v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+             else
+                 uv_PS(i,k) = -1* u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+             endif
+          endif
+       enddo
+    enddo
+
+    ! Third grid point: south/north polar point
+    x_PS(3) = 0.0
+    y_PS(3) = 0.0
+    
+    do k=1,2
+       kk = k + init_lev - 1
+          if(i_uv==1)then ! i_ux==1 for u
+             ! interpolate all the grid points surrounding the polar point:
+             do ii = 1,IIPAR
+                 if(Y_mid(jj)>0)then
+                     uv_polars(ii) = -1.0* ( u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
+                 else
+                     uv_polars(ii) = u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+                 endif
+             enddo
+
+             uv_PS(3,k) = SUM(uv_polars)/IIPAR
+          endif
+
+          if(i_uv==0)then ! for v
+             do ii = 1,IIPAR
+                 if(Y_mid(jj)>0)then
+                     uv_polars(ii) = u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) - v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+                 else
+                     uv_polars(ii) = -1* u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+                 endif
+             enddo
+             uv_PS(3,k) = SUM(uv_polars)/IIPAR
+          endif
+    enddo
+
+
+
+    ! calculate the distance between particle and grid point
+    do i = 1,3
+          distance_PS(i) = sqrt( (x_PS(i)-curr_x)**2.0 + (y_PS(i)-curr_y)**2.0 )
+    enddo
+
+    ! Calculate the inverse distance weight
+    do i = 1,3
+        Weight_PS(i) = 1.0/distance_PS(i) / sum( 1.0/distance_PS(:) )
+    enddo
+
+
+    do k = 1,2
+      uv_xy(k) =  Weight_PS(1) * uv_PS(1,k)   + Weight_PS(2) * uv_PS(2,k)   &
+                 + Weight_PS(3) * uv_PS(3,k)
+    enddo
+
+
+    ! second interpolate vertically (Linear)
+
+    uv_xy_lev = uv_xy(1)+ (uv_xy(2)-uv_xy(1)) / (P_mid(init_lev+1)-P_mid(init_lev)) * (curr_pressure-P_mid(init_lev))
+
+    Interplt_uv_PS_polar = uv_xy_lev
+
+    return
+  end function
+
+
+!------------------------------------------------------------------
+! functions to interpolate wind speed (u,v,omeg) 
+! based on the surrounding 4 points.
+
+  real function Interplt_uv_PS(i_uv, u_RLL, v_RLL, X_mid, Y_mid, P_mid, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+
+    implicit none
+
+    real(fp)          :: curr_lon, curr_lat, curr_pressure
+    real(fp)          :: curr_x, curr_y
+    real(fp), pointer :: u_RLL(:,:,:), v_RLL(:,:,:)
+    real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
+
+    integer           :: i_uv
+    integer           :: i_lon, i_lat, i_lev
+    integer           :: init_lon, init_lat, init_lev
+    integer           :: i, ii, j, jj, k, kk
+
+    real(fp)          :: x_PS(2,2), y_PS(2,2)
+    real(fp)          :: uv_PS(2,2,2)
+    real(fp)          :: distance_PS(2,2), Weight_PS(2,2)
+    real(fp)          :: uv_xy(2), uv_xy_lev
+
+
+    ! first interpolate horizontally (Inverse Distance Weighting)
+
+    ! identify the grid point located in the southwest of the particle or under
+    ! the particle
+    if(curr_lon>=X_mid(i_lon))then
+      init_lon = i_lon
+    else
+      init_lon = i_lon - 1
+    endif
+
+    if(curr_lat>=Y_mid(i_lat))then
+      init_lat = i_lat
+    else
+      init_lat = i_lat - 1
+    endif
+
+    ! For pressure level, P_mid(1) is about surface pressure, has biggerst value.
+    if(curr_pressure<=P_mid(i_lev))then
+      init_lev = i_lev
+    else
+      init_lev = i_lev - 1
+    endif
+
+    if(init_lev==0) init_lev = 1
+    if(init_lev==LLPAR) init_lev = LLPAR-1
+
+    
+    ! change from (lon,lat) in RLL to (x,y) in PS: 
+    if(curr_lat<0)then
+      curr_x = -1.0* Re* cos(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+      curr_y = -1.0* Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+    else
+      curr_x = Re* cos(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+      curr_y = Re* sin(curr_lon*PI/180.0) / tan(curr_lat*PI/180.0)
+    endif
+
+    ! i,j means the four grid point value that surround around the particle
+    do i=1,2
+    do j=1,2
+
+      ii = i + init_lon - 1
+      jj = j + init_lat - 1
+
+      ! Get the right ii and jj for interpolation at polar point:
+      ! For South Polar Point:
+      if(jj==0)then
+        jj = jj+1
+      endif
+      ! For North Polar Point:
+      if(jj==JJPAR+1)then
+        jj = jj-1
+      endif
+
+    
+      ! For lon=180 deg:
+      if(ii==IIPAR+1)then
+        ii = 1
+      endif
+      if(ii==0)then
+        ii = IIPAR
+      endif
+
+
+      ! Interpolate location and wind into Polar Stereographic Plane
+      if(Y_mid(jj)>0)then
+
+        x_PS(i,j) = Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)  
+        y_PS(i,j) = Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+          
+        do k=1,2
+           kk = k + init_lev - 1
+
+           if(i_uv==1)then ! i_ux==1 for u
+             uv_PS(i,j,k) = -1.0* ( u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2) )
+           endif
+
+           if(i_uv==0)then ! for v
+             uv_PS(i,j,k) = u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) - v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+           endif
+        enddo
+
+      else
+
+        x_PS(i,j) = -1.0* Re* cos(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+        y_PS(i,j) = -1.0* Re* sin(X_mid(ii)*PI/180.0) / tan(Y_mid(jj)*PI/180.0)
+
+        do k=1,2
+           kk = k + init_lev - 1
+
+           if(i_uv==1)then
+             uv_PS(i,j,k) = u_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+           endif
+
+           if(i_uv==0)then
+             uv_PS(i,j,k) = -1* u_RLL(ii,jj,kk)*cos(X_mid(ii)*PI/180.0) / sin(Y_mid(jj)*PI/180.0) + v_RLL(ii,jj,kk)*sin(X_mid(ii)*PI/180.0) / (sin(Y_mid(jj)*PI/180.0)**2)
+           endif
+        enddo
+
+      endif
+
+    enddo
+    enddo
+
+    ! calculate the distance between particle and grid point
+    do i = 1,2
+    do j = 1,2
+          distance_PS(i,j) = sqrt( (x_PS(i,j)-curr_x)**2.0 + (y_PS(i,j)-curr_y)**2.0 )
+    enddo
+    enddo
+
+    ! Calculate the inverse distance weight
+    do i = 1,2
+    do j = 1,2
+        Weight_PS(i,j) = 1.0/distance_PS(i,j) / sum( 1.0/distance_PS(:,:) )
+    enddo
+    enddo
+
+
+    do k = 1,2
+      uv_xy(k) =  Weight_PS(1,1) * uv_PS(1,1,k)   + Weight_PS(1,2) * uv_PS(1,2,k)   &
+                 + Weight_PS(2,1) * uv_PS(2,1,k) + Weight_PS(2,2) * uv_PS(2,2,k)
+    enddo
+
+
+    ! second interpolate vertically (Linear)
+
+    uv_xy_lev = uv_xy(1)+ (uv_xy(2)-uv_xy(1)) / (P_mid(init_lev+1)-P_mid(init_lev)) * (curr_pressure-P_mid(init_lev))
+
+    Interplt_uv_PS = uv_xy_lev
+
+    return
+  end function
+
+
+  ! calculation the great-circle distance between two points on the earth surface
+  real function Distance_Circle(x1, y1, x2, y2)
+    implicit none
+    real(fp)     :: x1, y1, x2, y2  ! unit is degree
+    !real(fp) :: PI, Re
+    
+    ! Original equation, better for higher precision (double)
+    Distance_Circle = Re * 2.0 * asin( (sin( (y1-y2)*PI/180.0 ))**2.0   & 
+                      + cos(y1*PI/180.0) * cos(y2*PI/180.0) * (sin( 0.5*(x1-x2)*PI/180.0 ))**2.0 )
+
+    ! This equation is better for lower precision (float4)
+    !Distance_Circle = Re * ACOS( sin(y1*PI/180.0) * sin(y2*PI/180.0)   & 
+    !                  + cos(y1*PI/180.0) * cos(y2*PI/180.0) * cos( (x1-x2)*PI/180.0 ) )
+
+    return
+  end function
+
+
+  ! the linear interpolation function for vertical direction
+  ! real function Line_Interplt(wind1, wind2, L1, L2, Lx)
+  !  implicit none
+  !  real(fp) :: wind1, wind2,  L1, L2
+  !  real     :: Lx
+  !
+  !    Line_Interplt = wind1 + (wind2-wind1) / (L2-L1) * (Lx-L1)
+  !       
+  !    return
+  !  end function
+
+  !-------------------------------------------------------------------
+  !=================================================================
+  ! LAGRANGE_WRITE_STD begins here!
+  !=================================================================
+
+  SUBROUTINE lagrange_write_std( am_I_Root, RC )
+    
+    
+    USE m_netCDF_io_define
+    USE m_netcdf_io_read
+    USE m_netcdf_io_open
+    USE Ncdf_Mod,            ONLY : NC_Open
+    USE Ncdf_Mod,            ONLY : NC_Read_Time
+    USE Ncdf_Mod,            ONLY : NC_Read_Arr
+    USE Ncdf_Mod,            ONLY : NC_Create
+    USE Ncdf_Mod,            ONLY : NC_Close
+    USE Ncdf_Mod,            ONLY : NC_Var_Def
+    USE Ncdf_Mod,            ONLY : NC_Var_Write
+    USE Ncdf_Mod,            ONLY : NC_Get_RefDateTime
+    USE CHARPAK_Mod,         ONLY : TRANLC
+    USE JulDay_Mod,          ONLY : JulDay
+
+    USE Input_Opt_Mod, ONLY : OptInput
+
+    USE TIME_MOD,        ONLY : GET_YEAR
+    USE TIME_MOD,        ONLY : GET_MONTH
+    USE TIME_MOD,        ONLY : GET_DAY
+    USE TIME_MOD,        ONLY : GET_HOUR
+    USE TIME_MOD,        ONLY : GET_MINUTE
+    USE TIME_MOD,        ONLY : GET_SECOND
+
+    ! Parameters for netCDF routines
+    include "netcdf.inc"
+
+
+    LOGICAL,          INTENT(IN   ) :: am_I_Root   ! root CPU?
+    INTEGER,          INTENT(INOUT) :: RC          ! Failure or success
+
+    REAL(f8), POINTER         :: Arr1D(:,:)
+    REAL(f8), POINTER         :: Arr2D(:,:)
+    REAL(f8), POINTER         :: Arr2DOld(:,:)
+    REAL(f4), POINTER         :: Arr3D(:,:)
+    REAL(f4), POINTER         :: Arr4D(:,:)
+    REAL*8,   POINTER         :: timeVec(:)
+    CHARACTER(LEN=255)        :: NcFile
+    CHARACTER(LEN=255)        :: Pfx, title, Reference, Contact
+    CHARACTER(LEN=255)        :: timeunit
+    INTEGER                   :: fId, lonId, latId, levId, TimeId
+    INTEGER                   :: VarCt
+    INTEGER                   :: nLon, nLat, nLev, nTime
+    INTEGER                   :: i_box
+!    INTEGER                   :: L
+    LOGICAL                   :: IsOldFile
+
+    INTEGER :: YEAR
+    INTEGER :: MONTH
+    INTEGER :: DAY
+    INTEGER :: HOUR
+    INTEGER :: MINUTE
+    INTEGER :: SECOND
+
+    CHARACTER(LEN=255)            :: FILENAME
+
+    CHARACTER(LEN=25) :: YEAR_C
+    CHARACTER(LEN=25) :: MONTH_C
+    CHARACTER(LEN=25) :: DAY_C
+    CHARACTER(LEN=25) :: HOUR_C
+    CHARACTER(LEN=25) :: MINUTE_C
+    CHARACTER(LEN=25) :: SECOND_C
+
+    YEAR        = GET_YEAR()
+    MONTH       = GET_MONTH()
+    DAY         = GET_DAY()
+    HOUR        = GET_HOUR()
+    MINUTE      = GET_MINUTE()
+    SECOND      = GET_SECOND()
+
+    WRITE(YEAR_C,*) YEAR
+    WRITE(MONTH_C,*) MONTH
+    WRITE(DAY_C,*) DAY
+    WRITE(HOUR_C,*) HOUR
+    WRITE(MINUTE_C,*) MINUTE
+    WRITE(SECOND_C,*) SECOND
+
+    FILENAME   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) // '-' //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
+!    FILENAME   = 'Lagrange_1day_box_i_lon_lat_lev.txt'
+    tt = tt +1
+
+    IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
+
+!       OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD', &
+!             FORM='UNFORMATTED', ACCESS='Direct', Recl=18 )
+    OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE', &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+       Do i_box = 1, n_boxes_max
+          WRITE(261,'(2(x,I8),3(x,E12.5))') N_prev, i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
+!          WRITE(261,'(1(x,I8),3(x,E12.5))') i_box, box_lon(i_box), box_lat(i_box), box_lev(i_box)
+       End Do
+    
+    ENDIF
+
+    CALL plume_write_std( am_I_Root, RC )
+
+  END SUBROUTINE lagrange_write_std
+
+
+!---------------------------------------------------------------------
+
+  subroutine lagrange_cleanup()
+
+    if (allocated(box_lon)) deallocate(box_lon)
+    if (allocated(box_lat)) deallocate(box_lat)
+    if (allocated(box_lev)) deallocate(box_lev)
+    if (allocated(box_length)) deallocate(box_length)
+    if (allocated(box_depth)) deallocate(box_depth)
+    if (allocated(box_width)) deallocate(box_width)
+
+    WRITE(6,'(a)') '--> Lagrange Module Cleanup <--'
+
+
+  end subroutine lagrange_cleanup
+
+
+END MODULE Lagrange_Mod

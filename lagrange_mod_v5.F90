@@ -2,8 +2,8 @@
 !                  GEOS-Chem Global Chemical Transport Model
 !--------------------------------------------------------------------------
 
-! this version could combining rings to meet CFL condition,
-! and add new rings to plume to ensure total number of rings is conserved.
+! this version only use for validation, comparing with gaussian analytical
+! results
 
 MODULE Lagrange_Mod
 
@@ -45,14 +45,14 @@ MODULE Lagrange_Mod
   PUBLIC :: Extra_amount        ! [molec]
 
   real(fp), allocatable :: box_lon(:), box_lat(:), box_lev(:)
-  integer, parameter    :: n_boxes_max = 9999 !6904224     
+  integer, parameter    :: n_boxes_max = 5 !6904224     SHW
   integer               :: N_curr, N_prev
   real(fp), allocatable :: box_u(:), box_v(:), box_omeg(:)
   real(fp), allocatable :: box_Ptemp(:)
 
   integer, allocatable  :: Plume_I(:), Plume_J(:), Plume_L(:) !(n_boxes_max)
   integer, allocatable  :: Max_rings(:)
-  integer, parameter    :: n_rings_max = 128 ! 2^7, number of rings in one box
+  integer, parameter    :: n_rings_max = 100 ! 2^7, number of rings in one box
   ! medical concentration of each ring [molec/cm3]
   real(fp), allocatable :: box_concnt(:,:,:) !(n_boxes_max,N_rings,N_species)
 
@@ -62,8 +62,9 @@ MODULE Lagrange_Mod
 
   REAL(fp), allocatable :: V_ring(:,:) !(n_rings_max)
 
-  integer, parameter    :: N_parcels   = 10 ! 131        
-  integer               :: tt     
+  integer, parameter    :: N_parcels   = 1 ! 131    SHW    
+  integer               :: tt 
+  real(fp)              :: T_total  
   ! Aircraft would release 131 aerosol parcels every time step
 
 !  integer               :: i_rec
@@ -79,9 +80,9 @@ MODULE Lagrange_Mod
   real(fp), allocatable :: box_length(:)
 
   ! D_radius should only be used at the beginning!
-  real(fp), parameter   :: Init_radius = 100.0e+0_fp ! [m]
-  real(fp), parameter   :: D_radiusA   = 10.0e+0_fp ! [m], the width of ring
-  real(fp), parameter   :: D_radiusB   = 100.0e+0_fp ! [m], the width of ring
+!  real(fp), parameter   :: Init_radius = 100.0e+0_fp ! [m]
+  real(fp), parameter   :: D_radiusA   = 10.0e+0_fp ! [m], the width of ring  SHW
+  real(fp), parameter   :: D_radiusB   = 10.0e+0_fp ! [m], the width of ring
 
 
   ! Used for plume_run subroutine:
@@ -255,9 +256,11 @@ CONTAINS
       box_radiusB(:,i_ring) = i_ring * D_radiusB
     enddo
 
+    box_length = 10.0 ! SHW
 
+    tt      = 0
+    T_total = 0.0
 
-    tt   = 0
     N_prev = 0
     N_curr = N_prev + N_parcels
 
@@ -275,9 +278,52 @@ CONTAINS
 
       ! Change from [g/m3] to [molec/cm3],
       ! 98.0 g/mol is the molar mass of H2SO4
-       box_concnt(i_box,1,N_species) = box_concnt(i_box,1,N_species)/1.0e+6_fp &
+      box_concnt(i_box,1,N_species) = box_concnt(i_box,1,N_species)/1.0e+6_fp &
                                     / 98.0 * AVO
     ENDDO
+
+! SHW  set initial concentration distribution from Gaussian results
+
+    DO i_box = 1, n_boxes_max
+
+      box_concnt(i_box,1:100,N_species) = (/0.174488166444430, &
+0.156138871653325, 0.125026234582045, 0.0895852117211785, 0.0574402808489649, &
+0.0329565576252125, 0.0169204608691682, 0.00777369667788525, &
+0.00319586224695352, 0.00117569201747017, 0.000387029567972910, &
+0.000114009168536555, 3.00524905451894e-05, 7.08869380625461e-06, &
+1.49622540139793e-06, 2.82600474669907e-07, 4.77632431592890e-08, &
+7.22370141744958e-09, 9.77621677347260e-10, 1.18393242945732e-10, &
+1.28300417008587e-11, 1.24415439151464e-12, 1.07960663085728e-13, &
+8.38304634870508e-15, 5.82482992068736e-16, 3.62167677488359e-17, &
+2.01502846163877e-18, 1.00322359782801e-19, 4.46950421253661e-21, &
+1.78182898926673e-22, 6.35649555090426e-24, 2.02915177322292e-25, &
+5.79637365699711e-27, 1.48164197710657e-28, 3.38902857743657e-30, &
+6.93668935210694e-32, 1.27049897256518e-33, 2.08229112512681e-35, &
+3.05389172827021e-37, 4.00784466338062e-39, 4.70666386401979e-41, &
+4.94607324717646e-43, 4.65107091641007e-45, 3.91372617409943e-47, &
+2.94695137266594e-49, 1.98564021579053e-51, 1.19721791846575e-53, &
+6.45938117990698e-56, 3.11855693276874e-58, 1.34729127631571e-60, &
+5.20852047884498e-63, 1.80182377010285e-65, 5.57770197300960e-68, &
+1.54505291023795e-70, 3.82980326431702e-73, 8.49482880709799e-76, &
+1.68607874969167e-78, 2.99465044571481e-81, 4.75947965778976e-84, &
+6.76889646607812e-87, 8.61432644050042e-90, 9.81001873757598e-93, &
+9.99685530179176e-96, 9.11595206196196e-99, 7.43850598766180e-102, &
+5.43143340173766e-105, 3.54885502387926e-108, 2.07494751111970e-111, &
+1.08560298692923e-114, 5.08253059538260e-118, 2.12928616012098e-121, &
+7.98239323427931e-125, 2.67779461132257e-128, 8.03834173772811e-132, &
+2.15923904825434e-135, 5.19015159493475e-139, 1.11636038820965e-142, &
+2.14869043540834e-146, 3.70073801051786e-150, 5.70358461076645e-154, &
+7.86597376959563e-158, 9.70738281856757e-162, 1.07200516335044e-165, &
+1.05934313168528e-169, 9.36745230924608e-174, 7.41227261611073e-178, &
+5.24839284270442e-182, 3.32541876270411e-186, 1.88543432225935e-190, &
+9.56580518914635e-195, 4.34286883708857e-199, 1.76431835202137e-203, &
+6.41390093298191e-208, 2.08647219404741e-212, 6.07362553888705e-217, &
+1.58208014925224e-221, 3.68768662151548e-226, 7.69173993076720e-231, &
+1.43562242367034e-235, 2.39773361679092e-240 /)
+
+    ENDDO
+
+! SHW
 
 
     box_concnt_K(:) = 0.0e+0_fp ! [n_ring_max]
@@ -322,7 +368,8 @@ CONTAINS
 
 !===================================================================
 ! Calculate the volume of each ring
-! V_ring would never change for the whole simulation
+! V_ring would almost never change for the whole simulation
+! V_ring only change according to P, T (PV=nRT)
 !===================================================================
     DO i_box = 1, n_boxes_max
 
@@ -348,7 +395,7 @@ CONTAINS
     OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-    DO i_box = 1, 1001, 100
+    DO i_box = 1, n_boxes_max
       WRITE(262,*) i_box
       WRITE(262,*) SUM( box_concnt(i_box,:,N_species)*V_ring(i_box,:) )       ! [molec]
       WRITE(262,*) box_concnt(i_box,:,N_species)
@@ -703,70 +750,71 @@ CONTAINS
     !------------------------------------------------------------------
     ! Adjust the length/radius of the box based on new location
     !------------------------------------------------------------------
-    i_box = 1
-    IF(ABS(box_lon(i_box)-box_lon(i_box+1))>200.0)THEN
-      lon1 = box_lon(i_box) - 0.5 * ( 360.0 - ABS(box_lon(i_box+1)-box_lon(i_box)) )
-      lon2 = box_lon(i_box) + 0.5 * ( 360.0 - ABS(box_lon(i_box+1)-box_lon(i_box)) )
-    ELSE
-      lon1 = box_lon(i_box) - 0.5 * ( box_lon(i_box+1) - box_lon(i_box) )
-      lon2 = box_lon(i_box) + 0.5 * ( box_lon(i_box+1) - box_lon(i_box) )
-    ENDIF
+! SHW
+!    i_box = 1
+!    IF(ABS(box_lon(i_box)-box_lon(i_box+1))>200.0)THEN
+!      lon1 = box_lon(i_box) - 0.5 * ( 360.0 - ABS(box_lon(i_box+1)-box_lon(i_box)) )
+!      lon2 = box_lon(i_box) + 0.5 * ( 360.0 - ABS(box_lon(i_box+1)-box_lon(i_box)) )
+!    ELSE
+!      lon1 = box_lon(i_box) - 0.5 * ( box_lon(i_box+1) - box_lon(i_box) )
+!      lon2 = box_lon(i_box) + 0.5 * ( box_lon(i_box+1) - box_lon(i_box) )
+!    ENDIF
+!
+!    lat1 = box_lat(i_box) - 0.5 * ( box_lat(i_box+1) - box_lat(i_box) )
+!    lat2 = box_lat(i_box) + 0.5 * ( box_lat(i_box+1) - box_lat(i_box) )
+!
+!    length0           = box_length(i_box)
+!    box_length(i_box) = Distance_Circle(lon1,lat1,box_lon(i_box),box_lat(i_box)) &
+!                       +Distance_Circle(box_lon(i_box),box_lat(i_box),lon2,lat2)
+!
+!    box_radiusA(i_box,:) = box_radiusA(i_box,:)*SQRT(length0/box_length(i_box))
+!    box_radiusB(i_box,:) = box_radiusB(i_box,:)*SQRT(length0/box_length(i_box))
+!
+!
+!    DO i_box = 2, n_boxes_max-1
+!      IF(ABS(box_lon(i_box)-box_lon(i_box-1))>200.0)THEN
+!        lon1 = 0.5 * ( box_lon(i_box) + box_lon(i_box-1) + 360.0 )
+!      ELSE
+!        lon1 = 0.5 * ( box_lon(i_box) + box_lon(i_box-1) )
+!      ENDIF
+!      IF(ABS(box_lon(i_box)-box_lon(i_box+1))>200.0)THEN
+!        lon2 = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) + 360.0 )
+!      ELSE
+!        lon2 = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) )
+!      ENDIF
+!
+!      lat1 = 0.5 * ( box_lat(i_box) + box_lat(i_box-1) )
+!      lat2 = 0.5 * ( box_lat(i_box) + box_lat(i_box+1) )
+!
+!      length0           = box_length(i_box)
+!      box_length(i_box) = Distance_Circle(lon1,lat1,box_lon(i_box),box_lat(i_box)) &
+!                         +Distance_Circle(box_lon(i_box),box_lat(i_box),lon2,lat2)  ! [m]
+!
+!      box_radiusA(i_box,:) = box_radiusA(i_box,:)*SQRT(length0/box_length(i_box))
+!      box_radiusB(i_box,:) = box_radiusB(i_box,:)*SQRT(length0/box_length(i_box))
+!    ENDDO
+!
+!
+!    i_box = n_boxes_max
+!    IF(ABS(box_lon(i_box)-box_lon(i_box-1))>200.0)THEN
+!      lon1 = box_lon(i_box) - 0.5 * ( 360.0 - ABS(box_lon(i_box-1)-box_lon(i_box)) )
+!      lon2 = box_lon(i_box) + 0.5 * ( 360.0 - ABS(box_lon(i_box-1)-box_lon(i_box)) )
+!    ELSE
+!      lon1 = box_lon(i_box) - 0.5 * ( box_lon(i_box) - box_lon(i_box-1) )
+!      lon2 = box_lon(i_box) + 0.5 * ( box_lon(i_box) - box_lon(i_box-1) )
+!    ENDIF
 
-    lat1 = box_lat(i_box) - 0.5 * ( box_lat(i_box+1) - box_lat(i_box) )
-    lat2 = box_lat(i_box) + 0.5 * ( box_lat(i_box+1) - box_lat(i_box) )
+!    lat1 = box_lat(i_box) - 0.5 * ( box_lat(i_box) - box_lat(i_box-1) )
+!    lat2 = box_lat(i_box) + 0.5 * ( box_lat(i_box) - box_lat(i_box-1) )
 
-    length0           = box_length(i_box)
-    box_length(i_box) = Distance_Circle(lon1,lat1,box_lon(i_box),box_lat(i_box)) &
-                       +Distance_Circle(box_lon(i_box),box_lat(i_box),lon2,lat2)
-
-    box_radiusA(i_box,:) = box_radiusA(i_box,:)*SQRT(length0/box_length(i_box))
-    box_radiusB(i_box,:) = box_radiusB(i_box,:)*SQRT(length0/box_length(i_box))
+!    length0           = box_length(i_box)
+!    box_length(i_box) = Distance_Circle(lon1,lat1,box_lon(i_box),box_lat(i_box)) &
+!                       +Distance_Circle(box_lon(i_box),box_lat(i_box),lon2,lat2)
 
 
-    DO i_box = 2, n_boxes_max-1
-      IF(ABS(box_lon(i_box)-box_lon(i_box-1))>200.0)THEN
-        lon1 = 0.5 * ( box_lon(i_box) + box_lon(i_box-1) + 360.0 )
-      ELSE
-        lon1 = 0.5 * ( box_lon(i_box) + box_lon(i_box-1) )
-      ENDIF
-      IF(ABS(box_lon(i_box)-box_lon(i_box+1))>200.0)THEN
-        lon2 = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) + 360.0 )
-      ELSE
-        lon2 = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) )
-      ENDIF
-
-      lat1 = 0.5 * ( box_lat(i_box) + box_lat(i_box-1) )
-      lat2 = 0.5 * ( box_lat(i_box) + box_lat(i_box+1) )
-
-      length0           = box_length(i_box)
-      box_length(i_box) = Distance_Circle(lon1,lat1,box_lon(i_box),box_lat(i_box)) &
-                         +Distance_Circle(box_lon(i_box),box_lat(i_box),lon2,lat2)  ! [m]
-
-      box_radiusA(i_box,:) = box_radiusA(i_box,:)*SQRT(length0/box_length(i_box))
-      box_radiusB(i_box,:) = box_radiusB(i_box,:)*SQRT(length0/box_length(i_box))
-    ENDDO
-
-
-    i_box = n_boxes_max
-    IF(ABS(box_lon(i_box)-box_lon(i_box-1))>200.0)THEN
-      lon1 = box_lon(i_box) - 0.5 * ( 360.0 - ABS(box_lon(i_box-1)-box_lon(i_box)) )
-      lon2 = box_lon(i_box) + 0.5 * ( 360.0 - ABS(box_lon(i_box-1)-box_lon(i_box)) )
-    ELSE
-      lon1 = box_lon(i_box) - 0.5 * ( box_lon(i_box) - box_lon(i_box-1) )
-      lon2 = box_lon(i_box) + 0.5 * ( box_lon(i_box) - box_lon(i_box-1) )
-    ENDIF
-
-    lat1 = box_lat(i_box) - 0.5 * ( box_lat(i_box) - box_lat(i_box-1) )
-    lat2 = box_lat(i_box) + 0.5 * ( box_lat(i_box) - box_lat(i_box-1) )
-
-    length0           = box_length(i_box)
-    box_length(i_box) = Distance_Circle(lon1,lat1,box_lon(i_box),box_lat(i_box)) &
-                       +Distance_Circle(box_lon(i_box),box_lat(i_box),lon2,lat2)
-
-
-    box_radiusA(i_box,:) = box_radiusA(i_box,:)*SQRT(length0/box_length(i_box))
-    box_radiusB(i_box,:) = box_radiusB(i_box,:)*SQRT(length0/box_length(i_box))
-
+!    box_radiusA(i_box,:) = box_radiusA(i_box,:)*SQRT(length0/box_length(i_box))
+!    box_radiusB(i_box,:) = box_radiusB(i_box,:)*SQRT(length0/box_length(i_box))
+! SHW
 
     !------------------------------------------------------------------
     ! Everything is done, clean up pointers
@@ -1574,14 +1622,16 @@ CONTAINS
        i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
-       do i_species = 1,N_species
-        DO i_ring = 2,n_rings_max ! innest ring contains injectred aerosols
-          box_concnt(i_box,i_ring,i_species) = &
-                             State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
-        ENDDO
-          Extra_amount(i_box,i_species) = SUM(V_ring(i_box,2:n_rings_max)  &
-                      * box_concnt(i_box,2:n_rings_max,i_species) ) ![molec]
-       enddo 
+! SHW
+!       do i_species = 1,N_species
+!        DO i_ring = 2,n_rings_max ! innest ring contains injectred aerosols
+!          box_concnt(i_box,i_ring,i_species) = &
+!                             State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+!        ENDDO
+!          Extra_amount(i_box,i_species) = SUM(V_ring(i_box,2:n_rings_max)  &
+!                      * box_concnt(i_box,2:n_rings_max,i_species) ) ![molec]
+!       enddo 
+! SHW
 
     ENDDO
     ENDIF
@@ -1592,6 +1642,8 @@ CONTAINS
     ! Run Plume distortion & dilution HERE
     !=====================================================================
     do i_box = 1,N_box
+
+    IF(tt>1356.and.tt<1436) WRITE(6,*)'shw00', tt, i_box
 
        IF(Max_rings(i_box)==0) GOTO 200
 
@@ -1646,7 +1698,8 @@ CONTAINS
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
 !       backgrd_concnt(i_box,:) = State_Chm%Species(i_lon,i_lat,i_lev,:)
-       backgrd_concnt(i_box,1) = State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+! SHW       backgrd_concnt(i_box,1) = State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+       backgrd_concnt(i_box,1) = 0.0 ! SHW
        ! [molec/cm3]
 
        Plume_I(i_box) = i_lon
@@ -1665,9 +1718,9 @@ CONTAINS
        !====================================================================
 
        ! calculate the wind_s shear along pressure direction
-       wind_s_shear = Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
+! SHW       wind_s_shear = Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, i_lon, i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
        ! *** attention *** ???
-!       wind_s_shear = 0.0
+       wind_s_shear = 0.002 ! SHW
 
 
        theta_previous   = box_theta(i_box)
@@ -1697,8 +1750,8 @@ CONTAINS
        N_BV = sqrt(Ptemp_shear*g0/curr_Ptemp)
        IF(N_BV<=0.001) N_BV = 0.001
 
-       eddy_v = Cv * Omega_N**2 / N_BV
-!       eddy_v = 1.0
+! SHW       eddy_v = Cv * Omega_N**2 / N_BV
+       eddy_v = 1.0 ! SHW
 
        ! Calculate horizontal eddy diffusivity:
 !       Ch = 0.1
@@ -1706,7 +1759,8 @@ CONTAINS
 !       V_shear = Vertical_shear(v, P_BXHEIGHT, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
 !       UV_shear = sqrt( U_shear**2 + V_shear**2 )
 !       eddy_h(i_ring) = Ch*UV_shear*(Init_radius+(i_ring-1)*D_radius)**2
-       eddy_h = 10.0  ! ???
+! SHW       eddy_h = 10.0  ! ???
+        eddy_h = 1.0 ! SHW
 
 ! test for horizontal diffusivity
 !       L_b = 2.0*PI*sqrt(curr_u**2+curr_v**2)/N_BV
@@ -1758,13 +1812,13 @@ CONTAINS
 
        IF(MINVAL(box_radiusA(i_box,:)-2.0*kA(:)*Dt2)<0.0 &
                         .or. MINVAL(box_radiusB(i_box,:)-2.0*kB(:)*Dt2)<0.0 )THEN
-          Dt2 = Dt*0.1
+          Dt2 = Dt*1.0e-1_fp
        ENDIF
 
 
        if(MINVAL(box_radiusA(i_box,:)-2.0*kA(:)*Dt2)<0.0 &
                         .or. MINVAL(box_radiusB(i_box,:)-2.0*kB(:)*Dt2)<0.0 )then
-         Dt2 = Dt*0.01
+         Dt2 = Dt*1.0e-2_fp
 
  300     CONTINUE
 
@@ -1793,8 +1847,9 @@ CONTAINS
               + ( box_radiusB(i_box,i_ring-1) - box_radiusB(i_box,i_ring-2) )
 
            do i_species = 1,N_species
-             box_concnt(i_box,i_ring,i_species) = &
-                           State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+! SHW             box_concnt(i_box,i_ring,i_species) = &
+! SHW                          State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+             box_concnt(i_box,i_ring,i_species) = 0.0 ! SHW
            enddo
 
            V_ring(i_box,i_ring) = 1.0e+6_fp* box_length(i_box)* PI & ! [cm3]
@@ -1803,12 +1858,14 @@ CONTAINS
 
          ENDDO
 
-         do i_species = 1,N_species
-           Extra_amount(i_box,i_species) = Extra_amount(i_box,i_species) &
-            + SUM(V_ring(i_box,Max_rings(i_box)/2+1:Max_rings(i_box)) &
-            * box_concnt(i_box,Max_rings(i_box)/2+1:Max_rings(i_box),i_species))
-           ![molec]
-         enddo
+! SHW
+!         do i_species = 1,N_species
+!           Extra_amount(i_box,i_species) = Extra_amount(i_box,i_species) &
+!            + SUM(V_ring(i_box,Max_rings(i_box)/2+1:Max_rings(i_box)) &
+!            * box_concnt(i_box,Max_rings(i_box)/2+1:Max_rings(i_box),i_species))
+!           ![molec]
+!         enddo
+! SHW
 
          !=================================================================
          ! Calculate the transport rate
@@ -1901,8 +1958,8 @@ CONTAINS
 
          D_concnt = box_concnt_K(Max_rings(i_box)-1)-box_concnt_K(Max_rings(i_box))
          Inner(Max_rings(i_box)) = Amount_Dilute(i_box, i_ring, D_concnt , &
-              box_radiusA(i_box,Max_rings(i_box)), box_radiusB(i_box,Max_rings(i_box)), &
-                       kA(Max_rings(i_box)), kB(Max_rings(i_box)), Dt2, box_length(i_box))
+              box_radiusA(i_box,Max_rings(i_box)-1), box_radiusB(i_box,Max_rings(i_box)-1), &
+                       kA(Max_rings(i_box)-1), kB(Max_rings(i_box)-1), Dt2, box_length(i_box))
 
          RK(Ki,Max_rings(i_box)) = ( Outer(Max_rings(i_box)) + Inner(Max_rings(i_box)) ) &
                               / V_ring(i_box,Max_rings(i_box))
@@ -1911,6 +1968,9 @@ CONTAINS
 
 
        enddo ! Ki
+
+
+!       IF(tt==1356.or.tt==1357) WRITE(6,*) box_concnt(i_box,i_ring,i_species)
 
 
        do i_ring = 1,Max_rings(i_box)
@@ -1934,12 +1994,15 @@ CONTAINS
        exchange_amount = ( Outer2env(1) + 2.0*Outer2env(2) &
                           + 2.0*Outer2env(3) + Outer2env(4) ) / 6.0
 
-       backgrd_concnt(i_box,i_species) = ( exchange_amount + &
-                backgrd_concnt(i_box,i_species)*grid_volumn ) / grid_volumn
+! SHW       backgrd_concnt(i_box,i_species) = ( exchange_amount + &
+! SHW               backgrd_concnt(i_box,i_species)*grid_volumn ) / grid_volumn
+        backgrd_concnt(i_box,i_species) = 0.0 ! SHW
+
+
 
 !       State_Chm%Species(i_lon,i_lat,i_lev,i_species) = backgrd_concnt(i_box,i_species)
-       State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(i_box,i_species)
-
+! SHW       State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(i_box,i_species)
+        State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = 0.0 ! SHW
 
        !===================================================================
        ! According to a 2-order process rate, if there is no big difference
@@ -1947,27 +2010,37 @@ CONTAINS
        ! background grid cell.                                          shw
        ! test this once everyday
        !===================================================================
-       IF(mod(tt,144)==0)THEN
-         Rate_Mix = SUM( box_concnt(i_box,1:Max_rings(i_box),1)**2 * V_ring(i_box,1:Max_rings(i_box)) ) &
-                     +backgrd_concnt(i_box,i_species)**2*grid_volumn
+! SHW
+!       IF(mod(tt,144)==0)THEN
+!         Rate_Mix = SUM( box_concnt(i_box,1:Max_rings(i_box),1)**2 * V_ring(i_box,1:Max_rings(i_box)) ) &
+!                     +backgrd_concnt(i_box,i_species)**2*grid_volumn
+!
+!         Eul_concnt = ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring(i_box,1:Max_rings(i_box) )) &
+!              +backgrd_concnt(i_box,i_species)*grid_volumn ) / grid_volumn
+!         Rate_Eul = Eul_concnt**2*grid_volumn
+!
+!         IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.01)THEN
+!           backgrd_concnt(i_box,i_species) = &
+!             ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring(i_box,1:Max_rings(i_box) )) &
+!              +backgrd_concnt(i_box,i_species)*grid_volumn - Extra_amount(i_box,1) ) / grid_volumn
+!
+!           State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(i_box,i_species)
+!
+!           Max_rings(i_box) = 0
+!           GOTO 200 ! skip this box, go to next box
+!         ENDIF
+!
+!       ENDIF
+! SHW
 
-         Eul_concnt = ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring(i_box,1:Max_rings(i_box) )) &
-              +backgrd_concnt(i_box,i_species)*grid_volumn ) / grid_volumn
-         Rate_Eul = Eul_concnt**2*grid_volumn
-
-         IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.01)THEN
-           backgrd_concnt(i_box,i_species) = &
-             ( SUM(box_concnt( i_box, 1:Max_rings(i_box), 1 )*V_ring(i_box,1:Max_rings(i_box) )) &
-              +backgrd_concnt(i_box,i_species)*grid_volumn - Extra_amount(i_box,1) ) / grid_volumn
-
-           State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(i_box,i_species)
-
-           Max_rings(i_box) = 0
-           GOTO 200 ! skip this box, go to next box
-         ENDIF
-
-       ENDIF
-
+        IF(i_box==1)THEN
+            T_total = T_total + Dt2
+            WRITE(6,*) 'SHW concentration:',t1s, Dt, Dt2
+            WRITE(6,*) tt, T_total, i_box, backgrd_concnt(i_box,N_species)
+            WRITE(6,*) 'radius1', box_radiusA(i_box,1:n_rings_max)
+            WRITE(6,*) 'radius2', box_radiusB(i_box,1:n_rings_max)
+            WRITE(6,*) 'concnt1', box_concnt(i_box,1:n_rings_max,N_species)
+        ENDIF
 
        enddo ! t1s
        ENDDO ! do i_Species = 1,nSpecies
@@ -2355,19 +2428,19 @@ CONTAINS
 !
 !===================================================================
 
-  REAL(fp) FUNCTION Amount_Dilute(i_box, i_ring, D_concnt, Ra, Rb, k_A, k_B, Dt, length)
+  REAL(fp) FUNCTION Amount_Dilute(i_box, i_ring, D_concnt, Ra, Rb, k_A, k_B, D_t, length)
 
     IMPLICIT NONE
      
     REAL(fp)    :: D_concnt, Ra, Rb, k_A, k_B, length
-    REAL(fp)    :: Dt
+    REAL(fp)    :: D_t
 
     INTEGER     :: i_ring, i_box
 
 
     Amount_Dilute = D_concnt * 1.0e+6_fp * length * PI &
-                    * (  (Ra+0.5*k_A*Dt) * (Rb+0.5*k_B*Dt) &
-                       - (Ra-0.5*k_A*Dt) * (Rb-0.5*k_B*Dt)  ) ! shw
+                    * (  (Ra+0.5*k_A*D_t) * (Rb+0.5*k_B*D_t) &
+                       - (Ra-0.5*k_A*D_t) * (Rb-0.5*k_B*D_t)  ) ! shw
 
     return
 
@@ -2439,6 +2512,7 @@ CONTAINS
     CHARACTER(LEN=25) :: MINUTE_C
     CHARACTER(LEN=25) :: SECOND_C
 
+
     YEAR        = GET_YEAR()
     MONTH       = GET_MONTH()
     DAY         = GET_DAY()
@@ -2452,6 +2526,7 @@ CONTAINS
     WRITE(HOUR_C,*) HOUR
     WRITE(MINUTE_C,*) MINUTE
     WRITE(SECOND_C,*) SECOND
+
 
 !-------------------------------------------------------------------
 ! Output box location
@@ -2480,7 +2555,7 @@ CONTAINS
 ! Output plume location
 !-------------------------------------------------------------------
 !    IF(mod(tt,6)==0)THEN     ! output once every hour
-    IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
+!    IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
 
        FILENAME2   = 'Plume_concentration_molec_' // TRIM(ADJUSTL(YEAR_C)) // &
           '-' //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) //      &
@@ -2490,12 +2565,13 @@ CONTAINS
        OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE', &
              FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-       DO i_box = 1,1001,50
+       DO i_box = 1,n_boxes_max,1
           IF(Max_rings(i_box)==0)THEN
             WRITE(262,*)'This plume is dissolved already:', i_box
           ELSE
-            WRITE(262,*) i_box, box_radiusA(i_box,Max_rings(i_box)), box_radiusB(i_box,Max_rings(i_box)), box_length(i_box)
+            WRITE(262,*) tt, T_total, i_box, backgrd_concnt(i_box,N_species)
 !          WRITE(262,*) box_concnt(i_box,:,N_species)*V_ring(i_box,:)
+            WRITE(262,*) box_radiusA(i_box,1:n_rings_max)
             WRITE(262,*) box_concnt(i_box,1:n_rings_max,N_species)
           ENDIF
        ENDDO
@@ -2506,7 +2582,7 @@ CONTAINS
 
 !        WRITE(262,*) box_concnt(1,:,N_species)
 
-    ENDIF
+!    ENDIF
 !    ENDIF
 
     tt = tt + 1
