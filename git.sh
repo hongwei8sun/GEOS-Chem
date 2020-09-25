@@ -1,7 +1,7 @@
 #!/bin/sh 
     git add .
     git status
-    git commit -m " gif for 2D to 1D slab model "
+    git commit -m " let all the left plumes dissolved into background grid at the end running "
 #    git remote add origin https://github.com/hongwei8sun/GEOS-Chem.git
     git pull origin master
     git push origin master
