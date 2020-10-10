@@ -7,6 +7,33 @@
 ! Once the plume cross-section is highly distorted,
 ! simulate plume cross-section in 1D slab model.
 
+! 1. dissolve plume once hitting tropopause
+
+! 2. add variable 'N_split' to define the number of small parts after 
+!    plume split
+
+! 3. Oct 9th, 2020 
+!  Update the horizontal stretch code, originally the horizontal plume segment is
+!  calculated based on adjacent segments, but this requires all the plume
+!  segments are exit in the whole simulation without dissolving. The new code
+!  will calculate the horizontal stretch based on the center and one endpoint 
+!  (box_lat_edge, box_lon_edge) of the segment, which will not rely on the
+!   adjacent segment any more.
+
+! 4. Oct 9th, 2020
+! Assume that the box_length would not change because of PV=nRT, 
+! only the plume cross-section will be used to represent the volume change because
+! of PV=nRT
+
+! 5. 
+! RK_Dlev(Ki) = RK_Dt(1) * curr_omeg / 100.0 
+
+
+
+! 6.
+! modify the 1D slab model splitting, correct the box_lon and box_lat, as well
+! as the box_lon_edge and box_lat_edge for the new plume after splitting
+
 MODULE Lagrange_Mod
 
   USE precision_mod
@@ -56,6 +83,7 @@ MODULE Lagrange_Mod
 
 
   real(fp), allocatable :: box_lon(:), box_lat(:), box_lev(:)
+  real(fp), allocatable :: box_lon_edge(:), box_lat_edge(:), box_lev_edge(:)
 !  integer, parameter    :: n_box = 60 !6904224     
   integer               :: n_box
    
@@ -185,6 +213,10 @@ CONTAINS
     allocate(box_lat(n_box))
     allocate(box_lev(n_box))
 
+    allocate(box_lon_edge(n_box))
+    allocate(box_lat_edge(n_box))
+    allocate(box_lev_edge(n_box))
+
     allocate(box_u(n_box))
     allocate(box_v(n_box))
     allocate(box_omeg(n_box))
@@ -252,7 +284,9 @@ CONTAINS
         box_lon(i_box) = -141.0e+0_fp     ! 0   
         box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) &
                         * (-1.0)**FLOOR(i_box/6000.0) ! -29.95S : 29.95N : 0.1
-        box_lev(i_box) = 52.0e+0_fp       ! about 20 km
+        box_lev(i_box) = 52.0e+0_fp       ! [hPa] at about 20 km
+
+        box_lev_edge(i_box) = box_lev(i_box)       ! [hPa] at about 20 km
 
         
         Pdx(i_box) = Dx_init              ! [m]
@@ -272,27 +306,18 @@ CONTAINS
 
 !    box_theta    = 0.0e+0_fp     ! [radian]
 
-    i_box = 1
-    lon1 = box_lon(i_box) - 0.5* ( box_lon(i_box+1) - box_lon(i_box) )
-    lon2 = box_lon(i_box) + 0.5* ( box_lon(i_box+1) - box_lon(i_box) )
-    lat1 = box_lat(i_box) - 0.5* ( box_lat(i_box+1) - box_lat(i_box) )
-    lat2 = box_lat(i_box) + 0.5* ( box_lat(i_box+1) - box_lat(i_box) )
-    box_length(i_box) = Distance_Circle(lon1, lat1, lon2, lat2)
-
-    DO i_box = 2, n_box-1
-      lon1 = 0.5 * ( box_lon(i_box) + box_lon(i_box-1) )
-      lon2 = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) )
-      lat1 = 0.5 * ( box_lat(i_box) + box_lat(i_box-1) )
-      lat2 = 0.5 * ( box_lat(i_box) + box_lat(i_box+1) )
-      box_length(i_box)   = Distance_Circle(lon1, lat1, lon2, lat2)  ! [m]
+    DO i_box = 1, n_box-1
+      box_lon_edge(i_box) = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) )
+      box_lat_edge(i_box) = 0.5 * ( box_lat(i_box) + box_lat(i_box+1) )
+      box_length(i_box)   = 2.0 * Distance_Circle(box_lon(i_box), box_lat(i_box), &
+                                   box_lon_edge(i_box), box_lat_edge(i_box))  ! [m]
     ENDDO
 
     i_box = n_box
-    lon1 = box_lon(i_box) - 0.5* ( box_lon(i_box) - box_lon(i_box-1) )
-    lon2 = box_lon(i_box) + 0.5* ( box_lon(i_box) - box_lon(i_box-1) )
-    lat1 = box_lat(i_box) - 0.5* ( box_lat(i_box) - box_lat(i_box-1) )
-    lat2 = box_lat(i_box) + 0.5* ( box_lat(i_box) - box_lat(i_box-1) )
-    box_length(i_box) = Distance_Circle(lon1, lat1, lon2, lat2)
+    box_lon_edge(i_box) = box_lon(i_box) + 0.5* ( box_lon(i_box) - box_lon(i_box-1) )
+    box_lat_edge(i_box) = box_lat(i_box) + 0.5* ( box_lat(i_box) - box_lat(i_box-1) )
+    box_length(i_box) = 2.0 * Distance_Circle(box_lon(i_box), box_lat(i_box), &
+                                   box_lon_edge(i_box), box_lat_edge(i_box))  ! [m]
 
     !--------------------------------------------------------
     ! Set the initial concentration of injected aerosols
@@ -511,6 +536,7 @@ CONTAINS
 
 ! add new box every time step
 
+
     n_box_prev = n_box
     n_box = n_box + N_parcel
 
@@ -535,7 +561,22 @@ CONTAINS
     allocate(box_lev(n_box))
     box_lev(1:n_box_prev) = Data1D
 
-    WRITE(6,*) '--- Pdx(:) --->', Pdx(:)
+    Data1D = box_lon_edge(:)
+    deallocate(box_lon_edge)
+    allocate(box_lon_edge(n_box))
+    box_lon_edge(1:n_box_prev) = Data1D
+
+    Data1D = box_lat_edge(:)
+    deallocate(box_lat_edge)
+    allocate(box_lat_edge(n_box))
+    box_lat_edge(1:n_box_prev) = Data1D
+
+    Data1D = box_lev_edge(:)
+    deallocate(box_lev_edge)
+    allocate(box_lev_edge(n_box))
+    box_lev_edge(1:n_box_prev) = Data1D
+
+
     Data1D = Pdx(:)
     deallocate(Pdx)
     allocate(Pdx(n_box))
@@ -660,6 +701,8 @@ CONTAINS
         ! -29.995S : 29.995N : 0.01
         box_lev(i_box)   = 52.0e+0_fp       ! about 20 km
 
+        box_lev_edge(i_box) = box_lev(i_box)
+
         Pdx(i_box)       = Dx_init
         Pdy(i_box)       = Dy_init
 
@@ -673,30 +716,19 @@ CONTAINS
     ! Set the initial value of plume character:
     ! box_theta, box_length, Sigma2D
     !--------------------------------------------------------
-
-    i_box = n_box_prev+1
-    lon1 = box_lon(i_box) - 0.5* ( box_lon(i_box+1) - box_lon(i_box) )
-    lon2 = box_lon(i_box) + 0.5* ( box_lon(i_box+1) - box_lon(i_box) )
-    lat1 = box_lat(i_box) - 0.5* ( box_lat(i_box+1) - box_lat(i_box) )
-    lat2 = box_lat(i_box) + 0.5* ( box_lat(i_box+1) - box_lat(i_box) )
-    box_length(i_box) = Distance_Circle(lon1, lat1, lon2, lat2)
-
-
-    DO i_box = n_box_prev+2, n_box-1
-      lon1 = 0.5 * ( box_lon(i_box) + box_lon(i_box-1) )
-      lon2 = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) )
-      lat1 = 0.5 * ( box_lat(i_box) + box_lat(i_box-1) )
-      lat2 = 0.5 * ( box_lat(i_box) + box_lat(i_box+1) )
-      box_length(i_box)   = Distance_Circle(lon1, lat1, lon2, lat2)  ! [m]
+    DO i_box = n_box_prev+1, n_box-1
+      box_lon_edge(i_box) = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) )
+      box_lat_edge(i_box) = 0.5 * ( box_lat(i_box) + box_lat(i_box+1) )
+      box_length(i_box)   = 2.0 * Distance_Circle(box_lon(i_box), box_lat(i_box), &
+                                box_lon_edge(i_box), box_lat_edge(i_box))  ! [m]
     ENDDO
 
 
     i_box = n_box
-    lon1 = box_lon(i_box) - 0.5* ( box_lon(i_box) - box_lon(i_box-1) )
-    lon2 = box_lon(i_box) + 0.5* ( box_lon(i_box) - box_lon(i_box-1) )
-    lat1 = box_lat(i_box) - 0.5* ( box_lat(i_box) - box_lat(i_box-1) )
-    lat2 = box_lat(i_box) + 0.5* ( box_lat(i_box) - box_lat(i_box-1) )
-    box_length(i_box) = Distance_Circle(lon1, lat1, lon2, lat2)
+    box_lon_edge(i_box) = box_lon(i_box) + 0.5* ( box_lon(i_box) - box_lon(i_box-1) )
+    box_lat_edge(i_box) = box_lat(i_box) + 0.5* ( box_lat(i_box) - box_lat(i_box-1) )
+    box_length(i_box) = 2.0 * Distance_Circle(box_lon(i_box), box_lat(i_box), &
+                                box_lon_edge(i_box), box_lat_edge(i_box))  ! [m]
 
 
     !--------------------------------------------------------
@@ -726,13 +758,18 @@ CONTAINS
 
       IF(Judge_plume(i_box)==0) GOTO 500
 
+
+      !-----------------------------------------------------------------------
+      ! For the center of the plume
+      !-----------------------------------------------------------------------
+
       ! make sure the location is not out of range
       do while (box_lat(i_box) > Y_edge(JJPAR+1))
-         box_lat(i_box) = Y_edge(JJPAR+1) - ( curr_lat-Y_edge(JJPAR+1) )
+         box_lat(i_box) = Y_edge(JJPAR+1) - ( box_lat(i_box)-Y_edge(JJPAR+1) )
       end do
 
       do while (box_lat(i_box) < Y_edge(1))
-         box_lat(i_box) = Y_edge(1) + ( curr_lat-Y_edge(1) )
+         box_lat(i_box) = Y_edge(1) + ( box_lat(i_box)-Y_edge(1) )
       end do
 
       do while (box_lon(i_box) > X_edge(IIPAR+1))
@@ -742,6 +779,7 @@ CONTAINS
       do while (box_lon(i_box) < X_edge(1))
          box_lon(i_box) = box_lon(i_box) + 360.0
       end do
+
 
       curr_lon      = box_lon(i_box)
       curr_lat      = box_lat(i_box)
@@ -972,9 +1010,10 @@ CONTAINS
 
 
       ! PV=nRT, V2 = T2/P2 : T1/P1 * V1
-      ratio = ( (next_T2/box_lev(i_box))/(curr_T1/curr_pressure) )**(1/3)
+      ratio = ( (next_T2/box_lev(i_box))/(curr_T1/curr_pressure) )**(1/2)
 
-      box_length(i_box) = box_length(i_box) *ratio
+      ! assume the volume change mainly apply to the cross-section, 
+      ! the box_length would not change 
 
       IF(Judge_plume(i_box)==1) THEN
         box_Ra(i_box) = box_Ra(i_box) *ratio
@@ -982,6 +1021,7 @@ CONTAINS
       ELSE IF(Judge_plume(i_box)==2) THEN
         Pdx(i_box) = Pdx(i_box) *ratio
         Pdy(i_box) = Pdy(i_box) *ratio
+
       ENDIF
 
 
@@ -990,53 +1030,199 @@ CONTAINS
     end do  !do i_box = 1,n_box
 
 
+    !-----------------------------------------------------------------------
+    ! For the edge (endpoint) of the plume
+    !-----------------------------------------------------------------------
+    do i_box = 1,n_box
+
+      ! make sure the location is not out of range
+      do while (box_lat_edge(i_box) > Y_edge(JJPAR+1))
+         box_lat_edge(i_box) = Y_edge(JJPAR+1) - ( box_lat_edge(i_box)-Y_edge(JJPAR+1) )
+      end do
+
+      do while (box_lat_edge(i_box) < Y_edge(1))
+         box_lat_edge(i_box) = Y_edge(1) + ( box_lat_edge(i_box)-Y_edge(1) )
+      end do
+
+      do while (box_lon_edge(i_box) > X_edge(IIPAR+1))
+         box_lon_edge(i_box) = box_lon_edge(i_box) - 360.0
+      end do
+
+      do while (box_lon_edge(i_box) < X_edge(1))
+         box_lon_edge(i_box) = box_lon_edge(i_box) + 360.0
+      end do
+
+
+      curr_lon      = box_lon_edge(i_box)
+      curr_lat      = box_lat_edge(i_box)
+      curr_pressure = box_lev_edge(i_box)        ! hPa
+
+      ! check this grid box is the neast one or the one located in left-bottom
+      ! ???
+      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+      if(i_lon==IIPAR+1) i_lon=1
+
+      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+      i_lev = Find_iPLev(curr_pressure,P_edge)
+
+
+      DO Ki = 1,4,1
+
+       !------------------------------------------------------------------
+       ! For vertical wind speed:
+       ! pay attention for the polar region * * *
+       !------------------------------------------------------------------
+       if(abs(curr_lat)>Y_mid(JJPAR))then
+          curr_omeg = Interplt_wind_RLL_polar(omeg, i_lon, i_lat, i_lev, &
+                                         curr_lon, curr_lat, curr_pressure)
+       else
+          curr_omeg = Interplt_wind_RLL(omeg, i_lon, i_lat, i_lev, curr_lon, &
+                                                   curr_lat, curr_pressure)
+       endif
+
+
+       RK_Dlev(Ki) = RK_Dt(1) * curr_omeg / 100.0     ! Pa => hPa
+
+       if(curr_pressure<P_mid(LLPAR)) &
+             curr_pressure = P_mid(LLPAR) !+ ( P_mid(LLPAR) - curr_pressure )
+       if(curr_pressure>P_mid(1)) &
+             curr_pressure = P_mid(1) !- ( curr_pressure - P_mid(1) )
+
+       !------------------------------------------------------------------
+       ! For the region where lat<72, use Regualr Longitude-Latitude Mesh:
+       !------------------------------------------------------------------
+       if(abs(curr_lat)<=72.0)then
+
+         curr_u = Interplt_wind_RLL(u, i_lon, i_lat, i_lev, curr_lon, &
+                                                  curr_lat, curr_pressure)
+         curr_v = Interplt_wind_RLL(v, i_lon, i_lat, i_lev, curr_lon, &
+                                                  curr_lat, curr_pressure)
+
+
+         dbox_lon  = (RK_Dt(Ki)*curr_u) &
+                        / (2.0*PI*Re*COS(box_lat(i_box)*PI/180.0)) * 360.0
+         dbox_lat  = (RK_Dt(Ki)*curr_v) / (PI*Re) * 180.0
+
+         curr_lon  = box_lon_edge(i_box) + dbox_lon
+         curr_lat  = box_lat_edge(i_box) + dbox_lat
+
+         RK_Dlon(Ki) = (RK_Dt(1)*curr_u) &
+                      / (2.0*PI*Re*COS(box_lat(i_box)*PI/180.0)) * 360.0
+         RK_Dlat(Ki) = (RK_Dt(1)*curr_v) / (PI*Re) * 180.0
+
+       endif
+
+       !------------------------------------------------------------------
+       ! For the polar region (lat>=72), use polar sterographic
+       !------------------------------------------------------------------
+       if(abs(curr_lat)>72.0)then
+
+         if(abs(curr_lat)>Y_mid(JJPAR))then
+            curr_u_PS = Interplt_uv_PS_polar(1, u, v, i_lon, i_lat, i_lev, &
+                                          curr_lon, curr_lat, curr_pressure)
+            curr_v_PS = Interplt_uv_PS_polar(0, u, v, i_lon, i_lat, i_lev, &
+                                          curr_lon, curr_lat, curr_pressure)
+         else
+            curr_u_PS = Interplt_uv_PS(1, u, v, i_lon, i_lat, i_lev, curr_lon, &
+                                                      curr_lat, curr_pressure)
+            curr_v_PS = Interplt_uv_PS(0, u, v, i_lon, i_lat, i_lev, curr_lon, &
+                                                      curr_lat, curr_pressure)
+         endif
+
+
+         dbox_x_PS = RK_Dt(Ki)*curr_u_PS
+         dbox_y_PS = RK_Dt(Ki)*curr_v_PS
+
+         RK_Dx_PS = RK_Dt(1)*curr_u_PS
+         RK_Dy_PS = RK_Dt(1)*curr_v_PS
+
+
+         !------------------------------------------------------------------
+         ! change from (lon,lat) in RLL to (x,y) in PS: 
+         !------------------------------------------------------------------
+         if(box_lat_edge(i_box)<0)then
+           box_x_PS = -1.0* Re* COS(box_lon_edge(i_box)*PI/180.0) &
+                                / TAN(box_lat_edge(i_box)*PI/180.0)
+           box_y_PS = -1.0* Re* SIN(box_lon_edge(i_box)*PI/180.0) &
+                                / TAN(box_lat_edge(i_box)*PI/180.0)
+         else
+           box_x_PS = Re* COS(box_lon_edge(i_box)*PI/180.0) &
+                        / TAN(box_lat_edge(i_box)*PI/180.0)
+           box_y_PS = Re* SIN(box_lon_edge(i_box)*PI/180.0) &
+                        / TAN(box_lat_edge(i_box)*PI/180.0)
+         endif
+
+         RK_x_PS  = box_x_PS + RK_Dx_PS
+         RK_y_PS  = box_y_PS + RK_Dy_PS
+
+         box_x_PS  = box_x_PS + dbox_x_PS
+         box_y_PS  = box_y_PS + dbox_y_PS
+
+         !------------------------------------------------------------------
+         ! change from (x,y) in PS to (lon,lat) in RLL
+         !------------------------------------------------------------------
+         if(box_x_PS>0.0)then
+           curr_lon = ATAN( box_y_PS / box_x_PS )*180.0/PI
+         endif
+         if(box_x_PS<0.0 .and. box_y_PS<=0.0)then
+           curr_lon = ATAN( box_y_PS / box_x_PS )*180.0/PI -180.0
+         endif
+         if(box_x_PS<0.0 .and. box_y_PS>0.0)then
+           curr_lon = ATAN( box_y_PS / box_x_PS )*180.0/PI +180.0
+         endif
+
+         if(curr_lat<0.0)then
+           curr_lat= -1* ATAN( Re/SQRT(box_x_PS**2+box_y_PS**2) ) *180.0/PI
+         else
+           curr_lat= ATAN( Re / SQRT(box_x_PS**2+box_y_PS**2) ) *180.0/PI
+         endif
+
+
+         !------------------------------------------------------------------
+         ! For 4th order Runge Kutta
+         !------------------------------------------------------------------
+         if(RK_x_PS>0.0)then
+           RK_lon = ATAN( RK_y_PS / RK_x_PS )*180.0/PI
+         endif
+         if(RK_x_PS<0.0 .and. RK_y_PS<=0.0)then
+           RK_lon = ATAN( RK_y_PS / RK_x_PS )*180.0/PI -180.0
+         endif
+         if(RK_x_PS<0.0 .and. RK_y_PS>0.0)then
+           RK_lon = ATAN( RK_y_PS / RK_x_PS )*180.0/PI +180.0
+         endif
+
+         if(RK_lat<0.0)then
+           RK_lat = -1 * ATAN( Re / SQRT(RK_x_PS**2+RK_y_PS**2) ) *180.0/PI
+         else
+           RK_lat = ATAN( Re / SQRT(RK_x_PS**2+RK_y_PS**2) ) *180.0/PI
+         endif
+
+         RK_Dlon(Ki) = RK_lon - box_lon_edge(i_box)
+         RK_Dlat(Ki) = RK_lat - box_lat_edge(i_box)
+
+       endif ! if(abs(curr_lat)>72.0)then
+
+      ENDDO ! Ki = 1,4,1
+
+      box_lon_edge(i_box) = box_lon_edge(i_box) + &
+                (RK_Dlon(1)+2.0*RK_Dlon(2)+2.0*RK_Dlon(3)+RK_Dlon(4))/6.0
+      box_lat_edge(i_box) = box_lat_edge(i_box) + &
+                (RK_Dlat(1)+2.0*RK_Dlat(2)+2.0*RK_Dlat(3)+RK_Dlat(4))/6.0
+      box_lev_edge(i_box) = box_lev_edge(i_box) + &
+                (RK_Dlev(1)+2.0*RK_Dlev(2)+2.0*RK_Dlev(3)+RK_Dlev(4))/6.0
+
+    end do  !do i_box = 1,n_box
+
     !------------------------------------------------------------------
+    ! Horizontal stretch:
     ! Adjust the length/radius of the box based on new location
     !------------------------------------------------------------------
-    i_box = 1
-    IF(ABS(box_lon(i_box)-box_lon(i_box+1))>200.0)THEN
-      lon1 = box_lon(i_box) - 0.5 * ( 360.0 - ABS(box_lon(i_box+1)-box_lon(i_box)) )
-      lon2 = box_lon(i_box) + 0.5 * ( 360.0 - ABS(box_lon(i_box+1)-box_lon(i_box)) )
-    ELSE
-      lon1 = box_lon(i_box) - 0.5 * ( box_lon(i_box+1) - box_lon(i_box) )
-      lon2 = box_lon(i_box) + 0.5 * ( box_lon(i_box+1) - box_lon(i_box) )
-    ENDIF
 
-    lat1 = box_lat(i_box) - 0.5 * ( box_lat(i_box+1) - box_lat(i_box) )
-    lat2 = box_lat(i_box) + 0.5 * ( box_lat(i_box+1) - box_lat(i_box) )
-
-    length0           = box_length(i_box)
-    box_length(i_box) = Distance_Circle(lon1,lat1,box_lon(i_box),box_lat(i_box)) &
-                       +Distance_Circle(box_lon(i_box),box_lat(i_box),lon2,lat2)
-
-    IF(Judge_plume(i_box)==1) THEN
-!      box_Ra(i_box) = box_Ra(i_box)*SQRT(length0/box_length(i_box))
-!      box_Rb(i_box) = box_Rb(i_box)*SQRT(length0/box_length(i_box))
-    ELSE IF(Judge_plume(i_box)==2) THEN
-      Pdx(i_box) = Pdx(i_box)*SQRT(length0/box_length(i_box))
-      Pdy(i_box) = Pdy(i_box)*SQRT(length0/box_length(i_box))
-    ENDIF
-
-
-    DO i_box = 2, n_box-1
+    DO i_box = 1, n_box
  
-      IF(ABS(box_lon(i_box)-box_lon(i_box-1))>200.0)THEN
-        lon1 = 0.5 * ( box_lon(i_box) + box_lon(i_box-1) + 360.0 )
-      ELSE
-        lon1 = 0.5 * ( box_lon(i_box) + box_lon(i_box-1) )
-      ENDIF
-      IF(ABS(box_lon(i_box)-box_lon(i_box+1))>200.0)THEN
-        lon2 = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) + 360.0 )
-      ELSE
-        lon2 = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) )
-      ENDIF
-
-      lat1 = 0.5 * ( box_lat(i_box) + box_lat(i_box-1) )
-      lat2 = 0.5 * ( box_lat(i_box) + box_lat(i_box+1) )
-
       length0           = box_length(i_box)
-      box_length(i_box) = Distance_Circle(lon1,lat1,box_lon(i_box),box_lat(i_box)) &
-                        +Distance_Circle(box_lon(i_box),box_lat(i_box),lon2,lat2) ! [m]
+      box_length(i_box) = 2 * Distance_Circle( box_lon(i_box), box_lat(i_box), &
+                                   box_lon_edge(i_box), box_lat_edge(i_box) ) ! [m]
 
       IF(Judge_plume(i_box)==1) THEN
 !        box_Ra(i_box) = box_Ra(i_box)*SQRT(length0/box_length(i_box))
@@ -1044,34 +1230,10 @@ CONTAINS
       ELSE IF(Judge_plume(i_box)==2) THEN
          Pdx(i_box) = Pdx(i_box)*SQRT(length0/box_length(i_box))
          Pdy(i_box) = Pdy(i_box)*SQRT(length0/box_length(i_box))
+
       ENDIF
 
     ENDDO ! DO i_box = 2, n_box-1
-
-
-    i_box = n_box
-    IF(ABS(box_lon(i_box)-box_lon(i_box-1))>200.0)THEN
-      lon1 = box_lon(i_box) - 0.5 * ( 360.0 - ABS(box_lon(i_box-1)-box_lon(i_box)) )
-      lon2 = box_lon(i_box) + 0.5 * ( 360.0 - ABS(box_lon(i_box-1)-box_lon(i_box)) )
-    ELSE
-      lon1 = box_lon(i_box) - 0.5 * ( box_lon(i_box) - box_lon(i_box-1) )
-      lon2 = box_lon(i_box) + 0.5 * ( box_lon(i_box) - box_lon(i_box-1) )
-    ENDIF
-
-    lat1 = box_lat(i_box) - 0.5 * ( box_lat(i_box) - box_lat(i_box-1) )
-    lat2 = box_lat(i_box) + 0.5 * ( box_lat(i_box) - box_lat(i_box-1) )
-
-    length0           = box_length(i_box)
-    box_length(i_box) = Distance_Circle(lon1,lat1,box_lon(i_box),box_lat(i_box)) &
-                       +Distance_Circle(box_lon(i_box),box_lat(i_box),lon2,lat2)
-
-    IF(Judge_plume(i_box)==1) THEN
-!      box_Ra(i_box) = box_Ra(i_box)*SQRT(length0/box_length(i_box))
-!      box_Rb(i_box) = box_Rb(i_box)*SQRT(length0/box_length(i_box))
-    ELSE IF(Judge_plume(i_box)==2) THEN
-      Pdx(i_box) = Pdx(i_box)*SQRT(length0/box_length(i_box))
-      Pdy(i_box) = Pdy(i_box)*SQRT(length0/box_length(i_box))
-    ENDIF
 
 
     !------------------------------------------------------------------
@@ -1766,6 +1928,7 @@ CONTAINS
     REAL(fp) :: Dt2
 
     integer  :: n_box_max
+    integer  :: N_split
 
     integer  :: i_box, i_specie
     integer  :: ii_box
@@ -2142,6 +2305,7 @@ CONTAINS
 
            IF(Pdx(i_box)<=0.5*Dx_init) GOTO 600
 
+
          ENDIF ! IF(Pdx(i_box)<0.5*Dx_init)THEN
 
 
@@ -2259,7 +2423,7 @@ CONTAINS
          Sigma2D(i_box)   = SQRT( Sigma2D(i_box)**2 + 2*eddy_v*Pdt )
 
 
-         IF( box_theta(i_box) > (88.0/180.0*PI) ) THEN
+         IF( box_theta(i_box) > (88.0/180.0*PI) ) THEN !!! shw ???
 
            WRITE(6,*)'Pdx, Pdy: ', i_box, Pdx(i_box), Pdy(i_box)
 
@@ -2318,6 +2482,19 @@ CONTAINS
            GOTO 400
 
          ENDIF ! IF(box_theta(i_box)>98/180*3.14)
+
+
+
+         !===================================================================
+         ! Third judge:
+         ! If this is the final time step, the model is going to end
+         ! dissolve all the plume into GCM in the last time step
+         !===================================================================
+
+
+
+
+
 
 
        ENDDO ! DO t1s = 1, NINT(Dt/Pdt)
@@ -2546,7 +2723,7 @@ CONTAINS
                     + backgrd_concnt(1)*grid_volumn ) / grid_volumn
        Rate_Eul = Eul_concnt**2*grid_volumn
 
-       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.01)THEN
+       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.05)THEN !!! shw ???
 
          backgrd_concnt(1) = &
             ( SUM(  box_concnt_1D(i_box, 2:n_slab_max-1,1)             &
@@ -2584,6 +2761,27 @@ CONTAINS
        ENDIF
 
 
+       !===================================================================
+       ! Fourth judge:
+       ! If the plume touch the tropopause, dissolve the plume
+       !===================================================================
+       IF ( box_lev(i_box)>State_Met%TROPP(i_lon,i_lat) ) THEN
+
+         backgrd_concnt(1) = &
+            ( SUM(  box_concnt_1D(i_box, 2:n_slab_max-1,1)             &
+                  - Extra_mass_1D(i_box, 2:n_slab_max-1, 1)  )         &
+              *box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1e+6_fp   &
+                + backgrd_concnt(1)*grid_volumn ) / grid_volumn
+
+         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) =    &
+                                                     backgrd_concnt(1)
+
+         Judge_plume(i_box) = 0
+         GOTO 200 ! skip this box, go to next box
+
+       ENDIF
+
+
        enddo ! do t1s=1,NINT(Dt/Dt2)
        ENDDO ! do i_Species = 1,nSpecies
 
@@ -2592,16 +2790,18 @@ CONTAINS
        ! If slab length(Ra) is bigger than 2* horizontal resolution (2*Dx),
        ! split slab into five smaller segment (Ra/5)
        !===================================================================
+       N_split = 3
+
        IF(i_box==4) WRITE(6,*)'--- n_box, Ra ---', n_box_max, box_Ra(i_box), Dx
 
 !!! shw
-       IF( box_Ra(i_box) > 1.5*Dx*110.0*1000.0 ) THEN
+       IF( box_Ra(i_box) > 2.0*Dx*110.0*1000.0 ) THEN
 !       IF( box_Ra(i_box) > 1e+5_fp ) THEN
 
 
          ! extend the total number of box to include the new box
          n_box_prev = n_box
-         n_box = n_box + 4
+         n_box = n_box + (N_split-1)
 
          allocate(Data1D_Int(n_box_prev))
          allocate(Data1D(n_box_prev))
@@ -2623,6 +2823,21 @@ CONTAINS
          deallocate(box_lev)
          allocate(box_lev(n_box))
          box_lev(1:n_box_prev) = Data1D
+
+         Data1D = box_lon_edge(:)
+         deallocate(box_lon_edge)
+         allocate(box_lon_edge(n_box))
+         box_lon_edge(1:n_box_prev) = Data1D
+
+         Data1D = box_lat_edge(:)
+         deallocate(box_lat_edge)
+         allocate(box_lat_edge(n_box))
+         box_lat_edge(1:n_box_prev) = Data1D
+
+         Data1D = box_lev_edge(:)
+         deallocate(box_lev_edge)
+         allocate(box_lev_edge(n_box))
+         box_lev_edge(1:n_box_prev) = Data1D
 
 
          Data1D = Pdx(:)
@@ -2743,14 +2958,22 @@ CONTAINS
          !-----------------------------------------------------------------------
 
          ! Based on Great_circle distance
-         Dlon5  = 2.0 * 180/PI *ASIN( (SIN(box_Ra(i_box)/5 /Re *0.5)) &
+         Dlon5  = 2.0 * 180/PI *ASIN( (SIN(box_Ra(i_box)/N_split /Re *0.5)) &
                                      / COS(box_lat(i_box)/180*PI)**2 )
         
+! for N_split=5         !!! shw ???
+!         box_lon(n_box_prev+1) = box_lon(i_box) - 2*Dlon5
+!         box_lon(n_box_prev+2) = box_lon(i_box) - 1*Dlon5
+!         box_lon(n_box_prev+3) = box_lon(i_box) + 1*Dlon5
+!         box_lon(n_box_prev+4) = box_lon(i_box) + 2*Dlon5
 
-         box_lon(n_box_prev+1) = box_lon(i_box) - 2*Dlon5
-         box_lon(n_box_prev+2) = box_lon(i_box) - 1*Dlon5
-         box_lon(n_box_prev+3) = box_lon(i_box) + 1*Dlon5
-         box_lon(n_box_prev+4) = box_lon(i_box) + 2*Dlon5
+
+! for N_split=3         !!! shw ???
+         box_lon(n_box_prev+1) = box_lon(i_box) - 1*Dlon5
+         box_lon(n_box_prev+2) = box_lon(i_box) + 1*Dlon5
+
+         box_lon_edge(n_box_prev+1) = box_lon_edge(i_box) - 1*Dlon5
+         box_lon_edge(n_box_prev+2) = box_lon_edge(i_box) + 1*Dlon5
 
 ! shw
 !         WRITE(6,*)'1 to 5, box_lon: ', i_box, Dlon5, n_box_prev+1, &
@@ -2762,9 +2985,12 @@ CONTAINS
            box_lat(ii_box)     = box_lat(i_box)
            box_lev(ii_box)     = box_lev(i_box)
 
+           box_lat_edge(ii_box)     = box_lat_edge(i_box)
+           box_lev_edge(ii_box)     = box_lev_edge(i_box)
+
            ! not need to set Pdx and Pdy
 
-           box_Ra(ii_box)      = box_Ra(i_box)/5.0
+           box_Ra(ii_box)      = box_Ra(i_box)/N_split
            box_Rb(ii_box)      = box_Rb(i_box)
 
            box_theta(ii_box)   = box_theta(i_box)
@@ -2784,9 +3010,13 @@ CONTAINS
            box_concnt_1D(ii_box,:,:) = box_concnt_1D(i_box,:,:)
            Extra_mass_1D(ii_box,:,:) = Extra_mass_1D(i_box,:,:)
 
+           ! No use
+           Pdx(ii_box)       = 0.0
+           Pdy(ii_box)       = 0.0
+
          enddo
 
-         box_Ra(i_box) = box_Ra(i_box)/5.0
+         box_Ra(i_box) = box_Ra(i_box)/N_split
 
        ENDIF ! IF( box_Ra(i_box) > 2*Dx )
 
