@@ -25,14 +25,38 @@
 ! only the plume cross-section will be used to represent the volume change because
 ! of PV=nRT
 
+! 5. Oct 10th, 2020
+! Add Third judge in 2D cross-section model.
+! At the end of simulation, not only the 1D slab model will dissolve, 2D model
+! will also dissolve.
+
+! 6. Oct 10th, 2020
+! Inn stead of using adjacent plume segment, the box_alpha is calculated based
+! on the center and one endpoint inside one plume segment
+
+! 7. Oct 12nd, 2020
+! delete the output for grid area (State_Met_AREA_M2.txt), since this variable
+! can be found in the formal output as "AREA".
+
+
 ! 5. 
 ! RK_Dlev(Ki) = RK_Dt(1) * curr_omeg / 100.0 
 
+
+! 
+! double check the usage of box_alpha first.
 
 
 ! 6.
 ! modify the 1D slab model splitting, correct the box_lon and box_lat, as well
 ! as the box_lon_edge and box_lat_edge for the new plume after splitting
+! to get the correct new box_lon, the box_length should times box_alpha first.
+
+
+! 7.
+! add forth judge to 2D cross-section model, let plume dissolve when reach
+! troposphere or the top of atmosphere.
+
 
 MODULE Lagrange_Mod
 
@@ -416,16 +440,16 @@ CONTAINS
 !-----------------------------------------------------------------------
 ! Output State_Met%AREA_M2(i_lon,i_lat,i_lev) into State_Met_AREA_M2.txt
 !-----------------------------------------------------------------------
-    OPEN( 315,      FILE='State_Met_AREA_M2.txt', STATUS='REPLACE', &
-          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-    Do i_lon = 1, IIPAR
-    Do i_lat = 1, JJPAR
-    Do i_lev = 1, LLPAR
-       WRITE(315,'(x,E12.5)') GET_AREA_M2(i_lon,i_lat,i_lev)
-    End Do
-    End Do
-    End Do
+!    OPEN( 315,      FILE='State_Met_AREA_M2.txt', STATUS='REPLACE', &
+!          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+!
+!    Do i_lon = 1, IIPAR
+!    Do i_lat = 1, JJPAR
+!    Do i_lev = 1, LLPAR
+!       WRITE(315,'(x,E12.5)') GET_AREA_M2(i_lon,i_lat,i_lev) ! [m2]
+!    End Do
+!    End Do
+!    End Do
 
   END SUBROUTINE lagrange_init
 
@@ -1960,7 +1984,7 @@ CONTAINS
     real(fp)          :: Dx, Dy
     real(fp)          :: wind_s_shear
     real(fp)          :: theta_previous
-    ! angle between travel direction and lon (-90 ~ 90 deg)
+    ! angle between travel direction and lon (-PI/2 ~ PI/2 deg)
     real(fp)          :: box_alpha ! [radians]
 
     real(fp), pointer :: X_edge(:)
@@ -2137,6 +2161,24 @@ CONTAINS
           box_lon(i_box) = box_lon(i_box) + 360.0
        end do
 
+       ! make sure the location is not out of range
+       do while (box_lat_edge(i_box) > Y_edge(JJPAR+1))
+          box_lat_edge(i_box) = Y_edge(JJPAR+1) &
+                         - ( box_lat_edge(i_box)-Y_edge(JJPAR+1) )
+       end do
+
+       do while (box_lat_edge(i_box) < Y_edge(1))
+          box_lat_edge(i_box) = Y_edge(1) + ( box_lat_edge(i_box)-Y_edge(1) )
+       end do
+
+       do while (box_lon_edge(i_box) > X_edge(IIPAR+1))
+          box_lon_edge(i_box) = box_lon_edge(i_box) - 360.0
+       end do
+
+       do while (box_lon_edge(i_box) < X_edge(1))
+          box_lon_edge(i_box) = box_lon_edge(i_box) + 360.0
+       end do
+
 
        curr_lon      = box_lon(i_box)
        curr_lat      = box_lat(i_box)
@@ -2146,15 +2188,9 @@ CONTAINS
        ! calcualte the box_alpha
        ! Next adjacent point
        !------------------------------------------------------------------
-       if(i_box==n_box_max)then
-         next_lon      = box_lon(i_box-1)
-         next_lat      = box_lat(i_box-1)
-         next_pressure = box_lev(i_box-1)        ! hPa
-       else
-         next_lon      = box_lon(i_box+1)
-         next_lat      = box_lat(i_box+1)
-         next_pressure = box_lev(i_box+1)        ! hPa
-       endif
+       next_lon      = box_lon_edge(i_box)
+       next_lat      = box_lat_edge(i_box)
+       next_pressure = box_lev_edge(i_box)        ! hPa
 
        ! Judge the sign of box_alpha
        if((curr_lon-next_lon).NE.0.0)then
@@ -2484,13 +2520,26 @@ CONTAINS
          ENDIF ! IF(box_theta(i_box)>98/180*3.14)
 
 
-
          !===================================================================
          ! Third judge:
          ! If this is the final time step, the model is going to end
          ! dissolve all the plume into GCM in the last time step
          !===================================================================
+         IF ( ITS_TIME_FOR_EXIT() ) THEN
 
+           backgrd_concnt(1) = &
+              ( SUM(  box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1)     &
+                    - Extra_mass_2D(i_box,2:n_x_max-1,2:n_y_max-1,1)  )  &
+                      *Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1e+6_fp   &
+                  + backgrd_concnt(1)*grid_volumn ) / grid_volumn
+
+           State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) =    &
+                                                       backgrd_concnt(1)
+
+           Judge_plume(i_box) = 0
+           GOTO 200 ! skip this box, go to next box
+
+         ENDIF
 
 
 
@@ -2723,7 +2772,7 @@ CONTAINS
                     + backgrd_concnt(1)*grid_volumn ) / grid_volumn
        Rate_Eul = Eul_concnt**2*grid_volumn
 
-       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.05)THEN !!! shw ???
+       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.1)THEN !!! shw ???
 
          backgrd_concnt(1) = &
             ( SUM(  box_concnt_1D(i_box, 2:n_slab_max-1,1)             &
