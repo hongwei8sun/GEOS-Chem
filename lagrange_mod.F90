@@ -38,24 +38,40 @@
 ! delete the output for grid area (State_Met_AREA_M2.txt), since this variable
 ! can be found in the formal output as "AREA".
 
-
-! 5. 
+! 8. Oct 12nd, 2020
+! correct the runge-kutta method for advection process (dx/dt=u).
+! since the wind speed is 3-h average value, assume wind speed is independent of
+! time, only change with locations [u(z,y,x) instead of u(t,z,y,x)]
 ! RK_Dlev(Ki) = RK_Dt(1) * curr_omeg / 100.0 
 
 
-! 
-! double check the usage of box_alpha first.
+! 9. Oct 12nd, 2020
+! use runge-kutta method when calcualte box_u(i_box), box_v(i_box),
+! box_omeg(i_box)
+
+! 10. Oct 12nd, 2020
+! modify the box_alpha and ensure the wind speed along plume cross-section is
+! correct. range of box_alpha is [PI, -PI)
 
 
-! 6.
-! modify the 1D slab model splitting, correct the box_lon and box_lat, as well
-! as the box_lon_edge and box_lat_edge for the new plume after splitting
-! to get the correct new box_lon, the box_length should times box_alpha first.
+! 11. Oct 12nd, 2020
+! modify the 1D slab model splitting, correct the box_lon and  box_lon_edge 
+! for the new plume after splitting
+! to get the correct new box_lon, box_length should times COS(box_alpha) first.
 
+! 12. Oct 13rd, 2020
+! correct the calculate for plume splitting box_lon and box_lat, as well as
+! box_lon_edge and box_lat_edge.
 
 ! 7.
 ! add forth judge to 2D cross-section model, let plume dissolve when reach
 ! troposphere or the top of atmosphere.
+
+! 
+! when change 2D to 1D, extra_mass should also be considered
+
+!
+! double check 2D to 1D is correct
 
 
 MODULE Lagrange_Mod
@@ -474,7 +490,7 @@ CONTAINS
     TYPE(OptInput), intent(in)    :: Input_Opt
     INTEGER,        INTENT(OUT)   :: RC         ! Success or failure
 
-    REAL(fp) :: Dt, RK_Dt(4)                  ! = 600.0e+0_fp          
+    REAL(fp) :: Dt, RK_Dt(5)                  ! = 600.0e+0_fp          
 
     real(fp), pointer  :: PASV_EU           
     integer            :: nAdv        
@@ -502,6 +518,7 @@ CONTAINS
     real(fp) :: RK_Dlon(4), RK_Dlat(4), RK_Dlev(4)
     real(fp) :: RK_x_PS, RK_y_PS
     real(fp) :: RK_Dx_PS, RK_Dy_PS
+    real(fp) :: RK_u(4), RK_v(4), RK_omeg(4)
 
     real(fp), pointer :: u(:,:,:)
     real(fp), pointer :: v(:,:,:)
@@ -527,10 +544,11 @@ CONTAINS
 
     Dt = GET_TS_DYN()
 
-    RK_Dt(1) = Dt
+    RK_Dt(1) = 0.0
     RK_Dt(2) = 0.5*Dt
     RK_Dt(3) = 0.5*Dt
     RK_Dt(4) = Dt
+    RK_Dt(5) = 0.0
 
     u     => State_Met%U   ! figure out state_met%U is based on
                            !  lat/lon or modelgrid(i,j)
@@ -844,13 +862,14 @@ CONTAINS
           curr_omeg = Interplt_wind_RLL(omeg, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
        endif
 
-       box_omeg(i_box) = curr_omeg
+       RK_omeg(Ki) = curr_omeg
 
        ! For 
 !       dbox_lev = RK_Dt(Ki) * curr_omeg / 100.0     ! Pa => hPa
 !       curr_pressure = box_lev(i_box) + dbox_lev
 
-       RK_Dlev(Ki) = RK_Dt(1) * curr_omeg / 100.0     ! Pa => hPa
+       RK_Dlev(Ki)   = Dt * curr_omeg / 100.0     ! Pa => hPa
+       curr_pressure = box_lev(i_box) + RK_Dt(Ki+1) * curr_omeg / 100.0
 
        if(curr_pressure<P_mid(LLPAR)) &
              curr_pressure = P_mid(LLPAR) !+ ( P_mid(LLPAR) - curr_pressure )
@@ -868,19 +887,20 @@ CONTAINS
          curr_v = Interplt_wind_RLL(v, i_lon, i_lat, i_lev, curr_lon, &
                                                   curr_lat, curr_pressure)
 
-         box_u(i_box) = curr_u
-         box_v(i_box) = curr_v
+         RK_u(Ki) = curr_u
+         RK_v(Ki) = curr_v
 
-         dbox_lon  = (RK_Dt(Ki)*curr_u) &
+         dbox_lon  = (RK_Dt(Ki+1)*curr_u) &
                         / (2.0*PI*Re*COS(box_lat(i_box)*PI/180.0)) * 360.0
-         dbox_lat  = (RK_Dt(Ki)*curr_v) / (PI*Re) * 180.0
+         dbox_lat  = (RK_Dt(Ki+1)*curr_v) / (PI*Re) * 180.0
 
          curr_lon  = box_lon(i_box) + dbox_lon
          curr_lat  = box_lat(i_box) + dbox_lat
  
-         RK_Dlon(Ki) = (RK_Dt(1)*curr_u) &
+
+         RK_Dlon(Ki) = (Dt*curr_u) &
                       / (2.0*PI*Re*COS(box_lat(i_box)*PI/180.0)) * 360.0
-         RK_Dlat(Ki) = (RK_Dt(1)*curr_v) / (PI*Re) * 180.0
+         RK_Dlat(Ki) = (Dt*curr_v) / (PI*Re) * 180.0
 
        endif
 
@@ -897,14 +917,15 @@ CONTAINS
             curr_v_PS = Interplt_uv_PS(0, u, v, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)    
          endif
 
-         box_u(i_box) = curr_u_PS
-         box_v(i_box) = curr_v_PS
+         RK_u(Ki) = curr_u_PS
+         RK_v(Ki) = curr_v_PS
 
-         dbox_x_PS = RK_Dt(Ki)*curr_u_PS
-         dbox_y_PS = RK_Dt(Ki)*curr_v_PS
+         dbox_x_PS = RK_Dt(Ki+1)*curr_u_PS
+         dbox_y_PS = RK_Dt(Ki+1)*curr_v_PS
 
-         RK_Dx_PS = RK_Dt(1)*curr_u_PS
-         RK_Dy_PS = RK_Dt(1)*curr_v_PS
+
+         RK_Dx_PS = Dt*curr_u_PS
+         RK_Dy_PS = Dt*curr_v_PS
 
 
          !------------------------------------------------------------------
@@ -981,6 +1002,14 @@ CONTAINS
       box_lev(i_box) = box_lev(i_box) + &
                 (RK_Dlev(1)+2.0*RK_Dlev(2)+2.0*RK_Dlev(3)+RK_Dlev(4))/6.0
 
+
+
+      box_u(i_box)    = ( RK_u(1) + 2.0*RK_u(2) &
+                         + 2.0*RK_u(3) + RK_u(4) ) / 6.0
+      box_v(i_box)    = ( RK_v(1) + 2.0*RK_v(2) &
+                         + 2.0*RK_v(3) + RK_v(4) ) / 6.0
+      box_omeg(i_box) = ( RK_omeg(1) + 2.0*RK_omeg(2) &
+                         + 2.0*RK_omeg(3) + RK_omeg(4) ) / 6.0
 
       ! ====================================================================
       ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in 
@@ -1104,8 +1133,9 @@ CONTAINS
                                                    curr_lat, curr_pressure)
        endif
 
+       RK_Dlev(Ki)   = Dt * curr_omeg / 100.0     ! Pa => hPa
+       curr_pressure = box_lev(i_box) + RK_Dt(Ki+1) * curr_omeg / 100.0
 
-       RK_Dlev(Ki) = RK_Dt(1) * curr_omeg / 100.0     ! Pa => hPa
 
        if(curr_pressure<P_mid(LLPAR)) &
              curr_pressure = P_mid(LLPAR) !+ ( P_mid(LLPAR) - curr_pressure )
@@ -1123,16 +1153,17 @@ CONTAINS
                                                   curr_lat, curr_pressure)
 
 
-         dbox_lon  = (RK_Dt(Ki)*curr_u) &
+         dbox_lon  = (RK_Dt(Ki+1)*curr_u) &
                         / (2.0*PI*Re*COS(box_lat(i_box)*PI/180.0)) * 360.0
-         dbox_lat  = (RK_Dt(Ki)*curr_v) / (PI*Re) * 180.0
+         dbox_lat  = (RK_Dt(Ki+1)*curr_v) / (PI*Re) * 180.0
 
          curr_lon  = box_lon_edge(i_box) + dbox_lon
          curr_lat  = box_lat_edge(i_box) + dbox_lat
 
-         RK_Dlon(Ki) = (RK_Dt(1)*curr_u) &
+
+         RK_Dlon(Ki) = (Dt*curr_u) &
                       / (2.0*PI*Re*COS(box_lat(i_box)*PI/180.0)) * 360.0
-         RK_Dlat(Ki) = (RK_Dt(1)*curr_v) / (PI*Re) * 180.0
+         RK_Dlat(Ki) = (Dt*curr_v) / (PI*Re) * 180.0
 
        endif
 
@@ -1154,11 +1185,12 @@ CONTAINS
          endif
 
 
-         dbox_x_PS = RK_Dt(Ki)*curr_u_PS
-         dbox_y_PS = RK_Dt(Ki)*curr_v_PS
+         dbox_x_PS = RK_Dt(Ki+1)*curr_u_PS
+         dbox_y_PS = RK_Dt(Ki+1)*curr_v_PS
 
-         RK_Dx_PS = RK_Dt(1)*curr_u_PS
-         RK_Dy_PS = RK_Dt(1)*curr_v_PS
+
+         RK_Dx_PS = Dt*curr_u_PS
+         RK_Dy_PS = Dt*curr_v_PS
 
 
          !------------------------------------------------------------------
@@ -1984,8 +2016,13 @@ CONTAINS
     real(fp)          :: Dx, Dy
     real(fp)          :: wind_s_shear
     real(fp)          :: theta_previous
-    ! angle between travel direction and lon (-PI/2 ~ PI/2 deg)
-    real(fp)          :: box_alpha ! [radians]
+
+    ! angle between travel direction and lon: beta belongs to [-PI/2,3*PI/2)
+
+    ! same as angle between cross-section (right when 
+    ! toward travel direction) and lon: box_alpha belongs to [-PI, PI)
+    ! box_alpha = beta - PI/2
+    real(fp)          :: beta, box_alpha ! [radians]
 
     real(fp), pointer :: X_edge(:)
     real(fp), pointer :: Y_edge(:)
@@ -2016,7 +2053,7 @@ CONTAINS
     real(fp)  :: Cslab(n_slab_max), Extra_Cslab(n_slab_max)
     real(fp)  :: C1d_prev(n_slab_max)
 
-    real(fp)  :: Dlon5 ! split 1D from 1 to 5 segments
+    real(fp)  :: DlonN, DlatN ! split 1D from 1 to 5 segments
 
     real(fp)  :: backgrd_concnt(N_specie)
 
@@ -2193,13 +2230,20 @@ CONTAINS
        next_pressure = box_lev_edge(i_box)        ! hPa
 
        ! Judge the sign of box_alpha
-       if((curr_lon-next_lon).NE.0.0)then
-         box_alpha = ATAN( (next_lat - curr_lat) / (next_lon - curr_lon) )
-       else if((next_lat-curr_lat).LT.0.0)then
-         box_alpha = 0.5*PI
-       else if((next_lat-curr_lat).GT.0.0)then
-         box_alpha = -0.5*PI
+       if((next_lon-curr_lon)>0.0)then
+         beta = ATAN( (next_lat - curr_lat) / (next_lon - curr_lon) )
+         ! (-PI/2,PI/2)
+       else if((next_lon-curr_lon)<0.0)then
+         beta = PI + ATAN( (next_lat - curr_lat) / (next_lon - curr_lon) )
+         ! (PI/2, 3*PI/2)
+       else if((next_lat-curr_lat)>0.0)then
+         beta = 0.5*PI
+       else if((next_lat-curr_lat)<0.0)then
+         beta = -0.5*PI
        endif
+       ! beta is [-PI/2,3*PI/2), box_alpha is [-PI, PI)
+       box_alpha = beta - PI/2
+
 
        i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
        i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
@@ -2461,7 +2505,6 @@ CONTAINS
 
          IF( box_theta(i_box) > (88.0/180.0*PI) ) THEN !!! shw ???
 
-           WRITE(6,*)'Pdx, Pdy: ', i_box, Pdx(i_box), Pdy(i_box)
 
            Pc = box_concnt_2D(i_box,:,:,1)
            Ec = Extra_mass_2D(i_box,:,:,1)
@@ -3007,34 +3050,55 @@ CONTAINS
          !-----------------------------------------------------------------------
 
          ! Based on Great_circle distance
-         Dlon5  = 2.0 * 180/PI *ASIN( (SIN(box_Ra(i_box)/N_split /Re *0.5)) &
-                                     / COS(box_lat(i_box)/180*PI)**2 )
+!         DlonN = 2.0 * 180/PI *ASIN( ABS( SIN(box_Ra(i_box)*COS(box_alpha)/N_split /Re *0.5) &
+!                                     / COS(box_lat(i_box)/180*PI)**2 ) )
         
+         DlonN = ABS(box_Ra(i_box)*COS(box_alpha)/N_split) / &
+                        (2*PI *(Re*COS(box_lat(i_box)/180*PI))**2 ) * 360
+
+         DlatN = ABS(box_Ra(i_box)*SIN(box_alpha)/N_split) / (2*PI*Re**2) * 360
+
+
+         DO i = 1, (N_split-1)/2, 1
+           box_lon(n_box_prev+i) = box_lon(i_box) - i*DlonN
+           box_lon_edge(n_box_prev+i) = box_lon_edge(i_box) - i*DlonN
+
+           box_lat(n_box_prev+i) = box_lat(i_box) - i*DlatN
+           box_lat_edge(n_box_prev+i) = box_lat_edge(i_box) - i*DlatN
+         ENDDO
+
+         DO i = 1, (N_split-1)/2, 1
+           box_lon(n_box_prev+(N_split-1)/2+i) = box_lon(i_box) + i*DlonN
+           box_lon_edge(n_box_prev+(N_split-1)/2+i) = box_lon_edge(i_box) + i*DlonN
+
+           box_lat(n_box_prev+(N_split-1)/2+i) = box_lat(i_box) + i*DlatN
+           box_lat_edge(n_box_prev+(N_split-1)/2+i) = box_lat_edge(i_box) + i*DlatN
+         ENDDO 
+
+         WRITE(6,*) 'DlonN, DlatN, 2.0*Dx:', DlonN, DlatN, 2.0*Dx
+
 ! for N_split=5         !!! shw ???
-!         box_lon(n_box_prev+1) = box_lon(i_box) - 2*Dlon5
-!         box_lon(n_box_prev+2) = box_lon(i_box) - 1*Dlon5
-!         box_lon(n_box_prev+3) = box_lon(i_box) + 1*Dlon5
-!         box_lon(n_box_prev+4) = box_lon(i_box) + 2*Dlon5
+!         box_lon(n_box_prev+1) = box_lon(i_box) - 2*Dlon
+!         box_lon(n_box_prev+2) = box_lon(i_box) - 1*Dlon
+!         box_lon(n_box_prev+3) = box_lon(i_box) + 1*Dlon
+!         box_lon(n_box_prev+4) = box_lon(i_box) + 2*Dlon
 
 
 ! for N_split=3         !!! shw ???
-         box_lon(n_box_prev+1) = box_lon(i_box) - 1*Dlon5
-         box_lon(n_box_prev+2) = box_lon(i_box) + 1*Dlon5
-
-         box_lon_edge(n_box_prev+1) = box_lon_edge(i_box) - 1*Dlon5
-         box_lon_edge(n_box_prev+2) = box_lon_edge(i_box) + 1*Dlon5
+!         box_lon(n_box_prev+1) = box_lon(i_box) - 1*Dlon
+!         box_lon(n_box_prev+2) = box_lon(i_box) + 1*Dlon
+!
+!         box_lon_edge(n_box_prev+1) = box_lon_edge(i_box) - 1*Dlon
+!         box_lon_edge(n_box_prev+2) = box_lon_edge(i_box) + 1*Dlon
 
 ! shw
-!         WRITE(6,*)'1 to 5, box_lon: ', i_box, Dlon5, n_box_prev+1, &
+!         WRITE(6,*)'1 to 5, box_lon: ', i_box, Dlon, n_box_prev+1, &
 !                box_lon(i_box), box_lon(n_box_prev+1:n_box_prev+4)
 
 
          do ii_box = n_box_prev+1, n_box, 1
 
-           box_lat(ii_box)     = box_lat(i_box)
            box_lev(ii_box)     = box_lev(i_box)
-
-           box_lat_edge(ii_box)     = box_lat_edge(i_box)
            box_lev_edge(ii_box)     = box_lev_edge(i_box)
 
            ! not need to set Pdx and Pdy
@@ -3265,12 +3329,7 @@ CONTAINS
                        + Weight(2,2) * v(init_lon+1,init_lat+1,kk)
       endif
 
-      if(box_alpha>=0.0)then
-        wind_s(k) = -1.0 * u_lonlat(k) * SIN(box_alpha) &
-                        + v_lonlat(k) * COS(box_alpha)
-      else
-        wind_s(k) = u_lonlat(k)*SIN(box_alpha) + v_lonlat(k)*COS(box_alpha)
-      endif
+      wind_s(k) = u_lonlat(k)*COS(box_alpha) + v_lonlat(k)*SIN(box_alpha)
 
     enddo
 
