@@ -63,15 +63,23 @@
 ! correct the calculate for plume splitting box_lon and box_lat, as well as
 ! box_lon_edge and box_lat_edge.
 
-! 7.
-! add forth judge to 2D cross-section model, let plume dissolve when reach
-! troposphere or the top of atmosphere.
+! Oct 15th, 2020
+! add forth judge to 2D cross-section model, let plume dissolve when transport
+! from stratosphere into troposphere.
 
 ! 
 ! when change 2D to 1D, extra_mass should also be considered
 
 !
 ! double check 2D to 1D is correct
+
+!
+! dissolve the plume when touch the top of the atmosphere
+
+!
+! update the horizontal wind shear by
+! (1) using lyapunov for stretch
+! (2) assume plume length is always along the horizontal wind direction
 
 
 MODULE Lagrange_Mod
@@ -2522,6 +2530,8 @@ CONTAINS
            ! return initial box_Ra(i_box), box_Rb(i_box), box_concnt_1D(i_box)
            CALL Slab_init(box_theta(i_box), i_box, Pc, Ec, Sigma2D(i_box))
 
+           WRITE(6,*)'2D to 1D: ', i_box, box_Ra(i_box), box_Rb(i_box)
+
            Judge_plume(i_box)=1
 
            !!! shw
@@ -2537,10 +2547,6 @@ CONTAINS
                    - box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp  &
                        *SUM(box_concnt_1D(i_box,2:n_slab_max-1,1))
 
-           WRITE(6,*)'mass loss when 2D to 1D: ', i_box, exchange_amount &
-                        /( Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1.0e+6_fp &
-                       *SUM(box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1)) )
-
 
            Minus_extra =Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1.0e+6_fp     &
                        *SUM( Extra_mass_2D(i_box,2:n_x_max-1,2:n_y_max-1,1) ) &
@@ -2551,6 +2557,12 @@ CONTAINS
            exchange_amount = exchange_amount - Minus_extra
 
 
+           WRITE(6,*)'mass loss when 2D to 1D: ', i_box, exchange_amount &
+                    /( Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1.0e+6_fp &
+                   * ( SUM(box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1)) &
+                      -SUM(Extra_mass_2D(i_box,2:n_x_max-1,2:n_y_max-1,1)) ) )
+
+
            backgrd_concnt(1) = ( exchange_amount + &
                     backgrd_concnt(1)*grid_volumn ) / grid_volumn
 
@@ -2558,7 +2570,7 @@ CONTAINS
                                                     backgrd_concnt(1)
 
 
-           GOTO 400
+           GOTO 400 ! begin 1D slab model
 
          ENDIF ! IF(box_theta(i_box)>98/180*3.14)
 
@@ -2584,7 +2596,25 @@ CONTAINS
 
          ENDIF
 
+         !===================================================================
+         ! Fourth judge:
+         ! If the plume touch the tropopause, dissolve the plume
+         !===================================================================
+         IF ( box_lev(i_box)>State_Met%TROPP(i_lon,i_lat) ) THEN
 
+           backgrd_concnt(1) = &
+              ( SUM(  box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1)     &
+                    - Extra_mass_2D(i_box,2:n_x_max-1,2:n_y_max-1,1)  )  &
+                      *Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1e+6_fp   &
+                  + backgrd_concnt(1)*grid_volumn ) / grid_volumn
+
+           State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) =    &
+                                                       backgrd_concnt(1)
+
+           Judge_plume(i_box) = 0
+           GOTO 200 ! skip this box, go to next box
+
+         ENDIF
 
 
 
@@ -2815,7 +2845,7 @@ CONTAINS
                     + backgrd_concnt(1)*grid_volumn ) / grid_volumn
        Rate_Eul = Eul_concnt**2*grid_volumn
 
-       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.1)THEN !!! shw ???
+       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.05)THEN !!! shw ???
 
          backgrd_concnt(1) = &
             ( SUM(  box_concnt_1D(i_box, 2:n_slab_max-1,1)             &
@@ -2826,6 +2856,9 @@ CONTAINS
          State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = backgrd_concnt(1)
 
          Judge_plume(i_box) = 0
+
+         WRITE(6,*) '*** Dissolved in 2nd Judge ***', i_box
+
          GOTO 200 ! skip this box, go to next box
 
        ENDIF ! IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.01)THEN
@@ -2848,6 +2881,9 @@ CONTAINS
                                                      backgrd_concnt(1)
 
          Judge_plume(i_box) = 0
+
+         WRITE(6,*) '*** Dissolved in 3rd Judge ***', i_box
+
          GOTO 200 ! skip this box, go to next box
 
        ENDIF
@@ -2869,6 +2905,9 @@ CONTAINS
                                                      backgrd_concnt(1)
 
          Judge_plume(i_box) = 0
+
+         WRITE(6,*) '*** Dissolved in 4th Judge ***', i_box
+
          GOTO 200 ! skip this box, go to next box
 
        ENDIF
