@@ -67,11 +67,21 @@
 ! add forth judge to 2D cross-section model, let plume dissolve when transport
 ! from stratosphere into troposphere.
 
+
+! Nov 1st, 2020
+! Instead of setting Pdt=10s, adjust Pdt based on the CFL condition in 2D grids.
+!
+!
+
 ! 
 ! when change 2D to 1D, extra_mass should also be considered
 
 !
 ! double check 2D to 1D is correct
+
+!
+! when change 2D to 1D, not use degree to judge, but use length containing 99%
+! mass to judge.
 
 !
 ! dissolve the plume when touch the top of the atmosphere
@@ -1970,6 +1980,7 @@ CONTAINS
     USE State_Chm_Mod,   ONLY : ChmState
     USE State_Met_Mod,   ONLY : MetState
 
+    USE TIME_MOD              ! For computing date & time 
     USE TIME_MOD,        ONLY : GET_TS_DYN
     USE TIME_MOD,        ONLY : ITS_TIME_FOR_EXIT
 
@@ -2081,7 +2092,6 @@ CONTAINS
     n_box_max = n_box
 
     Dt = GET_TS_DYN()
-    Pdt = 10
 
     u => State_Met%U ! [m/s]
     v => State_Met%V ! V [m s-1]
@@ -2185,6 +2195,7 @@ CONTAINS
     ! Run Plume distortion & dilution HERE
     !=====================================================================
     do i_box = 1,n_box_max
+
          
        IF(Judge_plume(i_box)==0) GOTO 200
 
@@ -2326,11 +2337,25 @@ CONTAINS
        ENDDO
 
 
-
        ! *******************************************************************
        !====================================================================
         ! Calculate the advection-diffusion in 2D grids
        !====================================================================
+
+       Pdt = Dt
+
+       ! Find the best Pdt to meet CFL condition:
+ 700     CONTINUE
+
+       Pdt = 0.5*Pdt
+
+       CFL = Pdt*Pu(2,n_y_max)/Pdx(i_box)
+       IF(ABS(CFL)>1) GOTO 700
+       IF(ABS(2*eddy_h*Pdt/(Pdx(i_box)**2))>1) GOTO 700
+       IF(ABS(2*eddy_v*Pdt/(Pdy(i_box)**2))>1) GOTO 700
+
+
+
        DO t1s = 1, NINT(Dt/Pdt)
 
 
@@ -2616,10 +2641,8 @@ CONTAINS
 
          ENDIF
 
-
-
-
        ENDDO ! DO t1s = 1, NINT(Dt/Pdt)
+
 
 
        ENDIF ! IF(Judge_plume(i_box)==2) THEN
@@ -2632,6 +2655,7 @@ CONTAINS
 400     CONTINUE
 
        IF(Judge_plume(i_box)==1) THEN
+
 
 
        ! ============================================
@@ -2647,10 +2671,6 @@ CONTAINS
 
        IF((2*eddy_B*Dt2/(box_Rb(i_box)**2))>0.5) THEN
           Dt2 = Dt*0.1
-       ENDIF
-
-       IF((2*eddy_B*Dt2/(box_Rb(i_box)**2))>0.5) THEN
-          Dt2 = Dt*0.01
        ENDIF
 
 
@@ -2845,7 +2865,7 @@ CONTAINS
                     + backgrd_concnt(1)*grid_volumn ) / grid_volumn
        Rate_Eul = Eul_concnt**2*grid_volumn
 
-       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.05)THEN !!! shw ???
+       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.1)THEN !!! shw ???
 
          backgrd_concnt(1) = &
             ( SUM(  box_concnt_1D(i_box, 2:n_slab_max-1,1)             &
