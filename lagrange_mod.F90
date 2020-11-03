@@ -44,7 +44,6 @@
 ! time, only change with locations [u(z,y,x) instead of u(t,z,y,x)]
 ! RK_Dlev(Ki) = RK_Dt(1) * curr_omeg / 100.0 
 
-
 ! 9. Oct 12nd, 2020
 ! use runge-kutta method when calcualte box_u(i_box), box_v(i_box),
 ! box_omeg(i_box)
@@ -52,7 +51,6 @@
 ! 10. Oct 12nd, 2020
 ! modify the box_alpha and ensure the wind speed along plume cross-section is
 ! correct. range of box_alpha is [PI, -PI)
-
 
 ! 11. Oct 12nd, 2020
 ! modify the 1D slab model splitting, correct the box_lon and  box_lon_edge 
@@ -67,29 +65,51 @@
 ! add forth judge to 2D cross-section model, let plume dissolve when transport
 ! from stratosphere into troposphere.
 
-
 ! Nov 1st, 2020
 ! Instead of setting Pdt=10s, adjust Pdt based on the CFL condition in 2D grids.
 !
-!
+! Dt2 for 1D grid can only be 60s as minimum. If a less than 60s values is
+! needed for Dt2, let 1D slab begin to combine 2 grid cells into 1 grid cell.
+
+! Nov 2, 2020
+! Correct the injected aerosol concentration at the beginning
+! pay attention to the unit
+
+! Nov 2, 2020
+! Add Xscale and Yscale for 2D grid, which can be used to identify the box_theta
+! value, when concentratino don't follow gaussian distribution after involve
+! settling speed etc.
+
+
+
+
 
 ! 
 ! when change 2D to 1D, extra_mass should also be considered
 
+
 !
 ! double check 2D to 1D is correct
+
 
 !
 ! when change 2D to 1D, not use degree to judge, but use length containing 99%
 ! mass to judge.
 
+
 !
 ! dissolve the plume when touch the top of the atmosphere
+
 
 !
 ! update the horizontal wind shear by
 ! (1) using lyapunov for stretch
 ! (2) assume plume length is always along the horizontal wind direction
+
+
+! add a lifetime variable [ Life(n_box) ], when lifetime is larger than 3 hours, 
+! begin to consider change 2D to 1D
+! change Sigma2D to lifetime
 
 
 MODULE Lagrange_Mod
@@ -379,13 +399,14 @@ CONTAINS
 
     !--------------------------------------------------------
     ! Set the initial concentration of injected aerosols
-    ! Here assume the injection rate is 30 kg/km for H2SO4
+    ! Here assume the injection rate is 30 kg/km 
+    ! (same as 30 g/m) for H2SO4
     !--------------------------------------------------------
     ! State_Chm%nAdvect: the last one is PASV
     DO i_box = 1, n_box
       box_concnt_2D(i_box,:,:,N_specie) = 0.0e+0_fp
       box_concnt_2D(i_box,n_x_mid,n_y_mid,N_specie) = &
-                                box_length(i_box)*1.0e-3_fp*30.0 &
+                                box_length(i_box)*30.0 &
                               / (Pdx(i_box)*Pdy(i_box)*box_length(i_box))
 
       ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
@@ -799,7 +820,7 @@ CONTAINS
     DO i_box = n_box_prev+1, n_box
       box_concnt_2D(i_box,:,:,N_specie) = 0.0e+0_fp
       box_concnt_2D(i_box,n_x_mid,n_y_mid,N_specie) = &
-                                box_length(i_box)*1.0e-3_fp*30.0 &
+                                box_length(i_box)*30.0 &
                               / (Pdx(i_box)*Pdy(i_box)*box_length(i_box))
 
       ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
@@ -817,6 +838,32 @@ CONTAINS
     do i_box = 1,n_box,1
 
       IF(Judge_plume(i_box)==0) GOTO 500
+
+
+      ! ====================================================================
+      ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in 
+      ! corresponding with injected parcels in Lagrangian model
+      ! For conventional GEOS-Chem for comparison with Lagrangian Model:
+      !
+      !  AD(I,J,L) = grid box dry air mass [kg]
+      !  AIRMW     = dry air molecular wt [g/mol]
+      !  MW_G(N)   = specie molecular wt [g/mol]
+      !     
+      ! the conversion is:
+      ! 
+      !====================================================================
+      if(i_box>n_box_prev)then
+         nAdv = State_Chm%nAdvect         ! the last one is PASV_EU
+         PASV_EU => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)  ! [kg/kg]
+
+         MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
+         ! Here assume the injection rate is 30 kg/km for H2SO4: 
+         PASV_EU = PASV_EU + box_length(i_box)*1.0e-3_fp*30.0 &
+                                        /State_Met%AD(i_lon,i_lat,i_lev)
+
+         ! write(6,*)'== test 1 ==>', State_Chm%Spc_Units
+      endif
+
 
 
       !-----------------------------------------------------------------------
@@ -1029,28 +1076,6 @@ CONTAINS
       box_omeg(i_box) = ( RK_omeg(1) + 2.0*RK_omeg(2) &
                          + 2.0*RK_omeg(3) + RK_omeg(4) ) / 6.0
 
-      ! ====================================================================
-      ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in 
-      ! corresponding with injected parcels in Lagrangian model
-      ! For conventional GEOS-Chem for comparison with Lagrangian Model:
-      !
-      !  AD(I,J,L) = grid box dry air mass [kg]
-      !  AIRMW     = dry air molecular wt [g/mol]
-      !  MW_G(N)   = specie molecular wt [g/mol]
-      !     
-      ! the conversion is:
-      ! 
-      !====================================================================
-      if(i_box>n_box_prev)then
-         nAdv = State_Chm%nAdvect         ! the last one is PASV_EU
-         PASV_EU => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)     ! Unit: [kg/kg]
-
-         MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
-         ! Here assume the injection rate is 30 kg/km for H2SO4: 
-         PASV_EU = PASV_EU + box_length(i_box)*1.0e-3_fp*30.0 /State_Met%AD(i_lon,i_lat,i_lev)
-
-         ! write(6,*)'== test 1 ==>', State_Chm%Spc_Units
-      endif
 
 
       !--------------------------------------------------------------------
@@ -2050,8 +2075,6 @@ CONTAINS
 
     real(fp)  :: Outer(n_slab_max), Inner(n_slab_max)
 
-    real(fp)  :: D_concnt
-    ! used to calculate concentration distribution
 
     real(fp)  :: eddy_v, eddy_h
     real(fp)  :: eddy_A, eddy_B
@@ -2067,6 +2090,8 @@ CONTAINS
     real(fp)  :: Pu(n_x_max,n_y_max) ! for 2D advection
 
     real(fp)  :: Pc(n_x_max,n_y_max), Ec(n_x_max,n_y_max)
+    real(fp)  :: D_concnt(n_x_max,n_y_max)
+    real(fp)  :: Xscale, Yscale, frac_mass
     real(fp)  :: C2d_prev(n_x_max,n_y_max)
 
     real(fp)  :: Cslab(n_slab_max), Extra_Cslab(n_slab_max)
@@ -2536,6 +2561,15 @@ CONTAINS
          Sigma2D(i_box)   = SQRT( Sigma2D(i_box)**2 + 2*eddy_v*Pdt )
 
 
+         D_concnt  = box_concnt_2D(i_box,:,:,1) - Extra_mass_2D(i_box,:,:,1)
+         frac_mass = 0.95
+
+         Xscale = Get_XYscale(D_concnt, i_box, frac_mass, 2)
+         Yscale = Get_XYscale(D_concnt, i_box, frac_mass, 1)
+
+!         box_theta(i_box) = ATAN( Xscale/Yscale )
+
+
          IF( box_theta(i_box) > (88.0/180.0*PI) ) THEN !!! shw ???
 
 
@@ -2566,7 +2600,6 @@ CONTAINS
 
 
            !!! update the background concentration:
-
            exchange_amount =Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1.0e+6_fp &
                        *SUM( box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1) ) &
                    - box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp  &
@@ -3572,6 +3605,68 @@ CONTAINS
 !===================================================================
 !
 !===================================================================
+  REAL(fp) FUNCTION Get_XYscale(concnt1_2D, i_box, frac, axis)
+
+    IMPLICIT NONE
+
+    REAL(fp) :: concnt1_2D(n_x_max, n_y_max), frac
+    INTEGER  :: i_box, axis
+
+    INTEGER  :: i, j
+    REAL(fp) :: temp, C_sum, mass_total
+
+    REAL(fp) :: D_len
+    INTEGER  :: N_max, N_frac
+
+    REAL(fp), allocatable :: concnt1_2D_sum(:)
+
+
+      IF(axis==2)THEN ! sum y
+        N_max = n_x_max
+        D_len = Pdx(i_box)
+      ELSE IF(axis==1)THEN ! sum x
+        N_max = n_y_max
+        D_len = Pdy(i_box)
+      ENDIF
+
+    allocate(concnt1_2D_sum(N_max))
+
+      concnt1_2D_sum = SUM(concnt1_2D, DIM=axis)
+
+
+      ! sort the array from high value to low:
+      DO i = N_max-1, 1, -1
+      DO j = 1, i
+        IF(concnt1_2D_sum(j)<concnt1_2D_sum(j+1))THEN
+          temp = concnt1_2D_sum(j)
+          concnt1_2D_sum(j) = concnt1_2D_sum(j+1)
+          concnt1_2D_sum(j+1) = temp
+        ENDIF
+      ENDDO
+      ENDDO
+
+
+      mass_total = SUM(concnt1_2D_sum)
+      C_sum = 0.0
+
+      ! find the XYscale containing frac of total mass
+      DO i = 1, N_max, 1
+        C_sum = C_sum + concnt1_2D_sum(i)
+        if(C_sum>mass_total*frac)then
+          N_frac = i
+          EXIT
+        endif
+      ENDDO
+
+
+      Get_XYscale = N_frac * D_len
+
+    RETURN
+
+  END FUNCTION
+
+
+
   REAL(fp) FUNCTION Find_theta(theta1, concnt1_2D, Height, Ibox)
     ! n_x_max, n_y_max, Pdx, Pdy are global variables
 
