@@ -80,7 +80,10 @@
 ! value, when concentratino don't follow gaussian distribution after involve
 ! settling speed etc.
 
-
+! Nov 3, 2020
+! add a lifetime variable Lifetime(n_box) to record the plume lifetim in plume
+! model. When lifetime is larger than 3 hours, begin to consider change 2D to 1D
+! change Sigma2D to lifetime
 
 
 
@@ -105,11 +108,6 @@
 ! update the horizontal wind shear by
 ! (1) using lyapunov for stretch
 ! (2) assume plume length is always along the horizontal wind direction
-
-
-! add a lifetime variable [ Life(n_box) ], when lifetime is larger than 3 hours, 
-! begin to consider change 2D to 1D
-! change Sigma2D to lifetime
 
 
 MODULE Lagrange_Mod
@@ -211,7 +209,7 @@ MODULE Lagrange_Mod
   ! Theta is the clockwise angle between z-axis (P) and vertical Ra
   real(fp), allocatable :: box_theta(:)     ! degree between vertical and Ra
   real(fp), allocatable :: box_length(:)
-  real(fp), allocatable :: Sigma2D(:) ! for 2D to 1D
+  real(fp), allocatable :: Lifetime(:) ! record plume lifetime in plume model
 
 
 
@@ -328,7 +326,7 @@ CONTAINS
 
     allocate(Total_extra(n_box))
 
-    allocate(Sigma2D(n_box))
+    allocate(Lifetime(n_box))
 
 
     n_slab_25 = n_slab_max/4*1
@@ -372,7 +370,7 @@ CONTAINS
 
 
         box_theta(i_box)   = 0.0e+0_fp    ! [radian]
-        Sigma2D(i_box)     = 0.0e+0_fp    ! [m]
+        Lifetime(i_box)     = 0.0e+0_fp    ! [second]
         Judge_plume(i_box) = 2
     enddo
 
@@ -759,10 +757,10 @@ CONTAINS
     allocate(Plume_L(n_box))
     Plume_L(1:n_box_prev) = Data1D_Int
 
-    Data1D = Sigma2D(:)
-    deallocate(Sigma2D)
-    allocate(Sigma2D(n_box))
-    Sigma2D(1:n_box_prev) = Data1D
+    Data1D = Lifetime(:)
+    deallocate(Lifetime)
+    allocate(Lifetime(n_box))
+    Lifetime(1:n_box_prev) = Data1D
 
 
     deallocate(Data1D_Int)
@@ -787,15 +785,15 @@ CONTAINS
         Pdx(i_box)       = Dx_init
         Pdy(i_box)       = Dy_init
 
-        box_theta(i_box) = 0.0e+0_fp     ! [radian]
-        Sigma2D(i_box)   = 0.0e+0_fp     ! [m]
+        box_theta(i_box) = 0.0e+0_fp      ! [radian]
+        Lifetime(i_box)   = 0.0e+0_fp     ! [second]
         Judge_plume(i_box) = 2
 
     enddo
 
     !--------------------------------------------------------
     ! Set the initial value of plume character:
-    ! box_theta, box_length, Sigma2D
+    ! box_theta, box_length, Lifetime
     !--------------------------------------------------------
     DO i_box = n_box_prev+1, n_box-1
       box_lon_edge(i_box) = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) )
@@ -838,6 +836,9 @@ CONTAINS
     do i_box = 1,n_box,1
 
       IF(Judge_plume(i_box)==0) GOTO 500
+
+      ! record the plume lifetime before dissolving into Eulerian model
+      Lifetime(i_box) = Lifetime(i_box) + Dt
 
 
       ! ====================================================================
@@ -2557,9 +2558,11 @@ CONTAINS
          ! Change from 2D to 1D, 
          ! once the tilting degree is bigger than 88 deg (88/180*3.14)
          !====================================================================
-         box_theta(i_box) = ATAN( TAN(box_theta(i_box)) + wind_s_shear*Pdt )
-         Sigma2D(i_box)   = SQRT( Sigma2D(i_box)**2 + 2*eddy_v*Pdt )
+         
+         IF(i_box==1) WRITE(6,*) 'Lifetime=', Lifetime(i_box)
 
+
+         IF(Lifetime(i_box)>3*3600.0)THEN
 
          D_concnt  = box_concnt_2D(i_box,:,:,1) - Extra_mass_2D(i_box,:,:,1)
          frac_mass = 0.95
@@ -2567,7 +2570,7 @@ CONTAINS
          Xscale = Get_XYscale(D_concnt, i_box, frac_mass, 2)
          Yscale = Get_XYscale(D_concnt, i_box, frac_mass, 1)
 
-!         box_theta(i_box) = ATAN( Xscale/Yscale )
+         box_theta(i_box) = ATAN( Xscale/Yscale )
 
 
          IF( box_theta(i_box) > (88.0/180.0*PI) ) THEN !!! shw ???
@@ -2578,7 +2581,7 @@ CONTAINS
 
            ! calculate accutate box_theta
            box_theta(i_box) = &
-             Find_theta(box_theta(i_box), Pc, Sigma2D(i_box), i_box)
+             Find_theta(box_theta(i_box), Pc, Yscale, i_box)
 
 !           box_theta(i_box) = 1.521235 !!! shw
 
@@ -2587,7 +2590,7 @@ CONTAINS
 
            ! assign length/width and concentration to 1D slab model 
            ! return initial box_Ra(i_box), box_Rb(i_box), box_concnt_1D(i_box)
-           CALL Slab_init(box_theta(i_box), i_box, Pc, Ec, Sigma2D(i_box))
+           CALL Slab_init(box_theta(i_box), i_box, Pc, Ec, Yscale)
 
            WRITE(6,*)'2D to 1D: ', i_box, box_Ra(i_box), box_Rb(i_box)
 
@@ -2631,7 +2634,7 @@ CONTAINS
            GOTO 400 ! begin 1D slab model
 
          ENDIF ! IF(box_theta(i_box)>98/180*3.14)
-
+         ENDIF ! IF(Lifetime(i_box)>3*3600.0)THEN
 
          !===================================================================
          ! Third judge:
@@ -3125,10 +3128,10 @@ CONTAINS
          allocate(Plume_L(n_box))
          Plume_L(1:n_box_prev) = Data1D_Int
 
-         Data1D = Sigma2D(:)
-         deallocate(Sigma2D)
-         allocate(Sigma2D(n_box))
-         Sigma2D(1:n_box_prev) = Data1D
+         Data1D = Lifetime(:)
+         deallocate(Lifetime)
+         allocate(Lifetime(n_box))
+         Lifetime(1:n_box_prev) = Data1D
 
 
          deallocate(Data1D_Int)
@@ -3199,7 +3202,7 @@ CONTAINS
            box_Rb(ii_box)      = box_Rb(i_box)
 
            box_theta(ii_box)   = box_theta(i_box)
-           Sigma2D(ii_box)     = Sigma2D(i_box)
+           Lifetime(ii_box)     = Lifetime(i_box)
            Judge_plume(ii_box) = 1
 
            box_length(ii_box)  = box_length(i_box)
