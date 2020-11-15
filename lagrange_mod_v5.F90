@@ -2,8 +2,16 @@
 !                  GEOS-Chem Global Chemical Transport Model
 !--------------------------------------------------------------------------
 
+!(1)
 ! this version only use for validation, comparing with gaussian analytical
 ! results
+
+! (2)
+! the new added rings' spacing is differet from previous ring spacing
+
+! (3)
+! expanding ring to offset the extra/fake diffusion caused by discretization
+! method.
 
 MODULE Lagrange_Mod
 
@@ -57,8 +65,8 @@ MODULE Lagrange_Mod
   real(fp), allocatable :: box_concnt(:,:,:) !(n_boxes_max,N_rings,N_species)
 
 
-  real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
-  real(fp), pointer :: P_edge(:)
+  real(fp), pointer     :: X_mid(:), Y_mid(:), P_mid(:)
+  real(fp), pointer     :: P_edge(:)
 
   REAL(fp), allocatable :: V_ring(:,:) !(n_rings_max)
 
@@ -286,40 +294,15 @@ CONTAINS
 
     DO i_box = 1, n_boxes_max
 
-      box_concnt(i_box,1:100,N_species) = (/0.174488166444430, &
-0.156138871653325, 0.125026234582045, 0.0895852117211785, 0.0574402808489649, &
-0.0329565576252125, 0.0169204608691682, 0.00777369667788525, &
-0.00319586224695352, 0.00117569201747017, 0.000387029567972910, &
-0.000114009168536555, 3.00524905451894e-05, 7.08869380625461e-06, &
-1.49622540139793e-06, 2.82600474669907e-07, 4.77632431592890e-08, &
-7.22370141744958e-09, 9.77621677347260e-10, 1.18393242945732e-10, &
-1.28300417008587e-11, 1.24415439151464e-12, 1.07960663085728e-13, &
-8.38304634870508e-15, 5.82482992068736e-16, 3.62167677488359e-17, &
-2.01502846163877e-18, 1.00322359782801e-19, 4.46950421253661e-21, &
-1.78182898926673e-22, 6.35649555090426e-24, 2.02915177322292e-25, &
-5.79637365699711e-27, 1.48164197710657e-28, 3.38902857743657e-30, &
-6.93668935210694e-32, 1.27049897256518e-33, 2.08229112512681e-35, &
-3.05389172827021e-37, 4.00784466338062e-39, 4.70666386401979e-41, &
-4.94607324717646e-43, 4.65107091641007e-45, 3.91372617409943e-47, &
-2.94695137266594e-49, 1.98564021579053e-51, 1.19721791846575e-53, &
-6.45938117990698e-56, 3.11855693276874e-58, 1.34729127631571e-60, &
-5.20852047884498e-63, 1.80182377010285e-65, 5.57770197300960e-68, &
-1.54505291023795e-70, 3.82980326431702e-73, 8.49482880709799e-76, &
-1.68607874969167e-78, 2.99465044571481e-81, 4.75947965778976e-84, &
-6.76889646607812e-87, 8.61432644050042e-90, 9.81001873757598e-93, &
-9.99685530179176e-96, 9.11595206196196e-99, 7.43850598766180e-102, &
-5.43143340173766e-105, 3.54885502387926e-108, 2.07494751111970e-111, &
-1.08560298692923e-114, 5.08253059538260e-118, 2.12928616012098e-121, &
-7.98239323427931e-125, 2.67779461132257e-128, 8.03834173772811e-132, &
-2.15923904825434e-135, 5.19015159493475e-139, 1.11636038820965e-142, &
-2.14869043540834e-146, 3.70073801051786e-150, 5.70358461076645e-154, &
-7.86597376959563e-158, 9.70738281856757e-162, 1.07200516335044e-165, &
-1.05934313168528e-169, 9.36745230924608e-174, 7.41227261611073e-178, &
-5.24839284270442e-182, 3.32541876270411e-186, 1.88543432225935e-190, &
-9.56580518914635e-195, 4.34286883708857e-199, 1.76431835202137e-203, &
-6.41390093298191e-208, 2.08647219404741e-212, 6.07362553888705e-217, &
-1.58208014925224e-221, 3.68768662151548e-226, 7.69173993076720e-231, &
-1.43562242367034e-235, 2.39773361679092e-240 /)
+      box_concnt(i_box,1:30,N_species) = (/ &
+ 1.72060594e-01, 1.54441912e-01, 1.24429816e-01, 8.99793921e-02, &
+ 5.83978832e-02, 3.40138422e-02, 1.77779442e-02, 8.33742271e-03, &
+ 3.50799576e-03, 1.32407334e-03, 4.48266983e-04, 1.36106002e-04, &
+ 3.70575463e-05, 9.04643915e-06, 1.97980989e-06, 3.88381326e-07, &
+ 6.82854161e-08, 1.07592008e-08, 1.51902319e-09, 1.92146961e-10, &
+ 2.17742081e-11, 2.21028706e-12, 2.00961532e-13, 1.63643342e-14, &
+ 1.19335813e-15, 7.79289464e-17, 4.55673067e-18, 2.38565609e-19, &
+ 1.11824730e-20, 4.69268236e-22 /)
 
     ENDDO
 
@@ -1546,6 +1529,8 @@ CONTAINS
     real(fp)  :: D_concnt
     ! used to calculate concentration distribution
 
+    real(fp)  :: Dr_A, Dr_B
+
     real(fp)  :: eddy_v, eddy_h
     real(fp)  :: eddy_A, eddy_B
     real(fp)  :: Cv, Ch, Omega_N, N_BV
@@ -1810,15 +1795,16 @@ CONTAINS
 
        Dt2 = Dt
 
+       ! SHW2 this should be modified !!!
        IF(MINVAL(box_radiusA(i_box,:)-2.0*kA(:)*Dt2)<0.0 &
                         .or. MINVAL(box_radiusB(i_box,:)-2.0*kB(:)*Dt2)<0.0 )THEN
           Dt2 = Dt*1.0e-1_fp
-       ENDIF
-
-
-       if(MINVAL(box_radiusA(i_box,:)-2.0*kA(:)*Dt2)<0.0 &
-                        .or. MINVAL(box_radiusB(i_box,:)-2.0*kB(:)*Dt2)<0.0 )then
-         Dt2 = Dt*1.0e-2_fp
+! SHW2       ENDIF
+! SHW2
+! SHW2
+! SHW2       if(MINVAL(box_radiusA(i_box,:)-2.0*kA(:)*Dt2)<0.0 &
+! SHW2                        .or. MINVAL(box_radiusB(i_box,:)-2.0*kB(:)*Dt2)<0.0 )then
+! SHW2         Dt2 = Dt*1.0e-2_fp
 
  300     CONTINUE
 
@@ -1840,11 +1826,17 @@ CONTAINS
          !-------------------------------------------------------------------
          ! Meanwhile, add new rings into plume to compensate lost rings
          !-------------------------------------------------------------------
+         Dr_A = MAXVAL(2.0*kA(:)*Dt) ! SHW2
+         Dr_B = MAXVAL(2.0*kB(:)*Dt) ! SHW2
+
          DO i_ring=Max_rings(i_box)/2+1,Max_rings(i_box)
-           box_radiusA(i_box,i_ring) = box_radiusA(i_box,i_ring-1) &
-              + ( box_radiusA(i_box,i_ring-1) - box_radiusA(i_box,i_ring-2) )
-           box_radiusB(i_box,i_ring) = box_radiusB(i_box,i_ring-1) &
-              + ( box_radiusB(i_box,i_ring-1) - box_radiusB(i_box,i_ring-2) )
+! SHW2          box_radiusA(i_box,i_ring) = box_radiusA(i_box,i_ring-1) &
+! SHW2             + ( box_radiusA(i_box,i_ring-1) - box_radiusA(i_box,i_ring-2) )
+! SHW2          box_radiusB(i_box,i_ring) = box_radiusB(i_box,i_ring-1) &
+! SHW2             + ( box_radiusB(i_box,i_ring-1) - box_radiusB(i_box,i_ring-2) )
+
+           box_radiusA(i_box,i_ring) = box_radiusA(i_box,i_ring-1) + Dr_A ! SHW2
+           box_radiusB(i_box,i_ring) = box_radiusB(i_box,i_ring-1) + Dr_B ! SHW2
 
            do i_species = 1,N_species
 ! SHW             box_concnt(i_box,i_ring,i_species) = &
@@ -1867,10 +1859,11 @@ CONTAINS
 !         enddo
 ! SHW
 
-         !=================================================================
+
+         !-----------------------------------------------------------------
          ! Calculate the transport rate
          ! kB should be rewrite in a more accurate equation !!!
-         !=================================================================
+         !-----------------------------------------------------------------
          ! For innest ring:
          kB(1) = eddy_B / ( 0.5*box_radiusB(i_box,2) )
          kA(1) = eddy_A / ( 0.5*box_radiusA(i_box,2) )
@@ -2571,7 +2564,13 @@ CONTAINS
           ELSE
             WRITE(262,*) tt, T_total, i_box, backgrd_concnt(i_box,N_species)
 !          WRITE(262,*) box_concnt(i_box,:,N_species)*V_ring(i_box,:)
+            WRITE(262,*) 'box_radiusA(i_box,1:n_rings_max)'
             WRITE(262,*) box_radiusA(i_box,1:n_rings_max)
+
+            WRITE(262,*) 'box_radiusB(i_box,1:n_rings_max)'
+            WRITE(262,*) box_radiusB(i_box,1:n_rings_max)
+
+            WRITE(262,*) 'box_concnt(i_box,1:n_rings_max,N_species)'
             WRITE(262,*) box_concnt(i_box,1:n_rings_max,N_species)
           ENDIF
        ENDDO

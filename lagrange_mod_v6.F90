@@ -3,8 +3,12 @@
 !--------------------------------------------------------------------------
 
 ! Changes in this version:
+! (*) The innest ring should also be signed background concentration, in
+!     addition to the injected particles.
 ! (1) The extra mass wouldn't be totally minused at the end, 
 !     but decrease at every time step.
+!       (1.1) shadow plume pairing with injected plume
+!       (1.2) a new parameter containing extra fake mass for each ring
 ! (2) Add a new process: adjust the long/short radius length
 !     caused by dilution process.
 
@@ -97,7 +101,7 @@ MODULE Lagrange_Mod
   real(fp), allocatable :: env_amount(:)
   real(fp), allocatable :: backgrd_concnt(:,:)
 
-  real(fp), allocatable :: Extra_amount(:,:)
+  real(fp), allocatable :: Extra_amount(:,:,:) ![]
 
 CONTAINS
 
@@ -188,7 +192,7 @@ CONTAINS
     allocate(env_amount(n_boxes_max))
     allocate(backgrd_concnt(n_boxes_max,N_species))
 
-    allocate(Extra_amount(n_boxes_max,N_species))
+    allocate(Extra_amount(n_boxes_max, n_rings_max, N_species))
 
     X_mid  => XMID(:,1,1)   ! IIPAR
     Y_mid  => YMID(1,:,1)
@@ -1577,13 +1581,13 @@ CONTAINS
        i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
-       do i_species = 1,N_species
-        DO i_ring = 2,n_rings_max ! innest ring contains injectred aerosols
-          box_concnt(i_box,i_ring,i_species) = &
-                             State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
-        ENDDO
-          Extra_amount(i_box,i_species) = SUM(V_ring(i_box,2:n_rings_max)  &
-                      * box_concnt(i_box,2:n_rings_max,i_species) ) ![molec]
+       do i_species = 1, N_species
+       DO i_ring = 1, n_rings_max ! innest ring contains injectred aerosols shw
+         box_concnt(i_box,i_ring,i_species) = box_concnt(i_box,i_ring,i_species) + &
+                            State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+         Extra_amount(i_box,i_ring,i_species) =  & ! [molec]
+                   V_ring(i_box,i_ring)  * box_concnt(i_box,i_ring,i_species)
+       ENDDO
        enddo 
 
     ENDDO
@@ -1732,16 +1736,17 @@ CONTAINS
 
        !=================================================================
        ! Adjust the long/short radius because the plume deformation
-       ! caused by dilution;
+       ! caused by dilution; shw
        ! let: Ratio_radius = Ra/Rb; Ra_Rb = Ra*Rb
        ! then: Rb = sqrt(Ra_Rb/Ratio_radius); Ra = Rb*Ratio_radius
        !=================================================================
-       Ratio_radius = SQRT(box_radiusA(i_box,1)+2.0*eddy_A*Dt) / SQRT(box_radiusA(i_box,1)+2.0*eddy_B*Dt)
-       Ra_Rb        = box_radiusA(i_box,1)*box_radiusB(i_box,1)
+       Ratio_radius = SQRT(box_radiusA(i_box,1)**2+2.0*eddy_A*Dt) / SQRT(box_radiusB(i_box,1)**2+2.0*eddy_B*Dt)
 
        DO i_ring=1,Max_rings(i_box)
+         Ra_Rb = box_radiusA(i_box,i_ring)*box_radiusB(i_box,i_ring)
+
          box_radiusB(i_box,i_ring) = SQRT(Ra_Rb/Ratio_radius)
-         box_radiusA(i_box,i_ring) = Ra_Rb * Ratio_radius
+         box_radiusA(i_box,i_ring) = box_radiusB(i_box,i_ring) * Ratio_radius
        ENDDO
 
 
@@ -1791,6 +1796,12 @@ CONTAINS
                     / ( V_ring(i_box,i_ring*2-1)+V_ring(i_box,i_ring*2) )
 
            V_ring(i_box,i_ring) =V_ring(i_box,i_ring*2-1)+V_ring(i_box,i_ring*2)
+
+           do i_species = 1,N_species
+             Extra_amount(i_box,i_ring,i_species) = &
+                        SUM(Extra_amount(i_box,i_ring*2-1:i_ring*2,i_species))
+              ![molec]
+           enddo
          ENDDO
 
          !-------------------------------------------------------------------
@@ -1804,21 +1815,19 @@ CONTAINS
 
            do i_species = 1,N_species
              box_concnt(i_box,i_ring,i_species) = &
-                           State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+                     State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
            enddo
 
            V_ring(i_box,i_ring) = 1.0e+6_fp* box_length(i_box)* PI & ! [cm3]
              * ( box_radiusA(i_box,i_ring)*box_radiusB(i_box,i_ring) &
                - box_radiusA(i_box,i_ring-1)*box_radiusB(i_box,i_ring-1) )
 
+           do i_species = 1,N_species
+             Extra_amount(i_box,i_ring,i_species) = &
+                     + V_ring(i_box,i_ring) * box_concnt(i_box,i_ring,i_species)
+              ![molec]
+           enddo
          ENDDO
-
-         do i_species = 1,N_species
-           Extra_amount(i_box,i_species) = Extra_amount(i_box,i_species) &
-            + SUM(V_ring(i_box,Max_rings(i_box)/2+1:Max_rings(i_box)) &
-            * box_concnt(i_box,Max_rings(i_box)/2+1:Max_rings(i_box),i_species))
-           ![molec]
-         enddo
 
          !=================================================================
          ! Calculate the transport rate
@@ -1912,15 +1921,30 @@ CONTAINS
 
 !       IF(tt==1356.or.tt==1357) WRITE(6,*) box_concnt(i_box,i_ring,i_species)
 
+       box_concnt_old = box_concnt
 
        do i_ring = 1,Max_rings(i_box)
           box_concnt(i_box,i_ring,i_species) = &
-                box_concnt(i_box,i_ring,i_species) &
+                box_concnt_old(i_box,i_ring,i_species) &
                         + ( RK(1,i_ring) + 2.0*RK(2,i_ring) &
                            + 2.0*RK(3,i_ring) + RK(4,i_ring) ) /6.0
        enddo !i_ring
 
-
+       !================================================================
+       ! update the Extra_amount after diffusive dilution shw
+       !================================================================
+!       DO i_ring = 1, Max_rings(i_box)
+!         OuterS(i_ring) = ( Outer(1,i_ring)+2.0*Outer(2,i_ring)+2.0*Outer(3,i_ring)+Outer(4,i_ring) ) / 6.0
+!         InnerS(i_ring) = ( Inner(1,i_ring)+2.0*Inner(2,i_ring)+2.0*Inner(3,i_ring)+Inner(4,i_ring) ) / 6.0
+!        ! ( box_concnt(i_box,i_ring,i_species)-box_concnt(i_box,i_ring,i_species) )*V_ring(i_box,i_ring)
+!       ENDDO
+!
+!       DO i_ring = 1, Max_rings(i_box)
+!       do i_species = 1,N_species
+!         Extra_amount(i_box,i_ring,i_species) = Extra_amount(i_box,i_ring,i_species) + (OuterS(i_ring)*Fake2Real(i_ring,i_box))
+!       enddo
+!       ENDDO
+!
        IF(box_concnt(i_box,Max_rings(i_box),i_species)<0.0)THEN
          WRITE(6,*)'shw333',RK(:,Max_rings(i_box))
          WRITE(6,*)'shw333',box_concnt(i_box,Max_rings(i_box)-1,i_species),box_concnt(i_box,Max_rings(i_box),i_species),backgrd_concnt(i_box,i_species)
