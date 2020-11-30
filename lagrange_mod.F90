@@ -176,6 +176,24 @@
 !       Concnt1D_bdy(n_slab_max2) = backgrd_concnt(1)
 !       Concnt1D_bdy(2:n_slab_max2-1) = box_concnt_1D(i_box,1:n_slab_max,1)
 
+! Nov 29, 2020
+! find the error about total injected mass increasing in plume model:
+! box_Ra and box_Rb are commented previously. So only box_length keeps
+! increasing. Volume is not conserved.
+!      length0           = box_length(i_box)
+!      box_length(i_box) = EXP(Ly*Dt) * box_length(i_box)
+!      IF(Judge_plume(i_box)==1) THEN
+!        box_Ra(i_box) = box_Ra(i_box)*SQRT(length0/box_length(i_box))
+!        box_Rb(i_box) = box_Rb(i_box)*SQRT(length0/box_length(i_box))
+!
+! ERROR: total mass is not conservsed between Plume model and Eulerian model
+! Check the third judgement:
+
+
+
+
+
+
 
 ! reconsider plume dissolve criteria, which should involve extra mass
 
@@ -194,7 +212,6 @@
 ! dissolve the plume when touch the top of the atmosphere
 
 
-! Check whether 3rd judgement is correct.
 
 ! check: delete or release all the comment code
 
@@ -1438,7 +1455,7 @@ CONTAINS
 
     end do  !do i_box = 1,n_box
 
-    WRITE(6,*) '--- n_active_plume, n_box:',  n_active_plume, n_box
+!    WRITE(6,*) '--- n_active_plume, n_box:',  n_active_plume, n_box
 
     !------------------------------------------------------------------
     ! Horizontal stretch:
@@ -2144,12 +2161,18 @@ CONTAINS
     USE TIME_MOD,        ONLY : GET_TS_DYN
     USE TIME_MOD,        ONLY : ITS_TIME_FOR_EXIT
 
+    USE TIME_MOD,        ONLY : GET_YEAR
+    USE TIME_MOD,        ONLY : GET_MONTH
+    USE TIME_MOD,        ONLY : GET_DAY
+    USE TIME_MOD,        ONLY : GET_HOUR
+
     USE GC_GRID_MOD,     ONLY : XEDGE, YEDGE, XMID, YMID
     USE CMN_SIZE_Mod,    ONLY : IIPAR, JJPAR, LLPAR, DLAT, DLON
     ! DLAT( IIPAR, JJPAR, LLPAR ), DLON( IIPAR, JJPAR, LLPAR )
     ! XEDGE( IM+1, JM,   L ), YEDGE( IM,   JM+1, L ), IM=IIPAR, JM=JJPAR
 
     USE UnitConv_Mod,    ONLY : Convert_Spc_Units
+
 
     logical, intent(in)           :: am_I_Root
     TYPE(MetState), intent(in)    :: State_Met
@@ -2248,14 +2271,26 @@ CONTAINS
     real(fp)  :: start, finish
 
 
-    CHARACTER(LEN=255)     :: FILENAME2
+!    CHARACTER(LEN=255)     :: FILENAME2
     CHARACTER(LEN=63)      :: OrigUnit
     CHARACTER(LEN=255)     :: ErrMsg
+
+
+    INTEGER :: YEAR
+    INTEGER :: MONTH
+    INTEGER :: DAY
+    INTEGER :: HOUR
+
+    YEAR        = GET_YEAR()
+    MONTH       = GET_MONTH()
+    DAY         = GET_DAY()
+    HOUR        = GET_HOUR()
+
 
     RC        =  GC_SUCCESS
     ErrMsg    =  ''
 
-    FILENAME2   = 'Plume_theta_max_min_radius.txt'
+!    FILENAME2   = 'Plume_theta_max_min_radius.txt'
 
     n_box_max = n_box
 
@@ -2944,7 +2979,8 @@ CONTAINS
          ! If this is the final time step, the model is going to end
          ! dissolve all the plume into GCM in the last time step
          !===================================================================
-         IF ( ITS_TIME_FOR_EXIT() ) THEN
+!         IF ( ITS_TIME_FOR_EXIT() ) THEN
+         IF(DAY==31 .and. HOUR==23)THEN
 
 !           backgrd_concnt(1) = &
 !              ( SUM(  box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1)     &
@@ -3347,7 +3383,8 @@ CONTAINS
        ! If this is the final time step, the model is going to end
        ! dissolve all the plume into GCM in the last time step
        !===================================================================
-       IF ( ITS_TIME_FOR_EXIT() ) THEN
+!       IF ( ITS_TIME_FOR_EXIT() ) THEN
+        IF(DAY==31 .and. HOUR==23)THEN
 
 !         backgrd_concnt(1) = &
 !            ( SUM(  box_concnt_1D(i_box, 2:n_slab_max-1,1)             &
@@ -4355,7 +4392,6 @@ CONTAINS
     INTEGER                   :: i_box, i_slab
     LOGICAL                   :: IsOldFile
 
-    INTEGER :: n_active_plume
 
     INTEGER :: YEAR
     INTEGER :: MONTH
@@ -4392,7 +4428,7 @@ CONTAINS
 ! Output box location
 !-------------------------------------------------------------------
 
-    IF(mod(tt,14400)==0)THEN   ! output once every day (24 hours)
+    IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
 
 
     FILENAME   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) // '-'   &
@@ -4405,14 +4441,9 @@ CONTAINS
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
 
-!    n_active_plume = 0
-
     DO i_box = 1,n_box,1
-!      if(Judge_plume(i_box).NE.0) n_active_plume = n_active_plume + 1
-      WRITE(261, *) i_box, Lifetime(i_box)/3600/24
+      WRITE(261, *) i_box, Lifetime(i_box)/3600/24, Judge_plume(i_box)
     ENDDO ! DO i_box = 1,n_box,1
-
-!    WRITE(261, *)'Active/Total plume number:', n_active_plume, n_box
 
     ENDIF ! IF(mod(tt,1440)==0)THEN
 
