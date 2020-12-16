@@ -188,37 +188,39 @@
 !
 ! ERROR: total mass is not conservsed between Plume model and Eulerian model
 ! Check the third judgement:
+! ERROR solved by 
+! changing  "IF ( ITS_TIME_FOR_EXIT() ) THEN" 
+! to        "IF(DAY==31 .and. HOUR==23)THEN"
+
+! Dec 5, 2020
+! add bondary grid cell to 2D grid, similar like what we did for 1D grid.
+! By doing so, the boundary of plume would not belong to plume mass, when 
+! combine plume grid cells (9 to 1, 2 to 1), these extra mass in plume 
+! boundary grid cell will be included.
+!
+! the dimension order of box_concnt_2D and box_concnt_1D are changed, "n_box"
+! dimension are put in the last dimension.
+
+! Dec 6, 2020
+! add box_alpha(n_box), and delete box_u, box_v, box_w
+!
+! delete box_Ptemp(i_box)
 
 
 
-
-
+! when plume is dissolved, delete it from the n_box
 
 
 ! reconsider plume dissolve criteria, which should involve extra mass
 
 
-! check the dimension of box_concnt, to make sure the x, y dimension are in the
-! fastest setting.
-
-! the boundary of plume doesn't belong to plume mass, when combine plume grid
-! cells (9 to 1, 2 to 1), these extra mass in plume boundary grid cell will be
-! included.
-
-! when do the 9 to 1, or 2 to 1 grid cell combination, the total volume will
-! have to change.
-
 !
 ! dissolve the plume when touch the top of the atmosphere
-
 
 
 ! check: delete or release all the comment code
 
 
-! track life time of all plume
-
-! track active plume in every time step
 
 
 MODULE Lagrange_Mod
@@ -250,18 +252,19 @@ MODULE Lagrange_Mod
   PUBLIC :: box_lon, box_lat, box_lev
   PUBLIC :: n_box
   PUBLIC :: n_box_prev
-  PUBLIC :: box_u, box_v, box_omeg
-  PUBLIC :: box_Ptemp
+!  PUBLIC :: box_u, box_v, box_omeg
+  PUBLIC :: box_alpha
+!  PUBLIC :: box_Ptemp
 
-  PUBLIC :: Plume_I, Plume_J, Plume_L ! (n_box)
+!  PUBLIC :: Plume_I, Plume_J, Plume_L ! (n_box)
   PUBLIC :: Judge_plume ! 0-dissolved; 1-1D slab model; 2-2D model
 
   PUBLIC :: n_x_max, n_y_max
   PUBLIC :: n_x_mid, n_y_mid
-  PUBLIC :: box_concnt_2D ! (n_box, n_x_max, n_y_max, N_specie)
+  PUBLIC :: box_concnt_2D ! (n_x_max, n_y_max, N_specie, n_box)
 
   PUBLIC :: n_slab_max, n_slab_25, n_slab_50, n_slab_75
-  PUBLIC :: box_concnt_1D ! (n_box, n_slab_max, N_specie)
+  PUBLIC :: box_concnt_1D ! (n_slab_max, N_specie, n_box)
 
 !  PUBLIC :: Extra_mass_2D       ! [molec cm-3]
 !  PUBLIC :: Extra_mass_1D       ! [molec cm-3]
@@ -275,17 +278,21 @@ MODULE Lagrange_Mod
   integer               :: n_box
    
   integer               :: n_box_prev
-  real(fp), allocatable :: box_u(:), box_v(:), box_omeg(:)
-  real(fp), allocatable :: box_Ptemp(:)
+!  real(fp), allocatable :: box_u(:), box_v(:), box_omeg(:)
+  real(fp), allocatable :: box_alpha(:)
+!  real(fp), allocatable :: box_Ptemp(:)
 
 
-  integer, allocatable  :: Plume_I(:), Plume_J(:), Plume_L(:) !(n_box)
+!  integer, allocatable  :: Plume_I(:), Plume_J(:), Plume_L(:) !(n_box)
 
   integer, parameter    :: n_x_max = 483    ! number of x grids in 2D
   integer, parameter    :: n_y_max = 165    !279     ! number of y grids in 2D
   ! the odd number of n_x_max can ensure a center grid
   integer, parameter    :: n_x_mid = 242
   integer, parameter    :: n_y_mid = 83
+
+  integer, parameter    :: n_x_max2 = n_x_max+2
+  integer, parameter    :: n_y_max2 = n_y_max+2
 
   ! n_slab_max should be divided by 4, to ensure n_slab_25 is an integer.
   integer, parameter    :: n_slab_max = 164 ! close to n_y_max, number of slabs in 1D
@@ -301,15 +308,15 @@ MODULE Lagrange_Mod
 
   ! medical concentration of each slab [molec/cm3]
   integer, allocatable  :: Judge_plume(:)
-  real(fp), allocatable :: box_concnt_1D(:,:,:)   !(n_box,N_slab,N_specie)
-  real(fp), allocatable :: box_concnt_2D(:,:,:,:) !(n_box,N_slab,N_specie)
+  real(fp), allocatable :: box_concnt_1D(:,:,:)   !(N_slab,N_specie,n_box)
+  real(fp), allocatable :: box_concnt_2D(:,:,:,:) 
 
 
   real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
   real(fp), pointer :: P_edge(:)
 
 
-  integer, parameter    :: N_parcel   = 2 ! 131        
+  integer, parameter    :: N_parcel   = 33 ! 131        
   integer               :: tt     
   ! Aircraft would release 131 aerosol parcels every time step
 
@@ -410,17 +417,18 @@ CONTAINS
 !    allocate(box_lat_edge(n_box))
 !    allocate(box_lev_edge(n_box))
 
-    allocate(box_u(n_box))
-    allocate(box_v(n_box))
-    allocate(box_omeg(n_box))
-    allocate(box_Ptemp(n_box))
+!    allocate(box_u(n_box))
+!    allocate(box_v(n_box))
+!    allocate(box_omeg(n_box))
+    allocate(box_alpha(n_box))
+!    allocate(box_Ptemp(n_box))
 
 !--------------------------------------------------
 ! Allocate following variables for plume_run
 !--------------------------------------------------
-    allocate(Plume_I(n_box))
-    allocate(Plume_J(n_box))
-    allocate(Plume_L(n_box))
+!    allocate(Plume_I(n_box))
+!    allocate(Plume_J(n_box))
+!    allocate(Plume_L(n_box))
 
     allocate(Pdx(n_box))
     allocate(Pdy(n_box))
@@ -434,8 +442,8 @@ CONTAINS
 !    N_specie = State_Chm%nAdvect
 
     allocate(Judge_plume(n_box))
-    allocate(box_concnt_2D(n_box,n_x_max,n_y_max,N_specie))
-    allocate(box_concnt_1D(n_box,n_slab_max,N_specie))
+    allocate(box_concnt_2D(n_x_max,n_y_max,N_specie,n_box))
+    allocate(box_concnt_1D(n_slab_max,N_specie,n_box))
 
 
 !    allocate(Extra_mass_2D(n_box, n_x_max, n_y_max, N_specie))
@@ -519,14 +527,14 @@ CONTAINS
     !--------------------------------------------------------
     ! State_Chm%nAdvect: the last one is PASV
     DO i_box = 1, n_box
-      box_concnt_2D(i_box,:,:,N_specie) = 0.0e+0_fp
-      box_concnt_2D(i_box,n_x_mid,n_y_mid,N_specie) = &
+      box_concnt_2D(:,:,N_specie,i_box) = 0.0e+0_fp
+      box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) = &
                                 box_length(i_box)*30.0 &
                               / (Pdx(i_box)*Pdy(i_box)*box_length(i_box))
 
       ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
-      box_concnt_2D(i_box,n_x_mid,n_y_mid,N_specie) = &
-        box_concnt_2D(i_box,n_x_mid,n_y_mid,N_specie) &
+      box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) = &
+        box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) &
           / 1.0e+6_fp / 98.0 * AVO
 
     ENDDO
@@ -697,7 +705,7 @@ CONTAINS
     real(fp) :: curr_T1, next_T2, ratio
     real(fp) :: V_prev, V_new
 
-
+    real(fp) :: box_u, box_v, box_omeg
     real(fp) :: curr_u, curr_v, curr_omeg
     real(fp) :: curr_u_PS, curr_v_PS
 
@@ -711,7 +719,7 @@ CONTAINS
 
     real(fp) :: box_lon_edge, box_lat_edge
 
-    real(fp) :: box_alpha
+!    real(fp) :: box_alpha
     real(fp) :: D_wind, D_x, D_y
     real(fp) :: Ly ! Lyapunov exponent [s-1]
 
@@ -758,9 +766,9 @@ CONTAINS
 
     allocate(Data1D_Int(n_box_prev))
     allocate(Data1D(n_box_prev))
-    allocate(Data2D(n_box_prev, N_specie))
-    allocate(Data3D(n_box_prev, n_slab_max, N_specie))
-    allocate(Data4D(n_box_prev, n_x_max, n_y_max, N_specie))
+    allocate(Data2D(N_specie, n_box_prev))
+    allocate(Data3D(n_slab_max, N_specie, n_box_prev))
+    allocate(Data4D(n_x_max, n_y_max, N_specie, n_box_prev))
 
     Data1D = box_lon(:)
     deallocate(box_lon)
@@ -811,8 +819,8 @@ CONTAINS
 
     Data4D = box_concnt_2D(:,:,:,:)
     deallocate(box_concnt_2D)
-    allocate(box_concnt_2D(n_box,n_x_max,n_y_max,N_specie))
-    box_concnt_2D(1:n_box_prev,:,:,:) = Data4D
+    allocate(box_concnt_2D(n_x_max,n_y_max,N_specie,n_box))
+    box_concnt_2D(:,:,:,1:n_box_prev) = Data4D
 
 !    Data4D = Extra_mass_2D(:,:,:,:)
 !    deallocate(Extra_mass_2D)
@@ -822,8 +830,8 @@ CONTAINS
 
     Data3D = box_concnt_1D(:,:,:)
     deallocate(box_concnt_1D)
-    allocate(box_concnt_1D(n_box,n_slab_max,N_specie))
-    box_concnt_1D(1:n_box_prev,:,:) = Data3D
+    allocate(box_concnt_1D(n_slab_max,N_specie,n_box))
+    box_concnt_1D(:,:,1:n_box_prev) = Data3D
 
 !    Data3D = Extra_mass_1D(:,:,:)
 !    deallocate(Extra_mass_1D)
@@ -859,40 +867,45 @@ CONTAINS
     Total_extra(1:n_box_prev) = Data1D
 
 
-    Data1D = box_u(:)
-    deallocate(box_u)
-    allocate(box_u(n_box))
-    box_u(1:n_box_prev) = Data1D
+!    Data1D = box_u(:)
+!    deallocate(box_u)
+!    allocate(box_u(n_box))
+!    box_u(1:n_box_prev) = Data1D
 
-    Data1D = box_v(:)
-    deallocate(box_v)
-    allocate(box_v(n_box))
-    box_v(1:n_box_prev) = Data1D
+!    Data1D = box_v(:)
+!    deallocate(box_v)
+!    allocate(box_v(n_box))
+!    box_v(1:n_box_prev) = Data1D
 
-    Data1D = box_omeg(:)
-    deallocate(box_omeg)
-    allocate(box_omeg(n_box))
-    box_omeg(1:n_box_prev) = Data1D
+!    Data1D = box_omeg(:)
+!    deallocate(box_omeg)
+!    allocate(box_omeg(n_box))
+!    box_omeg(1:n_box_prev) = Data1D
 
-    Data1D = box_Ptemp(:)
-    deallocate(box_Ptemp)
-    allocate(box_Ptemp(n_box))
-    box_Ptemp(1:n_box_prev) = Data1D
+    Data1D = box_alpha(:)
+    deallocate(box_alpha)
+    allocate(box_alpha(n_box))
+    box_alpha(1:n_box_prev) = Data1D
 
-    Data1D_Int = Plume_I(:)
-    deallocate(Plume_I)
-    allocate(Plume_I(n_box))
-    Plume_I(1:n_box_prev) = Data1D_Int
+!    Data1D = box_Ptemp(:)
+!    deallocate(box_Ptemp)
+!    allocate(box_Ptemp(n_box))
+!    box_Ptemp(1:n_box_prev) = Data1D
 
-    Data1D_Int = Plume_J(:)
-    deallocate(Plume_J)
-    allocate(Plume_J(n_box))
-    Plume_J(1:n_box_prev) = Data1D_Int
+!    Data1D_Int = Plume_I(:)
+!    deallocate(Plume_I)
+!    allocate(Plume_I(n_box))
+!    Plume_I(1:n_box_prev) = Data1D_Int
 
-    Data1D_Int = Plume_L(:)
-    deallocate(Plume_L)
-    allocate(Plume_L(n_box))
-    Plume_L(1:n_box_prev) = Data1D_Int
+!    Data1D_Int = Plume_J(:)
+!    deallocate(Plume_J)
+!    allocate(Plume_J(n_box))
+!    Plume_J(1:n_box_prev) = Data1D_Int
+
+!    Data1D_Int = Plume_L(:)
+!    deallocate(Plume_L)
+!    allocate(Plume_L(n_box))
+!    Plume_L(1:n_box_prev) = Data1D_Int
 
     Data1D = Lifetime(:)
     deallocate(Lifetime)
@@ -953,14 +966,14 @@ CONTAINS
     !--------------------------------------------------------
     ! State_Chm%nAdvect: the last one is PASV
     DO i_box = n_box_prev+1, n_box
-      box_concnt_2D(i_box,:,:,N_specie) = 0.0e+0_fp
-      box_concnt_2D(i_box,n_x_mid,n_y_mid,N_specie) = &
+      box_concnt_2D(:,:,N_specie,i_box) = 0.0e+0_fp
+      box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) = &
                                 box_length(i_box)*30.0 &
                               / (Pdx(i_box)*Pdy(i_box)*box_length(i_box))
 
       ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
-      box_concnt_2D(i_box,n_x_mid,n_y_mid,N_specie) = &
-        box_concnt_2D(i_box,n_x_mid,n_y_mid,N_specie) &
+      box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) = &
+        box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) &
           / 1.0e+6_fp / 98.0 * AVO
 
     ENDDO
@@ -1049,13 +1062,13 @@ CONTAINS
       !--------------------------------------------------------------------
       ! interpolate potential temperature for Plume module:
       !--------------------------------------------------------------------
-      if(abs(curr_lat)>Y_mid(JJPAR))then
-         box_Ptemp(i_box) = Interplt_wind_RLL_polar(Ptemp, i_lon, i_lat, &
-                                 i_lev, curr_lon, curr_lat, curr_pressure)
-      else
-         box_Ptemp(i_box) = Interplt_wind_RLL(Ptemp, i_lon, i_lat, i_lev, &
-                                          curr_lon, curr_lat, curr_pressure)
-      endif
+!      if(abs(curr_lat)>Y_mid(JJPAR))then
+!         box_Ptemp(i_box) = Interplt_wind_RLL_polar(Ptemp, i_lon, i_lat, &
+!                                 i_lev, curr_lon, curr_lat, curr_pressure)
+!      else
+!         box_Ptemp(i_box) = Interplt_wind_RLL(Ptemp, i_lon, i_lat, i_lev, &
+!                                          curr_lon, curr_lat, curr_pressure)
+!      endif
 
 
       DO Ki = 1,4,1
@@ -1212,11 +1225,11 @@ CONTAINS
 
 
 
-      box_u(i_box)    = ( RK_u(1) + 2.0*RK_u(2) &
+      box_u    = ( RK_u(1) + 2.0*RK_u(2) &
                          + 2.0*RK_u(3) + RK_u(4) ) / 6.0
-      box_v(i_box)    = ( RK_v(1) + 2.0*RK_v(2) &
+      box_v    = ( RK_v(1) + 2.0*RK_v(2) &
                          + 2.0*RK_v(3) + RK_v(4) ) / 6.0
-      box_omeg(i_box) = ( RK_omeg(1) + 2.0*RK_omeg(2) &
+      box_omeg = ( RK_omeg(1) + 2.0*RK_omeg(2) &
                          + 2.0*RK_omeg(3) + RK_omeg(4) ) / 6.0
 
 
@@ -1279,7 +1292,7 @@ CONTAINS
 
         V_new = box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp
 
-        box_concnt_1D(i_box,:,:) = box_concnt_1D(i_box,:,:)*V_prev/V_new
+        box_concnt_1D(:,:,i_box) = box_concnt_1D(:,:,i_box)*V_prev/V_new
 !        Extra_mass_1D(i_box,:,:) = Extra_mass_1D(i_box,:,:)*V_prev/V_new
       ELSE IF(Judge_plume(i_box)==2) THEN
         V_prev = Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1.0e+6_fp
@@ -1289,7 +1302,7 @@ CONTAINS
 
         V_new = Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1.0e+6_fp
 
-        box_concnt_2D(i_box,:,:,:) = box_concnt_2D(i_box,:,:,:)*V_prev/V_new
+        box_concnt_2D(:,:,:,i_box) = box_concnt_2D(:,:,:,i_box)*V_prev/V_new
 !        Extra_mass_2D(i_box,:,:,:) = Extra_mass_2D(i_box,:,:,:)*V_prev/V_new
       ENDIF
 
@@ -1301,11 +1314,11 @@ CONTAINS
 !         Total_extra(i_box)
 !
 
-      IF(i_box==222.and.Judge_plume(i_box)==1) WRITE(6,*) '1-1D', i_box,&
-        box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp,        &
-        box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp *       &
-                                        SUM(box_concnt_1D(i_box,:,1)),   &
-        Total_extra(i_box)
+!      IF(i_box==222.and.Judge_plume(i_box)==1) WRITE(6,*) '1-1D', i_box,&
+!        box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp,        &
+!        box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp *       &
+!                                        SUM(box_concnt_1D(i_box,:,1)),   &
+!        Total_extra(i_box)
 
 
 !
@@ -1314,31 +1327,31 @@ CONTAINS
 !         box_concnt_2D(i_box,n_x_mid,n_y_mid,1), &
 !                                box_concnt_2D(i_box,n_x_max,n_y_max,1)
 !
-      IF(i_box==222.and.Judge_plume(i_box)==1) WRITE(6,*) '1D', &
-         box_concnt_1D(i_box,n_slab_50:n_slab_50+3,1)
+!      IF(i_box==222.and.Judge_plume(i_box)==1) WRITE(6,*) '1D', &
+!         box_concnt_1D(i_box,n_slab_50:n_slab_50+3,1)
 
-      IF(i_box==222.and.Judge_plume(i_box)==1) WRITE(6,*) '1D', &
-         box_concnt_1D(i_box,n_slab_max-3:n_slab_max,1)
+!      IF(i_box==222.and.Judge_plume(i_box)==1) WRITE(6,*) '1D', &
+!         box_concnt_1D(i_box,n_slab_max-3:n_slab_max,1)
 
 
 
       !------------------------------------------------------------------
       ! calcualte the box_alpha [0,2*PI)
       !------------------------------------------------------------------
-      if((box_u(i_box)**2+box_v(i_box)**2)==0)then
-          box_alpha = 0.0
+      if((box_u**2+box_v**2)==0)then
+          box_alpha(i_box) = 0.0
       else
-        IF(box_v(i_box)>=0)THEN
-          box_alpha = ACOS( box_u(i_box)/SQRT(box_u(i_box)**2+box_v(i_box)**2) ) 
+        IF(box_v>=0)THEN
+          box_alpha(i_box) = ACOS( box_u/SQRT(box_u**2+box_v**2) ) 
         ELSE
-          box_alpha = 2*PI-ACOS( box_u(i_box)/SQRT(box_u(i_box)**2+box_v(i_box)**2) )
+          box_alpha(i_box) = 2*PI - ACOS( box_u/SQRT(box_u**2+box_v**2) )
         ENDIF
       endif
 
       !------------------------------------------------------------------
       ! calcualte the Lyaponov exponent (Ly), unit: s-1
       !------------------------------------------------------------------
-      IF(box_alpha>=1.75*PI)THEN
+      IF(box_alpha(i_box)>=1.75*PI)THEN
         next_i_lon = i_lon + 1
         if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
         if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
@@ -1353,7 +1366,7 @@ CONTAINS
         D_x    = Dx/360.0 * 2*PI *Re*COS(box_lat(i_box)/180*PI)
         Ly     = D_wind/D_x
 
-      ELSEIF(box_alpha>=1.25*PI)THEN
+      ELSEIF(box_alpha(i_box)>=1.25*PI)THEN
         next_i_lon = i_lon
         if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
         if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
@@ -1367,7 +1380,7 @@ CONTAINS
         D_y    = Dy/360.0 * 2*PI*Re
         Ly     = D_wind/D_y
 
-      ELSEIF(box_alpha>=0.75*PI)THEN
+      ELSEIF(box_alpha(i_box)>=0.75*PI)THEN
         next_i_lon = i_lon - 1
         if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
         if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
@@ -1381,7 +1394,7 @@ CONTAINS
         D_x    = Dx/360.0 * 2*PI *Re*COS(box_lat(i_box)/180*PI) 
         Ly     = D_wind/D_x
 
-      ELSEIF(box_alpha>=0.25*PI)THEN
+      ELSEIF(box_alpha(i_box)>=0.25*PI)THEN
         next_i_lon = i_lon
         if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
         if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
@@ -2185,7 +2198,7 @@ CONTAINS
     REAL(fp) :: Pdt
     REAL(fp) :: Dt2
 
-    integer  :: n_box_max
+!    integer  :: n_box_max
     integer  :: N_split
 
     integer  :: i_box, i_specie
@@ -2224,7 +2237,7 @@ CONTAINS
 
     ! same as angle between cross-section (right when 
     ! toward travel direction) and lon: box_alpha belongs to [0, 2*PI)
-    real(fp)          :: box_alpha ! beta! [radians]
+!    real(fp)          :: box_alpha ! beta! [radians]
 
     real(fp), pointer :: X_edge(:)
     real(fp), pointer :: Y_edge(:)
@@ -2248,17 +2261,21 @@ CONTAINS
     real(fp)  :: L_b, L_O, Ee
 
     real(fp)  :: CFL
-    real(fp)  :: CFL_2d(n_x_max-2,n_y_max-2) ! for 2D advection
+    real(fp)  :: CFL_2d(n_x_max,n_y_max) ! for 2D advection
 
     real(fp)  :: Pu(n_x_max,n_y_max) ! for 2D advection
 
-    real(fp)  :: Pc(n_x_max,n_y_max) !, Ec(n_x_max,n_y_max)
+    real(fp)  :: Pc(n_x_max,n_y_max),Pc2(n_x_max,n_y_max) !, Ec(n_x_max,n_y_max)
+    real(fp)  :: Pc_bdy(n_x_max2,n_y_max2)
 !    real(fp)  :: D_concnt(n_x_max,n_y_max)
     real(fp)  :: Xscale, Yscale, frac_mass
     real(fp)  :: C2d_prev(n_x_max,n_y_max), C2d_prev_extra(n_x_max,n_y_max)
 
     real(fp)  :: Cslab(n_slab_max) !, Extra_Cslab(n_slab_max)
+
+    real(fp)  :: Concnt2D_bdy(n_x_max2, n_y_max2)
     real(fp)  :: Concnt1D_bdy(n_slab_max2)
+
     real(fp)  :: C1d_prev(n_slab_max), C1d_prev_extra(n_slab_max)
 
     real(fp)  :: DlonN, DlatN ! split 1D from 1 to 5 segments
@@ -2292,7 +2309,7 @@ CONTAINS
 
 !    FILENAME2   = 'Plume_theta_max_min_radius.txt'
 
-    n_box_max = n_box
+!    n_box_max = n_box
 
     Dt = GET_TS_DYN()
 
@@ -2358,7 +2375,7 @@ CONTAINS
 
 
        do i_specie = 1, N_specie
-         box_concnt_2D(i_box,:,:,i_specie) = box_concnt_2D(i_box,:,:,i_specie) &
+         box_concnt_2D(:,:,i_specie,i_box) = box_concnt_2D(:,:,i_specie,i_box) &
                 + State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
 
          ! [molec]
@@ -2383,7 +2400,7 @@ CONTAINS
 
 
 
-    DO i_box = n_box_prev+1, n_box_max, 1       ! Only for new injected box
+    DO i_box = n_box_prev+1, n_box, 1       ! Only for new injected box
 
        curr_lon      = box_lon(i_box)
        curr_lat      = box_lat(i_box)
@@ -2402,7 +2419,7 @@ CONTAINS
 
 
        do i_specie = 1, N_specie
-         box_concnt_2D(i_box,:,:,i_specie) = box_concnt_2D(i_box,:,:,i_specie) &
+         box_concnt_2D(:,:,i_specie,i_box) = box_concnt_2D(:,:,i_specie,i_box) &
                 + State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
         
          ![molec]
@@ -2430,7 +2447,7 @@ CONTAINS
     !=====================================================================
     ! Run Plume distortion & dilution HERE
     !=====================================================================
-    do i_box = 1,n_box_max
+    do i_box = 1,n_box
 
          
        IF(Judge_plume(i_box)==0) GOTO 200
@@ -2479,7 +2496,7 @@ CONTAINS
 !       curr_u        = box_u(i_box)
 !       curr_v        = box_v(i_box)
 !       curr_omeg     = box_omeg(i_box)
-       curr_Ptemp    = box_Ptemp(i_box)
+!       curr_Ptemp    = box_Ptemp(i_box)
 
 
        !------------------------------------------------------------------
@@ -2505,15 +2522,15 @@ CONTAINS
 !       ! beta is [-PI/2,3*PI/2), box_alpha is [-PI, PI)
 !       box_alpha = beta - PI/2
 
-      if((box_u(i_box)**2+box_v(i_box)**2)==0)then
-          box_alpha = 0.0
-      else
-        IF(box_v(i_box)>=0)THEN
-          box_alpha = ACOS( box_u(i_box)/SQRT(box_u(i_box)**2+box_v(i_box)**2) )
-        ELSE
-          box_alpha = 2*PI-ACOS( box_u(i_box)/SQRT(box_u(i_box)**2+box_v(i_box)**2) )
-        ENDIF
-      endif
+!      if((box_u**2+box_v**2)==0)then
+!          box_alpha = 0.0
+!      else
+!        IF(box_v(i_box)>=0)THEN
+!          box_alpha = ACOS( box_u/SQRT(box_u**2+box_v**2) )
+!        ELSE
+!          box_alpha = 2*PI-ACOS( box_u/SQRT(box_u**2+box_v**2) )
+!        ENDIF
+!      endif
 
 
        i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
@@ -2531,9 +2548,9 @@ CONTAINS
        backgrd_concnt(1) = State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
        ! [molec/cm3]
 
-       Plume_I(i_box) = i_lon
-       Plume_J(i_box) = i_lat
-       Plume_L(i_box) = i_lev
+!       Plume_I(i_box) = i_lon
+!       Plume_J(i_box) = i_lat
+!       Plume_L(i_box) = i_lev
 
 
        !====================================================================
@@ -2541,7 +2558,7 @@ CONTAINS
        ! calculate the diffusivity in horizontal and vertical direction
        !====================================================================
        ! calculate the wind_s shear along pressure direction
-       wind_s_shear = Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, i_lon, &
+       wind_s_shear = Wind_shear_s(u, v, P_BXHEIGHT, box_alpha(i_box), i_lon, &
                         i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
        ! *** attention *** ???
        wind_s_shear = 0.002
@@ -2622,10 +2639,12 @@ CONTAINS
          ! background should be updated every time step
          ! shw !!!
          !--------------------------------------------------------------------
-         box_concnt_2D(i_box,1,:,1)       = backgrd_concnt(1)
-         box_concnt_2D(i_box,n_x_max,:,1) = backgrd_concnt(1)
-         box_concnt_2D(i_box,:,1,1)       = backgrd_concnt(1)
-         box_concnt_2D(i_box,:,n_y_max,1) = backgrd_concnt(1)
+
+
+!         box_concnt_2D(i_box,1,:,1)       = backgrd_concnt(1)
+!         box_concnt_2D(i_box,n_x_max,:,1) = backgrd_concnt(1)
+!         box_concnt_2D(i_box,:,1,1)       = backgrd_concnt(1)
+!         box_concnt_2D(i_box,:,n_y_max,1) = backgrd_concnt(1)
 
 
 !         Extra_mass_2D(i_box,1,:,1)       = backgrd_concnt(1)
@@ -2648,11 +2667,11 @@ CONTAINS
 
 600     CONTINUE
 
-
-           Pc = box_concnt_2D(i_box,:,:,1) ! [molec cm-3]
+         
+           Pc = box_concnt_2D(:,:,1,i_box) ! [molec cm-3]
 !           Ec = Extra_mass_2D(i_box,:,:,1) ! [molec cm-3]
 
-           box_concnt_2D(i_box,:,:,1)       = backgrd_concnt(1)
+           box_concnt_2D(:,:,1,i_box)       = backgrd_concnt(1)
 !           Extra_mass_2D(i_box,:,:,1)       = backgrd_concnt(1)
 
 
@@ -2662,7 +2681,7 @@ CONTAINS
              i_x = (i-1)*3+1
              i_y = (j-1)*3+1
 
-             box_concnt_2D(i_box,i+n_x_max/3,j+n_y_max/3,1) = &
+             box_concnt_2D(i+n_x_max/3,j+n_y_max/3,1,i_box) = &
                                       SUM(Pc(i_x:i_x+2,i_y:i_y+2))/9
 
 !             Extra_mass_2D(i_box,i+n_x_max/3,j+n_y_max/3,1) = &
@@ -2677,10 +2696,10 @@ CONTAINS
 
            ! uodate Total_extra(i_box)
            V_grid_2D       = Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1.0e+6_fp
-           mass_plume      = V_grid_2D/9 *SUM(Pc(2:n_x_max-1,2:n_y_max-1))
+           mass_plume      = V_grid_2D/9 *SUM(Pc(:,:))
 
            mass_plume_new = V_grid_2D &
-                *SUM( box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1))
+                *SUM( box_concnt_2D(:,:,1,i_box))
 
            D_mass_plume = mass_plume_new - mass_plume
 
@@ -2727,7 +2746,7 @@ CONTAINS
          !--------------------------------------------------------------
 
          ! for interaction with background grid cell
-         C2d_prev           = box_concnt_2D(i_box,:,:,1)
+         C2d_prev           = box_concnt_2D(:,:,1,i_box)
 !         C2d_prev_extra     = Extra_mass_2D(i_box,:,:,1)
 
          V_grid_2D       = Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1.0e+6_fp
@@ -2738,21 +2757,25 @@ CONTAINS
 !           Total_extra(i_box)
 
 
+         Concnt2D_bdy(:,:) = backgrd_concnt(1)
+         Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) = box_concnt_2D(:,:,1,i_box)
+
 
          ! advection
-         Pc = box_concnt_2D(i_box,:,:,1) ! [molec cm-3]
+
+!         Pc = box_concnt_2D(i_box,:,:,1) ! [molec cm-3]
 !         Ec = Extra_mass_2D(i_box,:,:,1) ! [molec cm-3]
+         Pc_bdy = Concnt2D_bdy
 
+         CFL_2d = Pdt*Pu(:,:)/Pdx(i_box) ! [n_x_max, n_y_max]
 
-         CFL_2d = Pdt*Pu(2:n_x_max-1,2:n_y_max-1)/Pdx(i_box)
-
-         box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1) = &
-                Pc(2:n_x_max-1,2:n_y_max-1) &
-                - 0.5 *CFL_2d(:,:) *( Pc(3:n_x_max,2:n_y_max-1) &
-                             -Pc(1:n_x_max-2,2:n_y_max-1) ) &
-                + 0.5 *CFL_2d(:,:)**2 *(   Pc(3:n_x_max,2:n_y_max-1) &
-                                -2*Pc(2:n_x_max-1,2:n_y_max-1) &
-                                  +Pc(1:n_x_max-2,2:n_y_max-1) )
+         Concnt2D_bdy(2:n_x_max2-1, 2:n_y_max2-1) = &
+                Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) &
+                - 0.5 *CFL_2d(:,:) *( Pc_bdy(3:n_x_max2,2:n_y_max2-1) &
+                             -Pc_bdy(1:n_x_max2-2,2:n_y_max2-1) ) &
+                + 0.5 *CFL_2d(:,:)**2 *(   Pc_bdy(3:n_x_max2,2:n_y_max2-1) &
+                                -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) &
+                                  +Pc_bdy(1:n_x_max2-2,2:n_y_max2-1) )
 
 
 !         Extra_mass_2D(i_box,2:n_x_max-1,2:n_y_max-1,1) = &
@@ -2787,17 +2810,17 @@ CONTAINS
 
 
          ! diffusion
-         Pc = box_concnt_2D(i_box,:,:,1)
+         Pc_bdy = Concnt2D_bdy
 
-         box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1) =               &
-                Pc(2:n_x_max-1,2:n_y_max-1)                             &
-           + Pdt*( eddy_h*(   Pc(1:n_x_max-2,2:n_y_max-1)               &
-                           -2*Pc(2:n_x_max-1,2:n_y_max-1)               &
-                             +Pc(3:n_x_max,2:n_y_max-1)  )              &
+         Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) =               &
+                Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)                             &
+           + Pdt*( eddy_h*(   Pc_bdy(1:n_x_max2-2,2:n_y_max2-1)               &
+                           -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)               &
+                             +Pc_bdy(3:n_x_max2,2:n_y_max2-1)  )              &
                                                 /(Pdx(i_box)**2)        &
-                 + eddy_v*(   Pc(2:n_x_max-1,1:n_y_max-2)               &
-                           -2*Pc(2:n_x_max-1,2:n_y_max-1)               &
-                             +Pc(2:n_x_max-1,3:n_y_max)  )              &
+                 + eddy_v*(   Pc_bdy(2:n_x_max2-1,1:n_y_max2-2)               &
+                           -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)               &
+                             +Pc_bdy(2:n_x_max2-1,3:n_y_max2)  )              &
                                                 /(Pdy(i_box)**2) )
 
 
@@ -2817,6 +2840,7 @@ CONTAINS
 !           V_grid_2D*SUM(box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1)), &
 !           V_grid_2D*SUM(Extra_mass_2D(i_box,2:n_x_max-1,2:n_y_max-1,1))
 
+         box_concnt_2D(:,:,1,i_box) = Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1)
 
          !================================================================
          ! Update the concentration in the background grid cell
@@ -2833,10 +2857,10 @@ CONTAINS
 
          ! the boundary always represents the background concentration
          ! [molec]
-         mass_plume      = V_grid_2D*SUM(C2d_prev(2:n_x_max-1,2:n_y_max-1))
+         mass_plume      = V_grid_2D*SUM(C2d_prev(:,:))
 
          mass_plume_new = V_grid_2D &
-                *SUM( box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1))
+                *SUM( box_concnt_2D(:,:,1,i_box))
 
 
          D_mass_plume = mass_plume_new - mass_plume
@@ -2861,10 +2885,10 @@ CONTAINS
                                                 backgrd_concnt(1)
 
 
-         box_concnt_2D(i_box,1,:,1)       = backgrd_concnt(1)
-         box_concnt_2D(i_box,n_x_max,:,1) = backgrd_concnt(1)
-         box_concnt_2D(i_box,:,1,1)       = backgrd_concnt(1)
-         box_concnt_2D(i_box,:,n_y_max,1) = backgrd_concnt(1)
+!         box_concnt_2D(i_box,1,:,1)       = backgrd_concnt(1)
+!         box_concnt_2D(i_box,n_x_max,:,1) = backgrd_concnt(1)
+!         box_concnt_2D(i_box,:,1,1)       = backgrd_concnt(1)
+!         box_concnt_2D(i_box,:,n_y_max,1) = backgrd_concnt(1)
 
 
 !         IF(i_box==1.and.t1s==1)THEN
@@ -2891,8 +2915,9 @@ CONTAINS
 !         Xscale = Get_XYscale(D_concnt, i_box, frac_mass, 2)
 !         Yscale = Get_XYscale(D_concnt, i_box, frac_mass, 1)
 
-         Xscale = Get_XYscale(box_concnt_2D(i_box,:,:,1), i_box, frac_mass, 2)
-         Yscale = Get_XYscale(box_concnt_2D(i_box,:,:,1), i_box, frac_mass, 1)
+         Pc2 = box_concnt_2D(:,:,1,i_box)
+         Xscale = Get_XYscale(Pc2, i_box, frac_mass, 2)
+         Yscale = Get_XYscale(Pc2, i_box, frac_mass, 1)
 
          box_theta(i_box) = ATAN( Xscale/Yscale )
 
@@ -2906,7 +2931,7 @@ CONTAINS
          IF( box_theta(i_box) > (87.0/180.0*PI) ) THEN !!! shw ???
 
 
-           Pc = box_concnt_2D(i_box,:,:,1)
+           Pc = box_concnt_2D(:,:,1,i_box)
 !           Ec = Extra_mass_2D(i_box,:,:,1)
 
            ! calculate accutate box_theta
@@ -2928,10 +2953,10 @@ CONTAINS
            V_grid_1D = box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp
 
            mass_plume_new = V_grid_1D &
-                            * SUM(box_concnt_1D(i_box,1:n_slab_max,1))
+                            * SUM(box_concnt_1D(1:n_slab_max,1,i_box))
 
            mass_plume = V_grid_2D &
-                        * SUM(box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1))
+                        * SUM(box_concnt_2D(:,:,1,i_box))
 
            !!! shw
 !           Total_extra(i_box) = &
@@ -2989,7 +3014,7 @@ CONTAINS
 !                  + backgrd_concnt(1)*grid_volumn ) / grid_volumn
 
            backgrd_concnt(1) = &
-            ( SUM( box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1) )  &
+            ( SUM( box_concnt_2D(:,:,1,i_box) )  &
                *V_grid_2D - Total_extra(i_box)  &
                   + backgrd_concnt(1)*grid_volumn ) / grid_volumn
 
@@ -3016,7 +3041,7 @@ CONTAINS
 
 
            backgrd_concnt(1) = &
-            ( SUM( box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1) )  &
+            ( SUM( box_concnt_2D(:,:,1,i_box) )  &
                *V_grid_2D - Total_extra(i_box)  &
                   + backgrd_concnt(1)*grid_volumn ) / grid_volumn
 
@@ -3095,12 +3120,12 @@ CONTAINS
          !-------------------------------------------------------------------
          ! Decrease half of slab by combining 2 slab into 1 slab
          !-------------------------------------------------------------------
-         Cslab       = box_concnt_1D(i_box,:,N_specie)
+         Cslab       = box_concnt_1D(:,N_specie,i_box)
 !         Extra_Cslab = Extra_mass_1D(i_box,:,N_specie)
 
 
          DO i_slab = 1, n_slab_50
-           box_concnt_1D(i_box,i_slab+N_slab_25,N_specie) = &
+           box_concnt_1D(i_slab+N_slab_25,N_specie,i_box) = &
              (  Cslab(i_slab*2-1) + Cslab(i_slab*2) ) /2
 
 !           Extra_mass_1D(i_box,i_slab+N_slab_25,N_specie) = &
@@ -3122,7 +3147,7 @@ CONTAINS
          !-------------------------------------------------------------------
          DO i_slab = 1,n_slab_25
          do i_specie = 1,N_specie
-           box_concnt_1D(i_box,i_slab,i_specie) = &
+           box_concnt_1D(i_slab,i_specie,i_box) = &
                    State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
 
 !           Extra_mass_1D(i_box,i_slab,i_specie) = &
@@ -3133,7 +3158,7 @@ CONTAINS
 
          DO i_slab = n_slab_75+1, n_slab_max
          do i_specie = 1,N_specie
-           box_concnt_1D(i_box,i_slab,i_specie) = &
+           box_concnt_1D(i_slab,i_specie,i_box) = &
                    State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
 
 !           Extra_mass_1D(i_box,i_slab,i_specie) = &
@@ -3148,7 +3173,7 @@ CONTAINS
          mass_plume      = V_grid_1D/2 *SUM(Cslab(1:n_slab_max))
 
          mass_plume_new = V_grid_1D &
-              *SUM( box_concnt_1D(i_box,1:n_slab_max,1) )
+              *SUM( box_concnt_1D(1:n_slab_max,1,i_box) )
 
          D_mass_plume = mass_plume_new - mass_plume
 
@@ -3188,7 +3213,7 @@ CONTAINS
 
 
        V_grid_1D       = box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp
-       C1d_prev       = box_concnt_1D(i_box,:,1)
+       C1d_prev       = box_concnt_1D(:,1,i_box)
 !       C1d_prev_extra = Extra_mass_1D(i_box,:,1)
 
        !--------------------------------------------------------------------
@@ -3223,12 +3248,12 @@ CONTAINS
        ! Calculate the diffusion in slab grids
        !---------------------------------------------------------------------
 
-       Cslab       = box_concnt_1D(i_box,:,N_specie)
+       Cslab       = box_concnt_1D(:,N_specie,i_box)
 !       Extra_Cslab = Extra_mass_1D(i_box,:,N_specie)
 
        Concnt1D_bdy(1)          = backgrd_concnt(1)
        Concnt1D_bdy(n_slab_max2) = backgrd_concnt(1)
-       Concnt1D_bdy(2:n_slab_max2-1) = box_concnt_1D(i_box,1:n_slab_max,1)
+       Concnt1D_bdy(2:n_slab_max2-1) = box_concnt_1D(1:n_slab_max,1,i_box)
 
 
 
@@ -3254,7 +3279,7 @@ CONTAINS
 !                                          V_grid_1D*SUM(box_concnt_1D(i_box,:,1))
 
 
-       box_concnt_1D(i_box,1:n_slab_max,1) = Concnt1D_bdy(2:n_slab_max2-1)     &
+       box_concnt_1D(1:n_slab_max,1,i_box) = Concnt1D_bdy(2:n_slab_max2-1)     &
         + Dt2*eddy_B*(Concnt1D_bdy(3:n_slab_max2)-2*Concnt1D_bdy(2:n_slab_max2-1) &
                      +Concnt1D_bdy(1:n_slab_max2-2)) /box_Rb(i_box)**2
 
@@ -3288,7 +3313,7 @@ CONTAINS
 
 
        mass_plume = V_grid_1D * SUM( C1d_prev(1:n_slab_max) )
-       mass_plume_new = V_grid_1D * SUM(box_concnt_1D(i_box,1:n_slab_max,1))
+       mass_plume_new = V_grid_1D * SUM(box_concnt_1D(1:n_slab_max,1,i_box))
 
        ! [molec]
        D_mass_plume = mass_plume_new - mass_plume
@@ -3338,10 +3363,10 @@ CONTAINS
        ! test this once big time step
        !===================================================================
 
-       Rate_Mix = V_grid_1D * SUM( box_concnt_1D(i_box,1:n_slab_max,1)**2 ) &
+       Rate_Mix = V_grid_1D * SUM( box_concnt_1D(1:n_slab_max,1,i_box)**2 ) &
                 + backgrd_concnt(1)**2 * grid_volumn
 
-       Eul_concnt = ( SUM(box_concnt_1D(i_box, 1:n_slab_max, 1)) *V_grid_1D &
+       Eul_concnt = ( SUM(box_concnt_1D(1:n_slab_max,1,i_box)) *V_grid_1D &
                     + backgrd_concnt(1)*grid_volumn ) / grid_volumn
        Rate_Eul = Eul_concnt**2*grid_volumn
 
@@ -3364,7 +3389,7 @@ CONTAINS
 !                + backgrd_concnt(1)*grid_volumn ) / grid_volumn
 
          backgrd_concnt(1) = &
-           ( SUM(box_concnt_1D(i_box, 1:n_slab_max,1)) * V_grid_1D   &
+           ( SUM(box_concnt_1D(1:n_slab_max,1,i_box)) * V_grid_1D   &
                 - Total_extra(i_box)  &
                 + backgrd_concnt(1)*grid_volumn ) / grid_volumn
 
@@ -3393,7 +3418,7 @@ CONTAINS
 !                + backgrd_concnt(1)*grid_volumn ) / grid_volumn
 
          backgrd_concnt(1) = &
-           ( SUM(box_concnt_1D(i_box, 1:n_slab_max,1)) * V_grid_1D   &
+           ( SUM(box_concnt_1D(1:n_slab_max,1,i_box)) * V_grid_1D   &
                 - Total_extra(i_box)  &
                 + backgrd_concnt(1)*grid_volumn ) / grid_volumn
 
@@ -3422,7 +3447,7 @@ CONTAINS
 !                + backgrd_concnt(1)*grid_volumn ) / grid_volumn
 
          backgrd_concnt(1) = &
-           ( SUM(box_concnt_1D(i_box, 1:n_slab_max,1)) * V_grid_1D   &
+           ( SUM(box_concnt_1D(1:n_slab_max,1,i_box)) * V_grid_1D   &
                 - Total_extra(i_box)  &
                 + backgrd_concnt(1)*grid_volumn ) / grid_volumn
 
@@ -3463,9 +3488,9 @@ CONTAINS
 
          allocate(Data1D_Int(n_box_prev))
          allocate(Data1D(n_box_prev))
-         allocate(Data2D(n_box_prev, N_specie))
-         allocate(Data3D(n_box_prev, n_slab_max, N_specie))
-         allocate(Data4D(n_box_prev, n_x_max, n_y_max, N_specie))
+         allocate(Data2D(N_specie, n_box_prev))
+         allocate(Data3D(n_slab_max, N_specie, n_box_prev))
+         allocate(Data4D(n_x_max, n_y_max, N_specie, n_box_prev))
 
          Data1D = box_lon(:)
          deallocate(box_lon)
@@ -3517,8 +3542,8 @@ CONTAINS
 
          Data4D = box_concnt_2D(:,:,:,:)
          deallocate(box_concnt_2D)
-         allocate(box_concnt_2D(n_box,n_x_max,n_y_max,N_specie))
-         box_concnt_2D(1:n_box_prev,:,:,:) = Data4D
+         allocate(box_concnt_2D(n_x_max,n_y_max,N_specie,n_box))
+         box_concnt_2D(:,:,:,1:n_box_prev) = Data4D
 
 !         Data4D = Extra_mass_2D(:,:,:,:)
 !         deallocate(Extra_mass_2D)
@@ -3528,8 +3553,8 @@ CONTAINS
 
          Data3D = box_concnt_1D(:,:,:)
          deallocate(box_concnt_1D)
-         allocate(box_concnt_1D(n_box,n_slab_max,N_specie))
-         box_concnt_1D(1:n_box_prev,:,:) = Data3D
+         allocate(box_concnt_1D(n_slab_max,N_specie,n_box))
+         box_concnt_1D(:,:,1:n_box_prev) = Data3D
 
 !         Data3D = Extra_mass_1D(:,:,:)
 !         deallocate(Extra_mass_1D)
@@ -3558,25 +3583,30 @@ CONTAINS
          box_length(1:n_box_prev) = Data1D
 
 
-         Data1D = box_u(:)
-         deallocate(box_u)
-         allocate(box_u(n_box))
-         box_u(1:n_box_prev) = Data1D
+!         Data1D = box_u(:)
+!         deallocate(box_u)
+!         allocate(box_u(n_box))
+!         box_u(1:n_box_prev) = Data1D
+!
+!         Data1D = box_v(:)
+!         deallocate(box_v)
+!         allocate(box_v(n_box))
+!         box_v(1:n_box_prev) = Data1D
+!
+!         Data1D = box_omeg(:)
+!         deallocate(box_omeg)
+!         allocate(box_omeg(n_box))
+!         box_omeg(1:n_box_prev) = Data1D
 
-         Data1D = box_v(:)
-         deallocate(box_v)
-         allocate(box_v(n_box))
-         box_v(1:n_box_prev) = Data1D
+         Data1D = box_alpha(:)
+         deallocate(box_alpha)
+         allocate(box_alpha(n_box))
+         box_alpha(1:n_box_prev) = Data1D
 
-         Data1D = box_omeg(:)
-         deallocate(box_omeg)
-         allocate(box_omeg(n_box))
-         box_omeg(1:n_box_prev) = Data1D
-
-         Data1D = box_Ptemp(:)
-         deallocate(box_Ptemp)
-         allocate(box_Ptemp(n_box))
-         box_Ptemp(1:n_box_prev) = Data1D
+!         Data1D = box_Ptemp(:)
+!         deallocate(box_Ptemp)
+!         allocate(box_Ptemp(n_box))
+!         box_Ptemp(1:n_box_prev) = Data1D
 
          Data1D = Total_extra(:)
          deallocate(Total_extra)
@@ -3584,20 +3614,20 @@ CONTAINS
          Total_extra(1:n_box_prev) = Data1D
 
 
-         Data1D_Int = Plume_I(:)
-         deallocate(Plume_I)
-         allocate(Plume_I(n_box))
-         Plume_I(1:n_box_prev) = Data1D_Int
+!         Data1D_Int = Plume_I(:)
+!         deallocate(Plume_I)
+!         allocate(Plume_I(n_box))
+!         Plume_I(1:n_box_prev) = Data1D_Int
 
-         Data1D_Int = Plume_J(:)
-         deallocate(Plume_J)
-         allocate(Plume_J(n_box))
-         Plume_J(1:n_box_prev) = Data1D_Int
+!         Data1D_Int = Plume_J(:)
+!         deallocate(Plume_J)
+!         allocate(Plume_J(n_box))
+!         Plume_J(1:n_box_prev) = Data1D_Int
 
-         Data1D_Int = Plume_L(:)
-         deallocate(Plume_L)
-         allocate(Plume_L(n_box))
-         Plume_L(1:n_box_prev) = Data1D_Int
+!         Data1D_Int = Plume_L(:)
+!         deallocate(Plume_L)
+!         allocate(Plume_L(n_box))
+!         Plume_L(1:n_box_prev) = Data1D_Int
 
          Data1D = Lifetime(:)
          deallocate(Lifetime)
@@ -3619,10 +3649,10 @@ CONTAINS
 !         DlonN = 2.0 * 180/PI *ASIN( ABS( SIN(box_Ra(i_box)*COS(box_alpha)/N_split /Re *0.5) &
 !                                     / COS(box_lat(i_box)/180*PI)**2 ) )
         
-         DlonN = ABS(box_Ra(i_box)*COS(box_alpha)/N_split) / &
+         DlonN = ABS(box_Ra(i_box)*COS(box_alpha(i_box))/N_split) / &
                         (2*PI *(Re*COS(box_lat(i_box)/180*PI)) ) * 360
 
-         DlatN = ABS(box_Ra(i_box)*SIN(box_alpha)/N_split) / (2*PI*Re) * 360
+         DlatN = ABS(box_Ra(i_box)*SIN(box_alpha(i_box))/N_split) / (2*PI*Re) * 360
 
 
          DO i = 1, (N_split-1)/2, 1
@@ -3662,14 +3692,16 @@ CONTAINS
 
            box_length(ii_box)  = box_length(i_box)
 
-           box_u(ii_box)       = box_u(i_box)
-           box_v(ii_box)       = box_v(i_box)
-           box_omeg(ii_box)    = box_omeg(i_box)
+!           box_u(ii_box)       = box_u(i_box)
+!           box_v(ii_box)       = box_v(i_box)
+!           box_omeg(ii_box)    = box_omeg(i_box)
 
-           box_Ptemp(ii_box)   = box_Ptemp(i_box)
+           box_alpha(ii_box)   = box_alpha(i_box)
+
+!           box_Ptemp(ii_box)   = box_Ptemp(i_box)
 
 
-           box_concnt_1D(ii_box,:,:) = box_concnt_1D(i_box,:,:)
+           box_concnt_1D(:,:,ii_box) = box_concnt_1D(:,:,i_box)
 !           Extra_mass_1D(ii_box,:,:) = Extra_mass_1D(i_box,:,:)
            Total_extra(ii_box) = Total_extra(i_box)/N_split
 
@@ -3798,10 +3830,10 @@ CONTAINS
   ! direction
   !-------------------------------------------------------------------  
 
-  real(fp) function Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+  real(fp) function Wind_shear_s(u, v, P_BXHEIGHT, plume_alpha, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
     implicit none
     real(fp)          :: curr_lon, curr_lat, curr_pressure
-    real(fp)          :: box_alpha
+    real(fp)          :: plume_alpha
     !real(fp), pointer :: PI, Re
     real(fp), pointer :: u(:,:,:), v(:,:,:)
     real(fp), pointer :: P_BXHEIGHT(:,:,:)
@@ -3897,7 +3929,7 @@ CONTAINS
                        + Weight(2,2) * v(init_lon+1,init_lat+1,kk)
       endif
 
-      wind_s(k) = u_lonlat(k)*COS(box_alpha) + v_lonlat(k)*SIN(box_alpha)
+      wind_s(k) = u_lonlat(k)*COS(plume_alpha) + v_lonlat(k)*SIN(plume_alpha)
 
     enddo
 
@@ -4271,7 +4303,7 @@ CONTAINS
 
       box_Ra(Ibox) = La
       box_Rb(Ibox) = Lb
-      box_concnt_1D(Ibox,:,1) = C_slab(:)
+      box_concnt_1D(:,1,Ibox) = C_slab(:)
 !      Extra_mass_1D(Ibox,:,1) = Extra_slab(:)
 
   END SUBROUTINE
@@ -4305,11 +4337,11 @@ CONTAINS
       Ix0 = floor( (x0-X1d(1)) / Pdx(Ibox) ) + 1
       Iy0 = floor( (y0-Y1d(1)) / Pdy(Ibox) ) + 1
 
-      IF(Ix0<=1 .or. Ix0>=n_x_max-1)THEN
+      IF(Ix0<1 .or. Ix0>=n_x_max)THEN
         Interplt_2D = bkgrd_concnt
 !        IF(ids==1)WRITE(6,*)"*** ERROR: Find_theta() out bounds ***"
 
-      ELSE IF((Iy0<=1 .or. Iy0>n_y_max-1))THEN
+      ELSE IF((Iy0<1 .or. Iy0>=n_y_max))THEN
         Interplt_2D = bkgrd_concnt
 !        IF(ids==1)WRITE(6,*)"*** ERROR: Find_theta() out bounds***"
 
@@ -4475,12 +4507,12 @@ CONTAINS
         IF(Judge_plume(i_box)==2) THEN
           WRITE(262,*) i_box, ': 2D model, total mass [molec]:'
           WRITE(262,*) Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1.0e+6_fp &
-                * SUM(box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,N_specie))
+                * SUM(box_concnt_2D(:,:,N_specie,i_box))
         ENDIF
 
         IF(Judge_plume(i_box)==1) THEN
           WRITE(262,*) i_box, ': 1D model'
-          WRITE(262,*) SUM(box_concnt_1D(i_box,1:n_slab_max,N_specie)) &
+          WRITE(262,*) SUM(box_concnt_1D(1:n_slab_max,N_specie,i_box)) &
                    *box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp
         ENDIF
 
