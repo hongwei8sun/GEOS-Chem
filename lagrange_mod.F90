@@ -207,6 +207,15 @@
 ! delete box_Ptemp(i_box)
 
 
+! Dec 21, 2020
+! ERROR: number of 2D plume model become super larger at 25th day
+! Guess the 2D plume model could not change to 1D plume model for some reason,
+! check the XY scale and time.
+! add a new criteria, once the 2D plume model live for more than 6 hours, force
+! the 2D plume model change to 1D plume model.
+!
+! add curr_Ptemp interplating in plume_module
+
 
 ! when plume is dissolved, delete it from the n_box
 
@@ -316,7 +325,7 @@ MODULE Lagrange_Mod
   real(fp), pointer :: P_edge(:)
 
 
-  integer, parameter    :: N_parcel   = 33 ! 131        
+  integer, parameter    :: N_parcel   = 12 ! 131        
   integer               :: tt     
   ! Aircraft would release 131 aerosol parcels every time step
 
@@ -2198,7 +2207,7 @@ CONTAINS
     REAL(fp) :: Pdt
     REAL(fp) :: Dt2
 
-!    integer  :: n_box_max
+    integer  :: n_box_max
     integer  :: N_split
 
     integer  :: i_box, i_specie
@@ -2447,7 +2456,8 @@ CONTAINS
     !=====================================================================
     ! Run Plume distortion & dilution HERE
     !=====================================================================
-    do i_box = 1,n_box
+    n_box_max = n_box
+    do i_box = 1,n_box_max
 
          
        IF(Judge_plume(i_box)==0) GOTO 200
@@ -2569,6 +2579,19 @@ CONTAINS
        Omega_N = 0.1
        Ptemp_shear = Vertical_shear(Ptemp, P_BXHEIGHT, i_lon, i_lat, &
                              i_lev,curr_lon, curr_lat, curr_pressure)
+
+
+       !--------------------------------------------------------------------
+       ! interpolate potential temperature for Plume module:
+       !--------------------------------------------------------------------
+       if(abs(curr_lat)>Y_mid(JJPAR))then
+         curr_Ptemp = Interplt_wind_RLL_polar(Ptemp, i_lon, i_lat, &
+                                 i_lev, curr_lon, curr_lat, curr_pressure)
+       else
+         curr_Ptemp = Interplt_wind_RLL(Ptemp, i_lon, i_lat, i_lev, &
+                                        curr_lon, curr_lat, curr_pressure)
+       endif
+
 
        N_BV = SQRT(Ptemp_shear*g0/curr_Ptemp)
        IF(N_BV<=0.001) N_BV = 0.001
@@ -2707,7 +2730,7 @@ CONTAINS
              WRITE(6,*)'--- 9 to 1 grid cell:', i_box, mass_plume, mass_plume_new
              Total_extra(i_box) = Total_extra(i_box) + D_mass_plume
            ELSE
-             WRITE(6,*)'--- ERROR in 9 to 1 grid cell in 2D grid ---'
+             ! WRITE(6,*)'--- ERROR in 9 to 1 grid cell in 2D grid ---'
            ENDIF
 
 
@@ -2927,8 +2950,15 @@ CONTAINS
 !                               i_box, box_theta(i_box), 87.0/180.0*PI
 !         ENDIF
 
+         IF( box_theta(i_box)>(87.0/180.0*PI) &
+                        .and. Lifetime(i_box)>6.0*3600.0 ) THEN
+           WRITE(6,*) "*** ERROR ***"
+           WRITE(6,*) i_box, Xscale, Yscale, box_theta(i_box)
+         ENDIF
 
-         IF( box_theta(i_box) > (87.0/180.0*PI) ) THEN !!! shw ???
+
+         IF( box_theta(i_box)>(87.0/180.0*PI) &
+                        .or. Lifetime(i_box)>6.0*3600.0 ) THEN !!! shw ???
 
 
            Pc = box_concnt_2D(:,:,1,i_box)
@@ -3181,7 +3211,7 @@ CONTAINS
 !           WRITE(6,*)'--- 2 to 1 grid cell:', i_box, mass_plume, mass_plume_new
            Total_extra(i_box) = Total_extra(i_box) + D_mass_plume
          ELSE 
-           WRITE(6,*)'--- ERROR in 2 to 1 grid cell in 1D grid ---', i_box
+           ! WRITE(6,*)'--- ERROR in 2 to 1 grid cell in 1D grid ---', i_box
          ENDIF
 
 
@@ -3373,13 +3403,13 @@ CONTAINS
 
 
 
-       IF(i_box==500.and.t1s==1) WRITE(6,*) '*** Second judge:', &
-         Rate_Mix, Rate_Eul, backgrd_concnt(1)
+!       IF(i_box==500.and.t1s==1) WRITE(6,*) '*** Second judge:', &
+!         Rate_Mix, Rate_Eul, backgrd_concnt(1)
 
 
 
 
-       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.4)THEN !!! shw ???
+       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.3)THEN !!! shw ???
 
 
 !         backgrd_concnt(1) = &
@@ -3479,7 +3509,7 @@ CONTAINS
 !       IF(i_box==4) WRITE(6,*)'--- n_box, Ra ---', n_box_max, box_Ra(i_box), Dx
 
 !!! shw
-       IF( box_Ra(i_box) > 2*Dx*110.0*1000.0 ) THEN
+       IF( box_Ra(i_box) > Dx*110.0*1000.0 ) THEN
 
 
          ! extend the total number of box to include the new box
@@ -3734,7 +3764,7 @@ CONTAINS
 !         V_grid_2D*SUM(Extra_mass_2D(i_box,2:n_x_max-1,2:n_y_max-1,1))
 
 
-    enddo ! i_box
+    enddo ! do i_box = 1,n_box_max
 
     !=======================================================================
     ! Convert specie back to original units (ewl, 8/16/16)
@@ -3746,6 +3776,32 @@ CONTAINS
        CALL GC_Error( ErrMsg, RC, 'plume_mod.F90' )
        RETURN
     ENDIF
+
+
+
+
+
+
+
+! IF plume is dissolved, delete the plume to release memor
+! Judge_plume(i_box) = 0
+
+!     n_box_prev = n_box
+!     n_box = n_box - N_plume0
+!
+!     allocate(Data1D_Int(n_box_prev))
+!     allocate(Data1D(n_box_prev))
+!     allocate(Data2D(N_specie, n_box_prev))
+!     allocate(Data3D(n_slab_max, N_specie, n_box_prev))
+!     allocate(Data4D(n_x_max, n_y_max, N_specie, n_box_prev))
+
+
+
+
+
+
+
+
 
 
     ! N_curr is used to add particles, here add 5 parcles every time step
