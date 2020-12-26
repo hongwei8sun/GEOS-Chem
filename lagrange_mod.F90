@@ -206,7 +206,6 @@
 !
 ! delete box_Ptemp(i_box)
 
-
 ! Dec 21, 2020
 ! ERROR: number of 2D plume model become super larger at 25th day
 ! Guess the 2D plume model could not change to 1D plume model for some reason,
@@ -215,6 +214,12 @@
 ! the 2D plume model change to 1D plume model.
 !
 ! add curr_Ptemp interplating in plume_module
+
+
+
+
+! The simulation has issue after 25 days' simulating. Too much 2D grid left for
+! unknown reason.
 
 
 ! when plume is dissolved, delete it from the n_box
@@ -2950,10 +2955,11 @@ CONTAINS
 !                               i_box, box_theta(i_box), 87.0/180.0*PI
 !         ENDIF
 
-         IF( box_theta(i_box)>(87.0/180.0*PI) &
-                        .and. Lifetime(i_box)>6.0*3600.0 ) THEN
+         IF( Lifetime(i_box)>6.0*3600.0 ) THEN
            WRITE(6,*) "*** ERROR ***"
-           WRITE(6,*) i_box, Xscale, Yscale, box_theta(i_box)
+           WRITE(6,*) i_box, Xscale, Yscale, Pdx(i_box), Pdy(i_box)
+           WRITE(6,*) Pc2(n_x_mid,:)
+           WRITE(6,*) Pc2(:,n_y_mid)
          ENDIF
 
 
@@ -3717,7 +3723,7 @@ CONTAINS
            box_Rb(ii_box)      = box_Rb(i_box)
 
            box_theta(ii_box)   = box_theta(i_box)
-           Lifetime(ii_box)     = Lifetime(i_box)
+           Lifetime(ii_box)    = Lifetime(i_box)
            Judge_plume(ii_box) = 1
 
            box_length(ii_box)  = box_length(i_box)
@@ -3736,8 +3742,8 @@ CONTAINS
            Total_extra(ii_box) = Total_extra(i_box)/N_split
 
            ! No use
-           Pdx(ii_box)       = 0.0
-           Pdy(ii_box)       = 0.0
+!           Pdx(ii_box)       = 0.0
+!           Pdy(ii_box)       = 0.0
 
          enddo
 
@@ -4193,7 +4199,7 @@ CONTAINS
         D_len = Pdy(i_box)
       ENDIF
 
-    allocate(concnt1_2D_sum(N_max))
+      ALLOCATE(concnt1_2D_sum(N_max))
 
       concnt1_2D_sum = SUM(concnt1_2D, DIM=axis)
 
