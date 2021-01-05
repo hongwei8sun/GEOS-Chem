@@ -331,11 +331,12 @@ MODULE Lagrange_Mod
 
 
   integer, parameter    :: N_parcel   = 12 ! 131        
+  integer               :: Num_inject, Num_Plume2d, Num_Plume1d       
   integer               :: tt     
   ! Aircraft would release 131 aerosol parcels every time step
 
 !  integer               :: i_rec
-  integer               :: N_specie
+  integer, parameter    :: N_specie=1
 
 
   ! box_radius(n_box) of the cross-section
@@ -361,6 +362,36 @@ MODULE Lagrange_Mod
   integer(fp), allocatable :: Data1D_Int(:)
   real(fp), allocatable :: Data1D(:), Data2D(:,:)
   real(fp), allocatable :: Data3D(:,:,:), Data4D(:,:,:,:)
+
+
+
+  TYPE :: Plume2d_list
+    real(fp) :: LON, LAT, LEV
+    real(fp) :: LENGTH, ALPHA
+    real(fp) :: LIFE
+
+    real(fp) :: DX, DY
+    real(fp) :: CONCNT(n_x_max, n_y_max, N_specie)
+
+    TYPE(Plume2d_list), POINTER :: next
+  END TYPE
+
+
+  TYPE :: Plume1d_list
+    real(fp) :: LON, LAT, LEV
+    real(fp) :: LENGTH, ALPHA
+    real(fp) :: LIFE
+
+    real(fp) :: RA, TB, THETA
+    real(fp) :: CONCNT(n_slab_max, N_specie)
+
+    TYPE(Plume1d_list), POINTER :: next
+  END TYPE
+
+
+  TYPE(Plume2d_list), POINTER :: PLume2d, Plume2d_old, Plume2d_head, Plume2d_new
+  TYPE(Plume1d_list), POINTER :: Plume1d, Plume1d_old, Plume1d_head, Plume1d_new
+
 
 CONTAINS
 
@@ -401,71 +432,91 @@ CONTAINS
     REAL(fp) :: box_lon_edge, box_lat_edge        
 
 
-    INTEGER :: YEAR
-    INTEGER :: MONTH
-    INTEGER :: DAY
-    INTEGER :: HOUR
-    INTEGER :: MINUTE
-    INTEGER :: SECOND
-
-    CHARACTER(LEN=25) :: YEAR_C
-    CHARACTER(LEN=25) :: MONTH_C
-    CHARACTER(LEN=25) :: DAY_C
-    CHARACTER(LEN=25) :: HOUR_C
-    CHARACTER(LEN=25) :: MINUTE_C
-    CHARACTER(LEN=25) :: SECOND_C
 
     WRITE(6,'(a)') '--------------------------------------------------------'
     WRITE(6,'(a)') ' Initial Lagrnage Module (Using Dynamic time step)'
     WRITE(6,'(a)') '--------------------------------------------------------'
 
-    N_specie = 1
     n_box  = N_parcel
 
+    ! -----------------------------------------------------------
+    ! create first node (head) for 2d linked list:
+    ! -----------------------------------------------------------
+    ALLOCATE(Plume2d_old)
+    Plume2d_old%LON = -141.0e+0_fp
+    Plume2d_old%LAT = -29.95e+0_fp
+    Plume2d_old%LEV = 52.0e+0_fp       ! [hPa] at about 20 km
 
-    allocate(box_lon(n_box))
-    allocate(box_lat(n_box))
-    allocate(box_lev(n_box))
+    Plume2d_old%LENGTH = 1000.0e+0_fp ! 1000m 
+    Plume2d_old%ALPHA = 0.0e+0_fp
 
-!    allocate(box_lon_edge(n_box))
-!    allocate(box_lat_edge(n_box))
-!    allocate(box_lev_edge(n_box))
+    Plume2d_old%LIFE = 0.0e+0_fp
 
-!    allocate(box_u(n_box))
-!    allocate(box_v(n_box))
-!    allocate(box_omeg(n_box))
-    allocate(box_alpha(n_box))
-!    allocate(box_Ptemp(n_box))
+    Plume2d_old%DX = Dx_init
+    Plume2d_old%DY = Dy_init
 
-!--------------------------------------------------
-! Allocate following variables for plume_run
-!--------------------------------------------------
-!    allocate(Plume_I(n_box))
-!    allocate(Plume_J(n_box))
-!    allocate(Plume_L(n_box))
+    ! Here assume the injection rate is 30 kg/km (=30 g/m) for H2SO4
+    Plume2d_old%CONCNT = 0.0e+0_fp
+    Plume2d_old%CONCNT(n_x_mid,n_y_mid,N_specie) = &
+         box_length(i_box)*30.0 /(Pdx(i_box)*Pdy(i_box)*box_length(i_box))
+      ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
+    Plume2d_old%CONCNT(n_x_mid,n_y_mid,N_specie) = &
+         box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) &
+                                                 / 1.0e+6_fp / 98.0 * AVO
 
-    allocate(Pdx(n_box))
-    allocate(Pdy(n_box))
+    NULLIFY(Plume2d_old%next)
+    Plume2d_head => Plume2d_old
 
-    allocate(box_Ra(n_box))
-    allocate(box_Rb(n_box))
+    Num_Plume2d = 1
 
-    allocate(box_theta(n_box))
-    allocate(box_length(n_box))
+    ! Check Num_Plume1d to determine the first 1d (changed from from 2d), and
+    ! create the first node for 1d
+    Num_Plume1d = 0
 
-!    N_specie = State_Chm%nAdvect
-
-    allocate(Judge_plume(n_box))
-    allocate(box_concnt_2D(n_x_max,n_y_max,N_specie,n_box))
-    allocate(box_concnt_1D(n_slab_max,N_specie,n_box))
+    ! use this value to set the initial latutude for injected plume
+    Num_inject = 1
 
 
-!    allocate(Extra_mass_2D(n_box, n_x_max, n_y_max, N_specie))
-!    allocate(Extra_mass_1D(n_box, n_slab_max, N_specie))
+    ! -----------------------------------------------------------
+    ! create other nodes following first node for 2d linked list:
+    ! -----------------------------------------------------------
+    DO i_box = 2,N_parcel,1
+      ALLOCATE(Plume2d_new)
+      Plume2d_new%LON = -141.0e+0_fp
+      Plume2d_new%LAT = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) &
+                     * (-1.0)**FLOOR(i_box/6000.0) ! -29.995S:29.995N:0.01
+      Plume2d_new%LEV = 52.0e+0_fp       ! [hPa] at about 20 km
 
-    allocate(Total_extra(n_box))
+      Plume2d_new%LENGTH = 1000.0e+0_fp ! 1000m 
+      Plume2d_new%ALPHA = 0.0e+0_fp
 
-    allocate(Lifetime(n_box))
+      Plume2d_new%LIFE = 0.0e+0_fp
+
+      Plume2d_new%DX = Dx_init
+      Plume2d_new%DY = Dy_init
+
+      Plume2d_new%CONCNT = 0.0e+0_fp
+      Plume2d_new%CONCNT(n_x_mid,n_y_mid,N_specie) = &
+         box_length(i_box)*30.0 /(Pdx(i_box)*Pdy(i_box)*box_length(i_box))
+      ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
+      Plume2d_new%CONCNT(n_x_mid,n_y_mid,N_specie) = &
+         box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) &
+                                                 / 1.0e+6_fp / 98.0 * AVO
+
+      NULLIFY(Plume2d_new%next)
+      Plume2d_old%next => Plume2d_new
+      Plume2d_old => Plume2d_old%next
+    ENDDO
+
+
+    Num_Plume2d = N_parcel
+
+    ! Check Num_Plume1d to determine the first 1d (changed from from 2d), and
+    ! create the first node for 1d
+    Num_Plume1d = 0
+
+    ! use this value to set the initial latutude for injected plume
+    Num_inject = N_parcel
 
 
     n_slab_25 = (n_slab_max-2)/4*1
@@ -480,39 +531,6 @@ CONTAINS
     P_edge => State_Met%PEDGE(1,1,:)  ! Wet air press @ level edges [hPa]
 
 
-!--------------------------------------------------
-! Set the initail value of box location, length
-!--------------------------------------------------
-
-    ! (1) run month by month
-!    FILENAME_INIT   = '/n/home12/hongwei/hongwei/merra2_2x25_standard_Dec/Lagrange_Init_box_i_lon_lat_lev.txt'
-!    OPEN( 361,      FILE=TRIM( FILENAME_INIT   ), STATUS='old', &
-!          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-!    Do i_box = 1, n_box
-!       READ(361,'( 2(x,I8) , 3(x,E12.5) )') n_box_prev, iibox, box_lon(i_box), box_lat(i_box), box_lev(i_box)
-!    End Do
-    
-!--------------------------------------------------
-
-    ! (2)
-    do i_box = 1,n_box,1
-        box_lon(i_box) = -141.0e+0_fp     ! 0   
-        box_lat(i_box) = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) &
-                        * (-1.0)**FLOOR(i_box/6000.0) ! -29.95S : 29.95N : 0.1
-        box_lev(i_box) = 52.0e+0_fp       ! [hPa] at about 20 km
-
-!        box_lev_edge(i_box) = box_lev(i_box)       ! [hPa] at about 20 km
-
-        
-        Pdx(i_box) = Dx_init              ! [m]
-        Pdy(i_box) = Dy_init              ! [m]
-
-
-        box_theta(i_box)   = 0.0e+0_fp    ! [radian]
-        Lifetime(i_box)     = 0.0e+0_fp    ! [second]
-        Judge_plume(i_box) = 2
-    enddo
-
 !--------------------------------------------------------
 ! Set the initial value of plume character:
 ! box_theta, box_length,
@@ -521,18 +539,18 @@ CONTAINS
 
 !    box_theta    = 0.0e+0_fp     ! [radian]
 
-    DO i_box = 1, n_box-1
-      box_lon_edge = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) )
-      box_lat_edge = 0.5 * ( box_lat(i_box) + box_lat(i_box+1) )
-      box_length(i_box)   = 2.0 * Distance_Circle(box_lon(i_box), box_lat(i_box), &
-                                   box_lon_edge, box_lat_edge)  ! [m]
-    ENDDO
-
-    i_box = n_box
-    box_lon_edge = box_lon(i_box) + 0.5* ( box_lon(i_box) - box_lon(i_box-1) )
-    box_lat_edge = box_lat(i_box) + 0.5* ( box_lat(i_box) - box_lat(i_box-1) )
-    box_length(i_box) = 2.0 * Distance_Circle(box_lon(i_box), box_lat(i_box), &
-                                   box_lon_edge, box_lat_edge)  ! [m]
+!    DO i_box = 1, n_box-1
+!      box_lon_edge = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) )
+!      box_lat_edge = 0.5 * ( box_lat(i_box) + box_lat(i_box+1) )
+!      box_length(i_box) = 2.0 * Distance_Circle(box_lon(i_box), box_lat(i_box), &
+!                                   box_lon_edge, box_lat_edge)  ! [m]
+!    ENDDO
+!
+!    i_box = n_box
+!    box_lon_edge = box_lon(i_box) + 0.5* ( box_lon(i_box) - box_lon(i_box-1) )
+!    box_lat_edge = box_lat(i_box) + 0.5* ( box_lat(i_box) - box_lat(i_box-1) )
+!    box_length(i_box) = 2.0 * Distance_Circle(box_lon(i_box), box_lat(i_box), &
+!                                   box_lon_edge, box_lat_edge)  ! [m]
 
     !--------------------------------------------------------
     ! Set the initial concentration of injected aerosols
@@ -540,84 +558,27 @@ CONTAINS
     ! (same as 30 g/m) for H2SO4
     !--------------------------------------------------------
     ! State_Chm%nAdvect: the last one is PASV
-    DO i_box = 1, n_box
-      box_concnt_2D(:,:,N_specie,i_box) = 0.0e+0_fp
-      box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) = &
-                                box_length(i_box)*30.0 &
-                              / (Pdx(i_box)*Pdy(i_box)*box_length(i_box))
-
-      ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
-      box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) = &
-        box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) &
-          / 1.0e+6_fp / 98.0 * AVO
-
-    ENDDO
+!    DO i_box = 1, n_box
+!      box_concnt_2D(:,:,N_specie,i_box) = 0.0e+0_fp
+!      box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) = &
+!                                box_length(i_box)*30.0 &
+!                              / (Pdx(i_box)*Pdy(i_box)*box_length(i_box))
+!
+!      ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
+!      box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) = &
+!        box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) &
+!          / 1.0e+6_fp / 98.0 * AVO
+!
+!    ENDDO
 
 
     tt   = 0
 
 
-!--------------------------------------------------
-! Get time info to create output txt file
-!--------------------------------------------------
 
-    YEAR        = GET_YEAR()
-    MONTH       = GET_MONTH()
-    DAY         = GET_DAY()
-    HOUR        = GET_HOUR()
-    MINUTE      = GET_MINUTE()
-    SECOND      = GET_SECOND()
-
-    WRITE(YEAR_C,*) YEAR
-    WRITE(MONTH_C,*) MONTH
-    WRITE(DAY_C,*) DAY
-    WRITE(HOUR_C,*) HOUR
-    WRITE(MINUTE_C,*) MINUTE
-    WRITE(SECOND_C,*) SECOND
-
-
-!-----------------------------------------------------------------
-! Output box location
-!-----------------------------------------------------------------
-
-!    FILENAME   = 'Lagrange_Init_xyz_' // TRIM(ADJUSTL(YEAR_C)) &
-!         // '-' //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) &
-!         // '-' // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
-!         // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
-
-!    OPEN( 261,      FILE=TRIM( FILENAME ), STATUS='REPLACE', &
-!          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-!
-!    Do i_box = 1, n_box
-!       WRITE(261,'( 2(x,I8) , 3(x,E12.5) )')n_box_prev, i_box, box_lon(i_box), &
-!                                            box_lat(i_box), box_lev(i_box)
-!    End Do
-
-
-!-----------------------------------------------------------------
-! Output box concentration
-!-----------------------------------------------------------------
-!    FILENAME2   = 'Plume_Init_concentration_molec_' // TRIM(ADJUSTL(YEAR_C)) // '-' &
-!        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' // &
-!        TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) // ':' // &
-!        TRIM(ADJUSTL(SECOND_C)) // '.txt'
-
-!    OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE', &
-!          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-!    DO i_box = 1, 1001, 100
-!      WRITE(262,*) i_box
-!      WRITE(262,*) SUM( box_concnt_2D(i_box,:,:,N_specie) &
-!      )*Pdx*Pdy*box_length(i_box)*1e+6_fp
-!       ! [molec]
-!      WRITE(262,*) box_concnt(i_box,:,:,N_specie)
-!    ENDDO
-
-!     WRITE(262,*) box_concnt(1,:,N_specie)
-
-!-----------------------------------------------------------------
-! Output State_Met%AD(i_lon,i_lat,i_lev) into State_Met_AD.txt
-!-----------------------------------------------------------------
+    !-----------------------------------------------------------------
+    ! Output State_Met%AD(i_lon,i_lat,i_lev) into State_Met_AD.txt
+    !-----------------------------------------------------------------
     OPEN( 314,      FILE='State_Met_AD.txt', STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
@@ -629,28 +590,12 @@ CONTAINS
     End Do
     End Do
 
-!-----------------------------------------------------------------------
-! Output State_Met%AREA_M2(i_lon,i_lat,i_lev) into State_Met_AREA_M2.txt
-!-----------------------------------------------------------------------
-!    OPEN( 315,      FILE='State_Met_AREA_M2.txt', STATUS='REPLACE', &
-!          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-!
-!    Do i_lon = 1, IIPAR
-!    Do i_lat = 1, JJPAR
-!    Do i_lev = 1, LLPAR
-!       WRITE(315,'(x,E12.5)') GET_AREA_M2(i_lon,i_lat,i_lev) ! [m2]
-!    End Do
-!    End Do
-!    End Do
-
-
-
 
 
     ! set initial background concentration of injected aerosol as 0 in GCM
     State_Chm%Species(:,:,:,State_Chm%nAdvect) = 0.0e+0_fp  ! [kg/kg]
     State_Chm%Species(:,:,:,State_Chm%nAdvect-1) = 0.0e+0_fp  ! [kg/kg]
-
+    ! output the apecies' name for double check ???
 
 
   END SUBROUTINE lagrange_init
@@ -738,6 +683,15 @@ CONTAINS
     real(fp) :: Ly ! Lyapunov exponent [s-1]
 
 
+    real(fp) :: box_lon, box_lat, box_lev
+    real(fp) :: box_length, box_alpha, box_theta
+    real(fp) :: Pdx, Pdy
+
+    real(fp) :: box_concnt_2d(n_x_max, n_y_max, N_specie)
+    real(fp) :: box_concnt_1d(n_slab_max, N_species)
+
+
+
     Dt = GET_TS_DYN()
 
     RK_Dt(1) = 0.0
@@ -772,225 +726,72 @@ CONTAINS
 !      n_box = n_box
 !    endif
 
-! add new box every time step
+
+    ! -----------------------------------------------------------
+    ! add new box every time step
+    ! -----------------------------------------------------------
+    DO i_box = Num_inject+1, Num_inject+N_parcel, 1
+      ALLOCATE(Plume2d_new)
+      Plume2d_new%LON = -141.0e+0_fp
+      Plume2d_new%LAT = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) &
+                     * (-1.0)**FLOOR(i_box/6000.0) ! -29.995S:29.995N:0.01
+      Plume2d_new%LEV = 52.0e+0_fp       ! [hPa] at about 20 km
+
+      Plume2d_new%LENGTH = 1000.0e+0_fp ! 1000m 
+      Plume2d_new%ALPHA  = 0.0e+0_fp
+
+      Plume2d_new%LIFE = 0.0e+0_fp
+
+      Plume2d_new%DX = Dx_init
+      Plume2d_new%DY = Dy_init
+
+      Plume2d_new%CONCNT = 0.0e+0_fp
+      Plume2d_new%CONCNT(n_x_mid,n_y_mid,N_specie) = &
+         box_length(i_box)*30.0 /(Pdx(i_box)*Pdy(i_box)*box_length(i_box))
+      ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
+      Plume2d_new%CONCNT(n_x_mid,n_y_mid,N_specie) = &
+         box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) &
+                                                 / 1.0e+6_fp / 98.0 * AVO
+
+      NULLIFY(Plume2d_new%next)
+      Plume2d_old%next => Plume2d_new
+      Plume2d_old => Plume2d_old%next
+    ENDDO
+
+
+    Num_Plume2d = Num_Plume2d + N_parcel
+
+    ! Check Num_Plume1d to determine the first 1d (changed from from 2d), and
+    ! create the first node for 1d
+    Num_Plume1d = 0
+
+    ! use this value to set the initial latutude for injected plume
+    Num_inject = Num_inject + N_parcel
 
 
     n_box_prev = n_box
     n_box = n_box + N_parcel
 
-    allocate(Data1D_Int(n_box_prev))
-    allocate(Data1D(n_box_prev))
-    allocate(Data2D(N_specie, n_box_prev))
-    allocate(Data3D(n_slab_max, N_specie, n_box_prev))
-    allocate(Data4D(n_x_max, n_y_max, N_specie, n_box_prev))
 
-    Data1D = box_lon(:)
-    deallocate(box_lon)
-    allocate(box_lon(n_box))
-    box_lon(1:n_box_prev) = Data1D
-
-    Data1D = box_lat(:)
-    deallocate(box_lat)
-    allocate(box_lat(n_box))
-    box_lat(1:n_box_prev) = Data1D
-
-    Data1D = box_lev(:)
-    deallocate(box_lev)
-    allocate(box_lev(n_box))
-    box_lev(1:n_box_prev) = Data1D
-
-!    Data1D = box_lon_edge(:)
-!    deallocate(box_lon_edge)
-!    allocate(box_lon_edge(n_box))
-!    box_lon_edge(1:n_box_prev) = Data1D
-
-!    Data1D = box_lat_edge(:)
-!    deallocate(box_lat_edge)
-!    allocate(box_lat_edge(n_box))
-!    box_lat_edge(1:n_box_prev) = Data1D
-
-!    Data1D = box_lev_edge(:)
-!    deallocate(box_lev_edge)
-!    allocate(box_lev_edge(n_box))
-!    box_lev_edge(1:n_box_prev) = Data1D
-
-
-    Data1D = Pdx(:)
-    deallocate(Pdx)
-    allocate(Pdx(n_box))
-    Pdx(1:n_box_prev) = Data1D
-
-    Data1D = Pdy(:)
-    deallocate(Pdy)
-    allocate(Pdy(n_box))
-    Pdy(1:n_box_prev) = Data1D
-
-    Data1D_Int = Judge_plume(:)
-    deallocate(Judge_plume)
-    allocate(Judge_plume(n_box))
-    Judge_plume(1:n_box_prev) = Data1D_Int
-
-
-    Data4D = box_concnt_2D(:,:,:,:)
-    deallocate(box_concnt_2D)
-    allocate(box_concnt_2D(n_x_max,n_y_max,N_specie,n_box))
-    box_concnt_2D(:,:,:,1:n_box_prev) = Data4D
-
-!    Data4D = Extra_mass_2D(:,:,:,:)
-!    deallocate(Extra_mass_2D)
-!    allocate(Extra_mass_2D(n_box,n_x_max,n_y_max,N_specie))
-!    Extra_mass_2D(1:n_box_prev,:,:,:) = Data4D
-
-
-    Data3D = box_concnt_1D(:,:,:)
-    deallocate(box_concnt_1D)
-    allocate(box_concnt_1D(n_slab_max,N_specie,n_box))
-    box_concnt_1D(:,:,1:n_box_prev) = Data3D
-
-!    Data3D = Extra_mass_1D(:,:,:)
-!    deallocate(Extra_mass_1D)
-!    allocate(Extra_mass_1D(n_box,n_slab_max,N_specie))
-!    Extra_mass_1D(1:n_box_prev,:,:) = Data3D
-
-
-    Data1D = box_Ra(:)
-    deallocate(box_Ra)
-    allocate(box_Ra(n_box))
-    box_Ra(1:n_box_prev) = Data1D
-
-    Data1D = box_Rb(:)
-    deallocate(box_Rb)
-    allocate(box_Rb(n_box))
-    box_Rb(1:n_box_prev) = Data1D
-
-    Data1D = box_theta(:)
-    deallocate(box_theta)
-    allocate(box_theta(n_box))
-    box_theta(1:n_box_prev) = Data1D
-
-    Data1D = box_length(:)
-    deallocate(box_length)
-    allocate(box_length(n_box))
-    box_length(1:n_box_prev) = Data1D
-
-
-
-    Data1D = Total_extra(:)
-    deallocate(Total_extra)
-    allocate(Total_extra(n_box))
-    Total_extra(1:n_box_prev) = Data1D
-
-
-!    Data1D = box_u(:)
-!    deallocate(box_u)
-!    allocate(box_u(n_box))
-!    box_u(1:n_box_prev) = Data1D
-
-!    Data1D = box_v(:)
-!    deallocate(box_v)
-!    allocate(box_v(n_box))
-!    box_v(1:n_box_prev) = Data1D
-
-!    Data1D = box_omeg(:)
-!    deallocate(box_omeg)
-!    allocate(box_omeg(n_box))
-!    box_omeg(1:n_box_prev) = Data1D
-
-    Data1D = box_alpha(:)
-    deallocate(box_alpha)
-    allocate(box_alpha(n_box))
-    box_alpha(1:n_box_prev) = Data1D
-
-!    Data1D = box_Ptemp(:)
-!    deallocate(box_Ptemp)
-!    allocate(box_Ptemp(n_box))
-!    box_Ptemp(1:n_box_prev) = Data1D
-
-!    Data1D_Int = Plume_I(:)
-!    deallocate(Plume_I)
-!    allocate(Plume_I(n_box))
-!    Plume_I(1:n_box_prev) = Data1D_Int
-
-!    Data1D_Int = Plume_J(:)
-!    deallocate(Plume_J)
-!    allocate(Plume_J(n_box))
-!    Plume_J(1:n_box_prev) = Data1D_Int
-
-!    Data1D_Int = Plume_L(:)
-!    deallocate(Plume_L)
-!    allocate(Plume_L(n_box))
-!    Plume_L(1:n_box_prev) = Data1D_Int
-
-    Data1D = Lifetime(:)
-    deallocate(Lifetime)
-    allocate(Lifetime(n_box))
-    Lifetime(1:n_box_prev) = Data1D
-
-
-    deallocate(Data1D_Int)
-    deallocate(Data1D)
-    deallocate(Data2D)
-    deallocate(Data3D)
-    deallocate(Data4D)
-
-    !-----------------------------------------------------------------------
-    ! set initial location for new added boxes
-    !-----------------------------------------------------------------------
-
-    do i_box = n_box_prev+1, n_box, 1
-        box_lon(i_box)   = -141.0e+0_fp   ! 
-        box_lat(i_box)   = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) &
-                          * (-1.0)**FLOOR(i_box/6000.0) 
-        ! -29.995S : 29.995N : 0.01
-        box_lev(i_box)   = 52.0e+0_fp       ! about 20 km
-
-!        box_lev_edge(i_box) = box_lev(i_box)
-
-        Pdx(i_box)       = Dx_init
-        Pdy(i_box)       = Dy_init
-
-        box_theta(i_box) = 0.0e+0_fp      ! [radian]
-        Lifetime(i_box)   = 0.0e+0_fp     ! [second]
-        Judge_plume(i_box) = 2
-
-    enddo
 
     !--------------------------------------------------------
     ! Set the initial value of plume character:
     ! box_theta, box_length, Lifetime
     !--------------------------------------------------------
-    DO i_box = n_box_prev+1, n_box-1
-      box_lon_edge = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) )
-      box_lat_edge = 0.5 * ( box_lat(i_box) + box_lat(i_box+1) )
-      box_length(i_box)   = 2.0 * Distance_Circle(box_lon(i_box), box_lat(i_box), &
-                                box_lon_edge, box_lat_edge)  ! [m]
-    ENDDO
+!    DO i_box = n_box_prev+1, n_box-1
+!      box_lon_edge = 0.5 * ( box_lon(i_box) + box_lon(i_box+1) )
+!      box_lat_edge = 0.5 * ( box_lat(i_box) + box_lat(i_box+1) )
+!      box_length(i_box) = 2.0 *Distance_Circle(box_lon(i_box), box_lat(i_box), &
+!                                box_lon_edge, box_lat_edge)  ! [m]
+!    ENDDO
+!
+!
+!    i_box = n_box
+!    box_lon_edge = box_lon(i_box) + 0.5* ( box_lon(i_box) - box_lon(i_box-1) )
+!    box_lat_edge = box_lat(i_box) + 0.5* ( box_lat(i_box) - box_lat(i_box-1) )
+!    box_length(i_box) = 2.0 * Distance_Circle(box_lon(i_box), box_lat(i_box), &
+!                                box_lon_edge, box_lat_edge)  ! [m]
 
-
-    i_box = n_box
-    box_lon_edge = box_lon(i_box) + 0.5* ( box_lon(i_box) - box_lon(i_box-1) )
-    box_lat_edge = box_lat(i_box) + 0.5* ( box_lat(i_box) - box_lat(i_box-1) )
-    box_length(i_box) = 2.0 * Distance_Circle(box_lon(i_box), box_lat(i_box), &
-                                box_lon_edge, box_lat_edge)  ! [m]
-
-
-    !--------------------------------------------------------
-    ! Set the initial concentration of injected aerosols
-    ! Here assume the injection rate is 30 kg/km for H2SO4
-    !--------------------------------------------------------
-    ! State_Chm%nAdvect: the last one is PASV
-    DO i_box = n_box_prev+1, n_box
-      box_concnt_2D(:,:,N_specie,i_box) = 0.0e+0_fp
-      box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) = &
-                                box_length(i_box)*30.0 &
-                              / (Pdx(i_box)*Pdy(i_box)*box_length(i_box))
-
-      ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
-      box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) = &
-        box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) &
-          / 1.0e+6_fp / 98.0 * AVO
-
-    ENDDO
 
 
 
@@ -999,12 +800,26 @@ CONTAINS
     !-----------------------------------------------------------------------
     ! Run Lagrangian trajectory-track HERE
     !-----------------------------------------------------------------------
-    do i_box = 1,n_box,1
+    Plume2d => Plume2d_head
+    i_box = 0
 
-      IF(Judge_plume(i_box)==0) GOTO 500
+    DO WHILE(ASSOCIATED(Plume2d))
 
-      ! record the plume lifetime before dissolving into Eulerian model
-      Lifetime(i_box) = Lifetime(i_box) + Dt
+      i_box = i_box+1
+
+      Plume2d%LIFE = Plume2d%LIFE + Dt
+
+      box_lon    = Plume2d%LON
+      box_lat    = Plume2d%LAT
+      box_lev    = Plume2d%LEV
+      box_length = Plume2d%LENGTH
+      box_alpha  = Plume2d%ALPHA
+
+      Pdx    = Plume2d%DX
+      Pdy    = Plume2d%DY
+
+      box_concnt_2D = Plume2d%CONCNT
+
 
 
       !-----------------------------------------------------------------------
@@ -1012,26 +827,26 @@ CONTAINS
       !-----------------------------------------------------------------------
 
       ! make sure the location is not out of range
-      do while (box_lat(i_box) > Y_edge(JJPAR+1))
-         box_lat(i_box) = Y_edge(JJPAR+1) - ( box_lat(i_box)-Y_edge(JJPAR+1) )
+      do while (box_lat > Y_edge(JJPAR+1))
+         box_lat = Y_edge(JJPAR+1) - ( box_lat-Y_edge(JJPAR+1) )
       end do
 
-      do while (box_lat(i_box) < Y_edge(1))
-         box_lat(i_box) = Y_edge(1) + ( box_lat(i_box)-Y_edge(1) )
+      do while (box_lat < Y_edge(1))
+         box_lat = Y_edge(1) + ( box_lat-Y_edge(1) )
       end do
 
-      do while (box_lon(i_box) > X_edge(IIPAR+1))
-         box_lon(i_box) = box_lon(i_box) - 360.0
+      do while (box_lon > X_edge(IIPAR+1))
+         box_lon = box_lon - 360.0
       end do
 
-      do while (box_lon(i_box) < X_edge(1))
-         box_lon(i_box) = box_lon(i_box) + 360.0
+      do while (box_lon < X_edge(1))
+         box_lon = box_lon + 360.0
       end do
 
 
-      curr_lon      = box_lon(i_box)
-      curr_lat      = box_lat(i_box)
-      curr_pressure = box_lev(i_box)        ! hPa
+      curr_lon      = box_lon
+      curr_lat      = box_lat
+      curr_pressure = box_lev      ! hPa
 !      curr_T1       = box_T1(i_box)        ! K
 
 
@@ -1060,29 +875,17 @@ CONTAINS
       ! the conversion is:
       ! 
       !====================================================================
-      if(i_box>n_box_prev)then
+      if(i_box>Num_inject-N_parcel)then
          nAdv = State_Chm%nAdvect         ! the last one is PASV_EU
          PASV_EU => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)  ! [kg/kg]
 
          MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
          ! Here assume the injection rate is 30 kg/km for H2SO4: 
-         PASV_EU = PASV_EU + box_length(i_box)*1.0e-3_fp*30.0 &
+         PASV_EU = PASV_EU + box_length*1.0e-3_fp*30.0 &
                                         /State_Met%AD(i_lon,i_lat,i_lev)
 
          ! write(6,*)'== test 1 ==>', State_Chm%Spc_Units
       endif
-
-
-      !--------------------------------------------------------------------
-      ! interpolate potential temperature for Plume module:
-      !--------------------------------------------------------------------
-!      if(abs(curr_lat)>Y_mid(JJPAR))then
-!         box_Ptemp(i_box) = Interplt_wind_RLL_polar(Ptemp, i_lon, i_lat, &
-!                                 i_lev, curr_lon, curr_lat, curr_pressure)
-!      else
-!         box_Ptemp(i_box) = Interplt_wind_RLL(Ptemp, i_lon, i_lat, i_lev, &
-!                                          curr_lon, curr_lat, curr_pressure)
-!      endif
 
 
       DO Ki = 1,4,1
@@ -1104,7 +907,7 @@ CONTAINS
 !       curr_pressure = box_lev(i_box) + dbox_lev
 
        RK_Dlev(Ki)   = Dt * curr_omeg / 100.0     ! Pa => hPa
-       curr_pressure = box_lev(i_box) + RK_Dt(Ki+1) * curr_omeg / 100.0
+       curr_pressure = box_lev + RK_Dt(Ki+1) * curr_omeg / 100.0
 
        if(curr_pressure<P_mid(LLPAR)) &
              curr_pressure = P_mid(LLPAR) !+ ( P_mid(LLPAR) - curr_pressure )
@@ -1126,15 +929,15 @@ CONTAINS
          RK_v(Ki) = curr_v
 
          dbox_lon  = (RK_Dt(Ki+1)*curr_u) &
-                        / (2.0*PI*Re*COS(box_lat(i_box)*PI/180.0)) * 360.0
+                        / (2.0*PI*Re*COS(box_lat*PI/180.0)) * 360.0
          dbox_lat  = (RK_Dt(Ki+1)*curr_v) / (PI*Re) * 180.0
 
-         curr_lon  = box_lon(i_box) + dbox_lon
-         curr_lat  = box_lat(i_box) + dbox_lat
+         curr_lon  = box_lon + dbox_lon
+         curr_lat  = box_lat + dbox_lat
  
 
          RK_Dlon(Ki) = (Dt*curr_u) &
-                      / (2.0*PI*Re*COS(box_lat(i_box)*PI/180.0)) * 360.0
+                      / (2.0*PI*Re*COS(box_lat*PI/180.0)) * 360.0
          RK_Dlat(Ki) = (Dt*curr_v) / (PI*Re) * 180.0
 
        endif
@@ -1166,16 +969,16 @@ CONTAINS
          !------------------------------------------------------------------
          ! change from (lon,lat) in RLL to (x,y) in PS: 
          !------------------------------------------------------------------
-         if(box_lat(i_box)<0)then
-           box_x_PS = -1.0* Re* COS(box_lon(i_box)*PI/180.0) &
-                                / TAN(box_lat(i_box)*PI/180.0)
-           box_y_PS = -1.0* Re* SIN(box_lon(i_box)*PI/180.0) &
-                                / TAN(box_lat(i_box)*PI/180.0)
+         if(box_lat<0)then
+           box_x_PS = -1.0* Re* COS(box_lon*PI/180.0) &
+                                / TAN(box_lat*PI/180.0)
+           box_y_PS = -1.0* Re* SIN(box_lon*PI/180.0) &
+                                / TAN(box_lat*PI/180.0)
          else
-           box_x_PS = Re* COS(box_lon(i_box)*PI/180.0) &
-                        / TAN(box_lat(i_box)*PI/180.0)
-           box_y_PS = Re* SIN(box_lon(i_box)*PI/180.0) &
-                        / TAN(box_lat(i_box)*PI/180.0)
+           box_x_PS = Re* COS(box_lon*PI/180.0) &
+                        / TAN(box_lat*PI/180.0)
+           box_y_PS = Re* SIN(box_lon*PI/180.0) &
+                        / TAN(box_lat*PI/180.0)
          endif
 
          RK_x_PS  = box_x_PS + RK_Dx_PS
@@ -1223,18 +1026,18 @@ CONTAINS
            RK_lat = ATAN( Re / SQRT(RK_x_PS**2+RK_y_PS**2) ) *180.0/PI
          endif
 
-         RK_Dlon(Ki) = RK_lon - box_lon(i_box)
-         RK_Dlat(Ki) = RK_lat - box_lat(i_box)
+         RK_Dlon(Ki) = RK_lon - box_lon
+         RK_Dlat(Ki) = RK_lat - box_lat
 
        endif ! if(abs(curr_lat)>72.0)then
 
       ENDDO ! Ki = 1,4,1
 
-      box_lon(i_box) = box_lon(i_box) + &
+      box_lon = box_lon + &
                 (RK_Dlon(1)+2.0*RK_Dlon(2)+2.0*RK_Dlon(3)+RK_Dlon(4))/6.0
-      box_lat(i_box) = box_lat(i_box) + &
+      box_lat = box_lat + &
                 (RK_Dlat(1)+2.0*RK_Dlat(2)+2.0*RK_Dlat(3)+RK_Dlat(4))/6.0
-      box_lev(i_box) = box_lev(i_box) + &
+      box_lev = box_lev + &
                 (RK_Dlev(1)+2.0*RK_Dlev(2)+2.0*RK_Dlev(3)+RK_Dlev(4))/6.0
 
 
@@ -1278,94 +1081,68 @@ CONTAINS
       if(i_lat>JJPAR) i_lat=JJPAR
       if(i_lat<1) i_lat=1
 
-      i_lev = Find_iPLev(box_lev(i_box),P_edge)
+      i_lev = Find_iPLev(box_lev,P_edge)
 
 
 
-      if(abs(box_lat(i_box))>Y_mid(JJPAR))then
+      if(abs(box_lat)>Y_mid(JJPAR))then
          next_T2 = Interplt_wind_RLL_polar(T2, i_lon, i_lat, i_lev, &
-                           box_lon(i_box), box_lat(i_box), box_lev(i_box))
+                           box_lon, box_lat, box_lev)
       else
          next_T2 = Interplt_wind_RLL(T2, i_lon, i_lat, i_lev, &
-                           box_lon(i_box), box_lat(i_box), box_lev(i_box))
+                           box_lon, box_lat, box_lev)
       endif
 
 
       ! PV=nRT, V2 = T2/P2 : T1/P1 * V1
-      ratio = ( (next_T2/box_lev(i_box))/(curr_T1/curr_pressure) )**(1/2)
+      ratio = ( (next_T2/box_lev)/(curr_T1/curr_pressure) )**(1/2)
 
       ! assume the volume change mainly apply to the cross-section, 
       ! the box_length would not change 
 
 
-      IF(Judge_plume(i_box)==1) THEN
-        V_prev = box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp
-
-        box_Ra(i_box) = box_Ra(i_box) *ratio
-        box_Rb(i_box) = box_Rb(i_box) *ratio
-
-        V_new = box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp
-
-        box_concnt_1D(:,:,i_box) = box_concnt_1D(:,:,i_box)*V_prev/V_new
+!      IF(Judge_plume(i_box)==1) THEN
+!        V_prev = box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp
+!
+!        box_Ra(i_box) = box_Ra(i_box) *ratio
+!        box_Rb(i_box) = box_Rb(i_box) *ratio
+!
+!        V_new = box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp
+!
+!        box_concnt_1D(:,:,i_box) = box_concnt_1D(:,:,i_box)*V_prev/V_new
 !        Extra_mass_1D(i_box,:,:) = Extra_mass_1D(i_box,:,:)*V_prev/V_new
-      ELSE IF(Judge_plume(i_box)==2) THEN
-        V_prev = Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1.0e+6_fp
+!      ELSE IF(Judge_plume(i_box)==2) THEN
 
-        Pdx(i_box) = Pdx(i_box) *ratio
-        Pdy(i_box) = Pdy(i_box) *ratio
+      V_prev = Pdx*Pdy*box_length*1.0e+6_fp
 
-        V_new = Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1.0e+6_fp
+      Pdx = Pdx *ratio
+      Pdy = Pdy *ratio
 
-        box_concnt_2D(:,:,:,i_box) = box_concnt_2D(:,:,:,i_box)*V_prev/V_new
+      V_new = Pdx*Pdy*box_length*1.0e+6_fp
+
+      box_concnt_2D(:,:,:) = box_concnt_2D(:,:,:)*V_prev/V_new
+
 !        Extra_mass_2D(i_box,:,:,:) = Extra_mass_2D(i_box,:,:,:)*V_prev/V_new
-      ENDIF
-
-
-
-
-!      IF(i_box==500.and.Judge_plume(i_box)==2) WRITE(6,*) 0, '2D', i_box, &
-!         SUM(box_concnt_2D(i_box,2:n_x_max-1,2:n_y_max-1,1))*V_new, &
-!         Total_extra(i_box)
-!
-
-!      IF(i_box==222.and.Judge_plume(i_box)==1) WRITE(6,*) '1-1D', i_box,&
-!        box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp,        &
-!        box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp *       &
-!                                        SUM(box_concnt_1D(i_box,:,1)),   &
-!        Total_extra(i_box)
-
-
-!
-!
-!      IF(i_box==500.and.Judge_plume(i_box)==2) WRITE(6,*) '2D', V_new, &
-!         box_concnt_2D(i_box,n_x_mid,n_y_mid,1), &
-!                                box_concnt_2D(i_box,n_x_max,n_y_max,1)
-!
-!      IF(i_box==222.and.Judge_plume(i_box)==1) WRITE(6,*) '1D', &
-!         box_concnt_1D(i_box,n_slab_50:n_slab_50+3,1)
-
-!      IF(i_box==222.and.Judge_plume(i_box)==1) WRITE(6,*) '1D', &
-!         box_concnt_1D(i_box,n_slab_max-3:n_slab_max,1)
-
+!      ENDIF
 
 
       !------------------------------------------------------------------
       ! calcualte the box_alpha [0,2*PI)
       !------------------------------------------------------------------
       if((box_u**2+box_v**2)==0)then
-          box_alpha(i_box) = 0.0
+          box_alpha = 0.0
       else
         IF(box_v>=0)THEN
-          box_alpha(i_box) = ACOS( box_u/SQRT(box_u**2+box_v**2) ) 
+          box_alpha = ACOS( box_u/SQRT(box_u**2+box_v**2) ) 
         ELSE
-          box_alpha(i_box) = 2*PI - ACOS( box_u/SQRT(box_u**2+box_v**2) )
+          box_alpha = 2*PI - ACOS( box_u/SQRT(box_u**2+box_v**2) )
         ENDIF
       endif
 
       !------------------------------------------------------------------
       ! calcualte the Lyaponov exponent (Ly), unit: s-1
       !------------------------------------------------------------------
-      IF(box_alpha(i_box)>=1.75*PI)THEN
+      IF(box_alpha>=1.75*PI)THEN
         next_i_lon = i_lon + 1
         if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
         if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
@@ -1377,10 +1154,10 @@ CONTAINS
 
         D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
                 +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_x    = Dx/360.0 * 2*PI *Re*COS(box_lat(i_box)/180*PI)
+        D_x    = Dx/360.0 * 2*PI *Re*COS(box_lat/180*PI)
         Ly     = D_wind/D_x
 
-      ELSEIF(box_alpha(i_box)>=1.25*PI)THEN
+      ELSEIF(box_alpha>=1.25*PI)THEN
         next_i_lon = i_lon
         if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
         if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
@@ -1394,7 +1171,7 @@ CONTAINS
         D_y    = Dy/360.0 * 2*PI*Re
         Ly     = D_wind/D_y
 
-      ELSEIF(box_alpha(i_box)>=0.75*PI)THEN
+      ELSEIF(box_alpha>=0.75*PI)THEN
         next_i_lon = i_lon - 1
         if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
         if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
@@ -1405,10 +1182,10 @@ CONTAINS
 
         D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
                 +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_x    = Dx/360.0 * 2*PI *Re*COS(box_lat(i_box)/180*PI) 
+        D_x    = Dx/360.0 * 2*PI *Re*COS(box_lat/180*PI) 
         Ly     = D_wind/D_x
 
-      ELSEIF(box_alpha(i_box)>=0.25*PI)THEN
+      ELSEIF(box_alpha>=0.25*PI)THEN
         next_i_lon = i_lon
         if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
         if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
@@ -1433,7 +1210,7 @@ CONTAINS
 
         D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
                 +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_x    = Dx/360.0 * 2*PI *Re*COS(box_lat(i_box)/180*PI)
+        D_x    = Dx/360.0 * 2*PI *Re*COS(box_lat/180*PI)
         Ly     = D_wind/D_x
 
       ENDIF
@@ -1443,26 +1220,19 @@ CONTAINS
       ! Adjust the length/radius of box based on Lyaponov exponent (Ly)
       !------------------------------------------------------------------
 
-!      IF(i_box==48)THEN
-!      WRITE(6,*) '*** Horizontal strecth: ', box_lat(i_box), box_length(i_box)
-!      WRITE(6,*) box_alpha, D_wind/Ly, D_wind, Ly
-!      WRITE(6,*) i_lon, next_i_lon, i_lat, next_i_lat, Pdx(i_box), Pdy(i_box)
-!
+      length0           = box_length
+      box_length = EXP(Ly*Dt) * box_length
+
+
+!      IF(Judge_plume(i_box)==1) THEN
+!        box_Ra(i_box) = box_Ra(i_box)*SQRT(length0/box_length(i_box))
+!        box_Rb(i_box) = box_Rb(i_box)*SQRT(length0/box_length(i_box))
+!      ELSE IF(Judge_plume(i_box)==2) THEN
+
+       Pdx = Pdx*SQRT(length0/box_length)
+       Pdy = Pdy*SQRT(length0/box_length)
+
 !      ENDIF
-
-
-      length0           = box_length(i_box)
-      box_length(i_box) = EXP(Ly*Dt) * box_length(i_box)
-
-
-      IF(Judge_plume(i_box)==1) THEN
-        box_Ra(i_box) = box_Ra(i_box)*SQRT(length0/box_length(i_box))
-        box_Rb(i_box) = box_Rb(i_box)*SQRT(length0/box_length(i_box))
-      ELSE IF(Judge_plume(i_box)==2) THEN
-        Pdx(i_box) = Pdx(i_box)*SQRT(length0/box_length(i_box))
-        Pdy(i_box) = Pdy(i_box)*SQRT(length0/box_length(i_box))
-
-      ENDIF
 
 
 
@@ -1477,34 +1247,21 @@ CONTAINS
 
 
 
+     
+      Plume2d%LON = box_lon
+      Plume2d%LAT = box_lat
+      Plume2d%LEV = box_lev
+      Plume2d%LENGTH = box_length
+      Plume2d%ALPHA = box_alpha
 
-500     CONTINUE
+      Plume2d%DX = Pdx
+      Plume2d%DY = Pdy
 
-    end do  !do i_box = 1,n_box
+      Plume2d%CONCNT = box_concnt_2D
 
-!    WRITE(6,*) '--- n_active_plume, n_box:',  n_active_plume, n_box
 
-    !------------------------------------------------------------------
-    ! Horizontal stretch:
-    ! Adjust the length/radius of the box based on new location
-    !------------------------------------------------------------------
 
-!    DO i_box = 1, n_box
-! 
-!      length0           = box_length(i_box)
-!      box_length(i_box) = 2 * Distance_Circle( box_lon(i_box), box_lat(i_box), &
-!                                   box_lon_edge(i_box), box_lat_edge(i_box) ) ! [m]
-!
-!      IF(Judge_plume(i_box)==1) THEN
-!        box_Ra(i_box) = box_Ra(i_box)*SQRT(length0/box_length(i_box))
-!        box_Rb(i_box) = box_Rb(i_box)*SQRT(length0/box_length(i_box))
-!      ELSE IF(Judge_plume(i_box)==2) THEN
-!         Pdx(i_box) = Pdx(i_box)*SQRT(length0/box_length(i_box))
-!         Pdy(i_box) = Pdy(i_box)*SQRT(length0/box_length(i_box))
-!
-!      ENDIF
-!
-!    ENDDO 
+    ENDDO  ! DO WHILE(ASSOCIATED(Plume2d))
 
 
     !------------------------------------------------------------------
@@ -2450,9 +2207,6 @@ CONTAINS
               Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1.0e+6_fp &
            * State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) &
            * (n_x_max-2)*(n_y_max-2)
-
-
-
        enddo 
 
     ENDDO ! DO i_box = n_box_prev+1, n_box_max, 1
@@ -2655,6 +2409,13 @@ CONTAINS
        IF(ABS(CFL)>1) GOTO 700
        IF(ABS(2*eddy_h*Pdt/(Pdx(i_box)**2))>1) GOTO 700
        IF(ABS(2*eddy_v*Pdt/(Pdy(i_box)**2))>1) GOTO 700
+
+
+
+       IF(i_box==50176)THEN
+         WRITE(6,*) "*** TEST ***"
+         WRITE(6,*) box_concnt_2D(n_x_mid-3:n_x_mid+3,n_y_mid-3:n_y_mid+3,1,i_box)
+       ENDIF
 
 
 
@@ -2958,8 +2719,8 @@ CONTAINS
          IF( Lifetime(i_box)>6.0*3600.0 ) THEN
            WRITE(6,*) "*** ERROR ***"
            WRITE(6,*) i_box, Xscale, Yscale, Pdx(i_box), Pdy(i_box)
-           WRITE(6,*) Pc2(n_x_mid,:)
-           WRITE(6,*) Pc2(:,n_y_mid)
+           WRITE(6,*) Pc2(n_x_mid-3:n_x_mid+3,n_y_mid-3:n_y_mid+3)
+           WRITE(6,*) Pc2(n_x_mid-3:n_x_mid+3,n_y_mid-3:n_y_mid+3)
          ENDIF
 
 
@@ -3516,7 +3277,7 @@ CONTAINS
 
 !!! shw
        IF( box_Ra(i_box) > Dx*110.0*1000.0 ) THEN
-
+         WRITE(6,*)"SPLIT:", i_box
 
          ! extend the total number of box to include the new box
          n_box_prev = n_box
@@ -3738,6 +3499,7 @@ CONTAINS
 
 
            box_concnt_1D(:,:,ii_box) = box_concnt_1D(:,:,i_box)
+           box_concnt_2D(:,:,:,ii_box) = box_concnt_2D(:,:,:,i_box)
 !           Extra_mass_1D(ii_box,:,:) = Extra_mass_1D(i_box,:,:)
            Total_extra(ii_box) = Total_extra(i_box)/N_split
 
@@ -3763,6 +3525,9 @@ CONTAINS
  200 CONTINUE
 
 
+
+
+!???
        V_grid_2D       = Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1.0e+6_fp
 
 !       IF(i_box==2095) WRITE(6,*) 6, i_box, &
