@@ -225,16 +225,28 @@
 ! the concentration in plume boundary is always 0.0, and the injected aerosol
 ! only transport from plume into background.
 
+! Jan 15, 2021
+! add two functions to check and modify the plume location (box_lon, box_lat) to
+! make sure that the lon/lat is not out of model grid range
+!      box_lat = Within_Range_Lat(box_lat, Y_edge(1), Y_edge(JJPAR+1) )
+!      box_lon = Within_Range_Lon(box_lon, X_edge(1), X_edge(IIPAR+1) )
+!
+! modify the functions to make sure the calculated index is in the correct
+! range.
+!      i_lon = Find_iLon(curr_lon, Dx, X_edge2)
+!      i_lat = Find_iLat(curr_lat, Dy, Y_edge2)
+!      i_lev = Find_iPLev(curr_pressure,P_edge)
 
 
 
+! put 1d grid cells combination into smaller time loop
+
+! 
 
 
 ! The simulation has issue after 25 days' simulating. Too much 2D grid left for
 ! unknown reason.
 
-
-! when plume is dissolved, delete it from the n_box
 
 
 ! reconsider plume dissolve criteria, which should involve extra mass
@@ -277,10 +289,10 @@ MODULE Lagrange_Mod
 
   ! PUBLIC VARIABLES:
 
-  PUBLIC :: n_x_max, n_y_max
-  PUBLIC :: n_x_mid, n_y_mid
+!  PUBLIC :: n_x_max, n_y_max
+!  PUBLIC :: n_x_mid, n_y_mid
 
-  PUBLIC :: n_slab_max, n_slab_25, n_slab_50, n_slab_75
+!  PUBLIC :: n_slab_max, n_slab_25, n_slab_50, n_slab_75
 
   integer, parameter    :: n_x_max = 483    ! number of x grids in 2D
   integer, parameter    :: n_y_max = 165    !279     ! number of y grids in 2D
@@ -296,8 +308,6 @@ MODULE Lagrange_Mod
   integer, parameter    :: n_slab_max2 = n_slab_max+2
   ! add 2 more slab grid to containing background concentration
 
-  integer               :: n_slab_25, n_slab_50, n_slab_75
-
   real, parameter       :: Dx_init = 100
   real, parameter       :: Dy_init = 10
 
@@ -306,7 +316,7 @@ MODULE Lagrange_Mod
   real(fp), pointer :: P_edge(:)
 
 
-  integer, parameter    :: N_parcel   = 1 ! 131        
+  integer, parameter    :: N_parcel   = 10 ! 131        
   integer               :: Num_inject, Num_Plume2d, Num_Plume1d       
   integer               :: tt     
   ! Aircraft would release 131 aerosol parcels every time step
@@ -379,24 +389,9 @@ CONTAINS
     TYPE(OptInput), intent(in)    :: Input_Opt
     INTEGER,        INTENT(OUT)   :: RC         ! Success or failure
 
-    INTEGER                       :: i_box, i_slab
-    INTEGER                       :: ii, jj, kk
-    CHARACTER(LEN=255)            :: FILENAME, FILENAME_INIT
-    CHARACTER(LEN=255)            :: FILENAME2
-
     integer :: i_lon, i_lat, i_lev            !1:IIPAR
 
-    REAL(fp) :: lon1, lat1, lon2, lat2
-    REAL(fp) :: box_lon_edge, box_lat_edge        
-
-    real(fp), dimension(:,:), allocatable :: box_concnt_2D
-    real(fp), dimension(:), allocatable   :: box_concnt_1D
-
-    TYPE(Plume2d_list), POINTER :: Plume2d_new, PLume2d, Plume2d_prev
-    TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
-
-    allocate(box_concnt_2D(n_x_max, n_y_max))
-    allocate(box_concnt_1D(n_slab_max))
+!    REAL(fp) :: box_lon_edge, box_lat_edge        
 
     Num_dissolve = 0
 
@@ -410,6 +405,7 @@ CONTAINS
     ! -----------------------------------------------------------
     ALLOCATE(Plume2d_old)
     Plume2d_old%IsNew = 1
+    Plume2d_old%label = 1
 
     Plume2d_old%LON = -141.0e+0_fp
     Plume2d_old%LAT = -29.95e+0_fp
@@ -439,22 +435,13 @@ CONTAINS
 
 
     Num_Plume2d = 1
-
-    ! Check Num_Plume1d to determine the first 1d (changed from from 2d), and
-    ! create the first node for 1d
     Num_Plume1d = 0
-
     ! use this value to set the initial latutude for injected plume
-    Num_inject = 1
+    Num_inject  = 1
 
 
 
-
-    n_slab_25 = (n_slab_max-2)/4*1
-    n_slab_50 = (n_slab_max-2)/4*2
-    n_slab_75 = (n_slab_max-2)/4*3
-
-
+    ! will be used in the whole module
     X_mid  => XMID(:,1,1)   ! IIPAR
     Y_mid  => YMID(1,:,1)
     P_mid  => State_Met%PMID(1,1,:)  ! Pressure at level centers (hPa)
@@ -510,12 +497,12 @@ CONTAINS
     !-----------------------------------------------------------------
     ! Output State_Met%AD(i_lon,i_lat,i_lev) into State_Met_AD.txt
     !-----------------------------------------------------------------
-    OPEN( 314,      FILE='State_Met_AD.txt', STATUS='REPLACE', &
+    OPEN( 314,      FILE='State_Met_AD_change_zyx_order_python.txt', STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-    Do i_lon = 1, IIPAR
-    Do i_lat = 1, JJPAR
     Do i_lev = 1, LLPAR
+    Do i_lat = 1, JJPAR
+    Do i_lon = 1, IIPAR
        WRITE(314,'(x,E12.5)') State_Met%AD(i_lon,i_lat,i_lev) ![kg]
     End Do
     End Do
@@ -528,16 +515,6 @@ CONTAINS
     State_Chm%Species(:,:,:,State_Chm%nAdvect-1) = 0.0e+0_fp  ! [kg/kg]
     ! output the apecies' name for double check ???
 
-
-    deallocate(box_concnt_2D)
-    deallocate(box_concnt_1D)
-
-    nullify(Plume2d_new)
-    nullify(PLume2d)
-    nullify(Plume2d_prev)
-    nullify(Plume1d_new)
-    nullify(Plume1d)
-    nullify(Plume1d_prev)
 
 
   END SUBROUTINE lagrange_init
@@ -577,7 +554,6 @@ CONTAINS
     integer :: i_lon, i_lat, i_lev
     integer :: next_i_lon, next_i_lat, next_i_lev
 
-    integer :: ii, jj, kk
 
     integer :: Ki
 
@@ -616,10 +592,9 @@ CONTAINS
     real(fp) :: Dx, Dy
 
     real(fp) :: length0
-    real(fp) :: lon1, lon2, lat1, lat2
 
 
-    real(fp) :: box_lon_edge, box_lat_edge
+!    real(fp) :: box_lon_edge, box_lat_edge
 
 !    real(fp) :: box_alpha
     real(fp) :: D_wind, D_x, D_y
@@ -630,10 +605,10 @@ CONTAINS
     real(fp) :: box_length, box_alpha, box_theta
     real(fp) :: Pdx, Pdy
     real(fp) :: box_Ra, box_Rb
-    real(fp) :: box_extra, box_life
+    real(fp) :: box_extra, box_life, box_label
 
-    real(fp), dimension(:,:), allocatable :: box_concnt_2D
-    real(fp), dimension(:), allocatable :: box_concnt_1D
+    real(fp) :: box_concnt_2D(n_x_max, n_y_max)
+    real(fp) :: box_concnt_1D(n_slab_max)
 
 
     TYPE(Plume2d_list), POINTER :: Plume2d_new, PLume2d, Plume2d_prev
@@ -643,10 +618,6 @@ CONTAINS
 
     CHARACTER(LEN=63)      :: OrigUnit
     CHARACTER(LEN=255)     :: ErrMsg
-
-
-    allocate(box_concnt_2D(n_x_max, n_y_max))
-    allocate(box_concnt_1D(n_slab_max))
 
 
     RC     =  GC_SUCCESS
@@ -661,9 +632,9 @@ CONTAINS
     RK_Dt(4) = Dt
     RK_Dt(5) = 0.0
 
-    u     => State_Met%U   ! figure out state_met%U is based on
-                           !  lat/lon or modelgrid(i,j)
-    v     => State_Met%V   ! V [m s-1]
+    u     => State_Met%U         ! figure out state_met%U is based on
+                                 !  lat/lon or modelgrid(i,j)
+    v     => State_Met%V         ! V [m s-1]
     omeg  => State_Met%OMEGA     ! Updraft velocity [Pa/s]
     Ptemp => State_Met%THETA     ! Potential temperature [K]
     T1    => State_Met%TMPU1     ! Temperature at start of
@@ -672,8 +643,8 @@ CONTAINS
                                  !  timestep [K]
 
     Dx = DLON(1,1,1)
-    Dy = DLAT(1,2,1)  ! DLAT(1,1,1) is half of DLAT(1,2,1) !!!
-    X_edge => XEDGE(:,1,1)   ! IIPAR+1
+    Dy = DLAT(1,2,1)             ! DLAT(1,1,1) is half of DLAT(1,2,1) !!!
+    X_edge => XEDGE(:,1,1)       ! IIPAR+1
     Y_edge => YEDGE(1,:,1)  
     ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
 
@@ -682,7 +653,6 @@ CONTAINS
      
     
 
-
     ! -----------------------------------------------------------
     ! add new box every time step
     ! -----------------------------------------------------------
@@ -690,6 +660,7 @@ CONTAINS
       ALLOCATE(Plume2d_new)
 
       Plume2d_new%IsNew = 1
+      Plume2d_new%label = i_box
 
       Plume2d_new%LON = -141.0e+0_fp
       Plume2d_new%LAT = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) &
@@ -721,9 +692,7 @@ CONTAINS
 
 
     Num_Plume2d = Num_Plume2d + N_parcel
-
-    ! use this value to set the initial latutude for injected plume
-    Num_inject = Num_inject + N_parcel
+    Num_inject  = Num_inject + N_parcel
 
 
 
@@ -765,6 +734,7 @@ CONTAINS
       box_length = Plume2d%LENGTH
       box_alpha  = Plume2d%ALPHA
 
+      box_label   = Plume2d%label
       box_life   = Plume2d%LIFE
 
       Pdx    = Plume2d%DX
@@ -780,21 +750,9 @@ CONTAINS
       !-----------------------------------------------------------------------
 
       ! make sure the location is not out of range
-      do while (box_lat > Y_edge(JJPAR+1))
-         box_lat = Y_edge(JJPAR+1) - ( box_lat-Y_edge(JJPAR+1) )
-      end do
 
-      do while (box_lat < Y_edge(1))
-         box_lat = Y_edge(1) + ( box_lat-Y_edge(1) )
-      end do
-
-      do while (box_lon > X_edge(IIPAR+1))
-         box_lon = box_lon - 360.0
-      end do
-
-      do while (box_lon < X_edge(1))
-         box_lon = box_lon + 360.0
-      end do
+      box_lat = Within_Range_Lat(box_lat, Y_edge(1), Y_edge(JJPAR+1) )
+      box_lon = Within_Range_Lon(box_lon, X_edge(1), X_edge(IIPAR+1) )
 
 
       curr_lon      = box_lon
@@ -803,25 +761,23 @@ CONTAINS
 !      curr_T1       = box_T1(i_box)        ! K
 
 
-      ! check this grid box is the neast one or the one located in left-bottom
-      ! ???
-      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
-      if(i_lon>IIPAR) i_lon=i_lon-IIPAR
-      if(i_lon<1) i_lon=i_lon+IIPAR
-
-      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
-      if(i_lat>JJPAR) i_lat=JJPAR
-      if(i_lat<1) i_lat=1
-
+      ! check the plume is in which grid cell based on the grid cell edge
+      i_lon = Find_iLon(curr_lon, Dx, X_edge2)
+      i_lat = Find_iLat(curr_lat, Dy, Y_edge2)
       i_lev = Find_iPLev(curr_pressure,P_edge)
-      if(i_lev>LLPAR) i_lev=LLPAR
 
-      IF(i_lev==LLPAR) WRITE(6,*) 'box_lev:', curr_pressure, i_lev
+      IF(i_lev==LLPAR) WRITE(6,*) 'box_lev:', curr_pressure, i_lev !!! ???
+
+
+
+      !!! check from here ???
+
+
 
       ! For new injected plume:
-      if(Plume2d_new%IsNew==1)then
+      if(Plume2d%IsNew==1)then
 
-         Plume2d_new%IsNew = 0
+         Plume2d%IsNew = 0
 
         ! ====================================================================
         ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in 
@@ -840,8 +796,8 @@ CONTAINS
 
          MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
          ! Here assume the injection rate is 30 kg/km for H2SO4: 
-         PASV_EU = PASV_EU + box_length*1.0e-3_fp*30.0 &
-                                        /State_Met%AD(i_lon,i_lat,i_lev)
+         PASV_EU = PASV_EU &
+                 + box_length*1.0e-3_fp*30.0/State_Met%AD(i_lon,i_lat,i_lev)
 
 
          !======================================================================
@@ -886,7 +842,11 @@ CONTAINS
 
 
 
-      endif ! if(Plume2d_new%IsNew==1)then
+      endif ! if(Plume2d%IsNew==1)then
+
+
+        !!! check from here ???
+
 
 
       DO Ki = 1,4,1
@@ -896,9 +856,11 @@ CONTAINS
        ! pay attention for the polar region * * *
        !------------------------------------------------------------------
        if(abs(curr_lat)>Y_mid(JJPAR))then
-          curr_omeg = Interplt_wind_RLL_polar(omeg, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+          curr_omeg = Interplt_wind_RLL_polar(omeg, i_lon, i_lat, i_lev, &
+                                        curr_lon, curr_lat, curr_pressure)
        else
-          curr_omeg = Interplt_wind_RLL(omeg, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
+          curr_omeg = Interplt_wind_RLL(omeg, i_lon, i_lat, i_lev, curr_lon, &
+                                                      curr_lat, curr_pressure)
        endif
 
        RK_omeg(Ki) = curr_omeg
@@ -1052,14 +1014,6 @@ CONTAINS
 
 
 
-!      IF(i_box==222.and.Judge_plume(i_box)==1) WRITE(6,*) '0-1D', i_box, &
-!        box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp,        &
-!        box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp *       &
-!                                        SUM(box_concnt_1D(i_box,:,1)),   &
-!        box_extra(i_box)
-
-
-
 
       !--------------------------------------------------------------------
       ! interpolate temperature for plume volumn change (PV=nRT):
@@ -1074,16 +1028,10 @@ CONTAINS
 
 
 
-      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
-      if(i_lon>IIPAR) i_lon=i_lon-IIPAR
-      if(i_lon<1) i_lon=i_lon+IIPAR
-
-      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
-      if(i_lat>JJPAR) i_lat=JJPAR
-      if(i_lat<1) i_lat=1
-
+      i_lon = Find_iLon(box_lon, Dx, X_edge2)
+      i_lat = Find_iLat(box_lat, Dy, Y_edge2)
       i_lev = Find_iPLev(box_lev,P_edge)
-      if(i_lev>LLPAR)i_lev=LLPAR
+
 
 
       if(abs(box_lat)>Y_mid(JJPAR))then
@@ -1221,6 +1169,7 @@ CONTAINS
       Plume2d%LEV = box_lev
       Plume2d%LENGTH = box_length
       Plume2d%ALPHA  = box_alpha
+      Plume2d%label   = box_label
       Plume2d%LIFE   = box_life
 
 
@@ -1234,7 +1183,11 @@ CONTAINS
     ENDDO  ! DO WHILE(ASSOCIATED(Plume2d))
 
 
-    WRITE(6,*)'=== loop for 2d plume in lagrange_run: ', i_box, Num_Plume2d
+!    WRITE(6,*)'=== loop for 2d plume in lagrange_run: ', i_box, Num_Plume2d
+
+
+
+
 
 
     !=======================================================================
@@ -1257,10 +1210,12 @@ CONTAINS
       box_lev    = Plume1d%LEV
       box_length = Plume1d%LENGTH
       box_alpha  = Plume1d%ALPHA
+      box_label   = Plume1d%label
       box_life   = Plume1d%LIFE
 
       box_Ra    = Plume1d%RA
       box_Rb    = Plume1d%RB
+      box_theta = Plume1d%THETA
 
 !      WRITE(6,*) i_box, SHAPE(box_concnt_1D), SHAPE(Plume1d%CONCNT1d)
 
@@ -1274,21 +1229,8 @@ CONTAINS
       !-----------------------------------------------------------------------
 
       ! make sure the location is not out of range
-      do while (box_lat > Y_edge(JJPAR+1))
-         box_lat = Y_edge(JJPAR+1) - ( box_lat-Y_edge(JJPAR+1) )
-      end do
-
-      do while (box_lat < Y_edge(1))
-         box_lat = Y_edge(1) + ( box_lat-Y_edge(1) )
-      end do
-
-      do while (box_lon > X_edge(IIPAR+1))
-         box_lon = box_lon - 360.0
-      end do
-
-      do while (box_lon < X_edge(1))
-         box_lon = box_lon + 360.0
-      end do
+      box_lat = Within_Range_Lat(box_lat, Y_edge(1), Y_edge(JJPAR+1) )
+      box_lon = Within_Range_Lon(box_lon, X_edge(1), X_edge(IIPAR+1) )
 
 
       curr_lon      = box_lon
@@ -1296,16 +1238,10 @@ CONTAINS
       curr_pressure = box_lev      ! hPa
 
 
-      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
-      if(i_lon>IIPAR) i_lon=i_lon-IIPAR
-      if(i_lon<1) i_lon=i_lon+IIPAR
-
-      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
-      if(i_lat>JJPAR) i_lat=JJPAR
-      if(i_lat<1) i_lat=1
-
+      i_lon = Find_iLon(curr_lon, Dx, X_edge2)
+      i_lat = Find_iLat(curr_lat, Dy, Y_edge2)
       i_lev = Find_iPLev(curr_pressure,P_edge)
-      if(i_lev>LLPAR) i_lev=LLPAR
+
 
       DO Ki = 1,4,1
 
@@ -1484,17 +1420,9 @@ CONTAINS
       endif
 
 
-
-      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
-      if(i_lon>IIPAR) i_lon=i_lon-IIPAR
-      if(i_lon<1) i_lon=i_lon+IIPAR
-
-      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
-      if(i_lat>JJPAR) i_lat=JJPAR
-      if(i_lat<1) i_lat=1
-
+      i_lon = Find_iLon(curr_lon, Dx, X_edge2)
+      i_lat = Find_iLat(curr_lat, Dy, Y_edge2)
       i_lev = Find_iPLev(box_lev,P_edge)
-      if(i_lev>LLPAR) i_lev=LLPAR
 
 
       if(abs(box_lat)>Y_mid(JJPAR))then
@@ -1521,7 +1449,7 @@ CONTAINS
 
 
 !!! comment this temperary ???
-!      box_concnt_1D(1:n_slab_max) = box_concnt_1D(1:n_slab_max)*V_prev/V_new
+      box_concnt_1D(1:n_slab_max) = box_concnt_1D(1:n_slab_max)*V_prev/V_new
 
 
       !------------------------------------------------------------------
@@ -1622,8 +1550,8 @@ CONTAINS
       box_length = EXP(Ly*Dt) * box_length
 
 
-!      box_Ra = box_Ra*SQRT(length0/box_length)
-!      box_Rb = box_Rb*SQRT(length0/box_length)
+      box_Ra = box_Ra*SQRT(length0/box_length)
+      box_Rb = box_Rb*SQRT(length0/box_length)
 
 
 
@@ -1632,9 +1560,11 @@ CONTAINS
       Plume1d%LEV    = box_lev
       Plume1d%LENGTH = box_length
       Plume1d%ALPHA  = box_alpha
+      Plume1d%label  = box_label
       Plume1d%LIFE   = box_life
       Plume1d%RA     = box_Ra
       Plume1d%RB     = box_Rb
+      Plume1d%THETA  = box_theta
 
       Plume1d%CONCNT1d = box_concnt_1D
 
@@ -1643,7 +1573,7 @@ CONTAINS
 
     ENDDO  ! DO WHILE(ASSOCIATED(Plume1d))
 
-    WRITE(6,*) '=== loop for 1d plume in lagrange_run: ', i_box, Num_Plume1d
+!    WRITE(6,*) '=== loop for 1d plume in lagrange_run: ', i_box, Num_Plume1d
 
 
 400 CONTINUE
@@ -1653,9 +1583,6 @@ CONTAINS
     !------------------------------------------------------------------
     ! Everything is done, clean up pointers
     !------------------------------------------------------------------
-
-    deallocate(box_concnt_2D)
-    deallocate(box_concnt_1D)
 
     nullify(u)
     nullify(v)
@@ -1829,8 +1756,14 @@ CONTAINS
 
     ! first interpolate horizontally (Inverse Distance Weighting)
 
-    ! identify the grid point located in the southwest of the particle or under
-    ! the particle
+    ! identify the relative locations between grid cell center and plume center
+    ! then find the grid cell center located in the southwest of the plume
+
+!    init_lon = Find_i_west(curr_lon, X_mid(i_lon))
+!    init_lat = Find_j_south(curr_lat, Y_mid(i_lat))
+!    init_lev = Find_k_bottom(curr_pressure, P_mid(i_lev))
+
+
     if(curr_lon>=X_mid(i_lon))then
       init_lon = i_lon
     else
@@ -2366,6 +2299,8 @@ CONTAINS
     REAL(fp) :: Pdt
     REAL(fp) :: Dt2
 
+    integer  :: n_slab_25, n_slab_50, n_slab_75
+
     integer  :: N_split
 
     integer  :: i_box   !, i_specie
@@ -2462,7 +2397,7 @@ CONTAINS
     real(fp) :: box_length, box_alpha, box_theta
     real(fp) :: Pdx, Pdy
     real(fp) :: box_Ra, box_Rb
-    real(fp) :: box_extra, box_life
+    real(fp) :: box_extra, box_life, box_label
 
     real(fp) :: box_concnt_2D(n_x_max, n_y_max)
     real(fp) :: box_concnt_1D(n_slab_max)
@@ -2495,6 +2430,10 @@ CONTAINS
     ErrMsg    =  ''
 
 !    FILENAME2   = 'Plume_theta_max_min_radius.txt'
+
+    n_slab_25 = n_slab_max/4*1
+    n_slab_50 = n_slab_max/4*2
+    n_slab_75 = n_slab_max/4*3
 
 
     Dt = GET_TS_DYN()
@@ -2549,7 +2488,8 @@ CONTAINS
       box_length = Plume2d%LENGTH
       box_alpha  = Plume2d%ALPHA
 
-      box_life   = Plume2d%LIFE
+      box_label   = Plume2d%label
+      box_life    = Plume2d%LIFE
 
       Pdx    = Plume2d%DX
       Pdy    = Plume2d%DY
@@ -2557,23 +2497,10 @@ CONTAINS
       box_concnt_2D = Plume2d%CONCNT2d
 
 
+
       ! make sure the location is not out of range
-      do while (box_lat > Y_edge(JJPAR+1))
-         box_lat = Y_edge(JJPAR+1) &
-                        - ( box_lat-Y_edge(JJPAR+1) )
-      end do
-
-      do while (box_lat < Y_edge(1))
-         box_lat = Y_edge(1) + ( box_lat-Y_edge(1) )
-      end do
-
-      do while (box_lon > X_edge(IIPAR+1))
-         box_lon = box_lon - 360.0
-      end do
-
-      do while (box_lon < X_edge(1))
-         box_lon = box_lon + 360.0
-      end do
+      box_lat = Within_Range_Lat(box_lat, Y_edge(1), Y_edge(JJPAR+1) )
+      box_lon = Within_Range_Lon(box_lon, X_edge(1), X_edge(IIPAR+1) )
 
 
       curr_lon      = box_lon
@@ -2581,16 +2508,10 @@ CONTAINS
       curr_pressure = box_lev      ! hPa
 
 
+      i_lon = Find_iLon(curr_lon, Dx, X_edge2)
+      i_lat = Find_iLat(curr_lat, Dy, Y_edge2)
+      i_lev = Find_iPLev(curr_pressure,P_edge)
 
-       i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
-       if(i_lon>IIPAR) i_lon=i_lon-IIPAR
-       if(i_lon<1) i_lon=i_lon+IIPAR
-
-       i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
-       if(i_lat>JJPAR) i_lat=JJPAR
-       if(i_lat<1) i_lat=1
-
-       i_lev = Find_iPLev(curr_pressure,P_edge)
 
 
 !       backgrd_concnt(i_box,:) = State_Chm%Species(i_lon,i_lat,i_lev,:)
@@ -2682,7 +2603,8 @@ CONTAINS
        IF(ABS(2*eddy_v*Pdt/(Pdy**2))>1) GOTO 700
 
 
-
+       V_grid_2D       = Pdx*Pdy*box_length*1.0e+6_fp
+       grid_volumn     = State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp ! [cm3]
 
        DO t1s = 1, NINT(Dt/Pdt)
 
@@ -2701,8 +2623,8 @@ CONTAINS
            box_concnt_2D(:,:)       = 0.0
 
 
-           DO i = 1, n_x_max/3, 1
-           DO j = 1, n_y_max/3, 1
+           DO i = 1, n_x_max/3, 1  !!! loop order should change to run faster
+           DO j = 1, n_y_max/3, 1  !!! i should be inside j
 
              i_x = (i-1)*3+1
              i_y = (j-1)*3+1
@@ -2719,12 +2641,12 @@ CONTAINS
 
            ! uodate box_extra(i_box)
            V_grid_2D       = Pdx*Pdy*box_length*1.0e+6_fp
-           mass_plume      = V_grid_2D/9 *SUM(Pc(:,:))
-
-           mass_plume_new = V_grid_2D &
-                *SUM( box_concnt_2D(:,:))
-
-           D_mass_plume = mass_plume_new - mass_plume
+!           mass_plume      = V_grid_2D/9 *SUM(Pc(:,:))
+!
+!           mass_plume_new = V_grid_2D &
+!                *SUM( box_concnt_2D(:,:))
+!
+!           D_mass_plume = mass_plume_new - mass_plume
 
 !           IF(D_mass_plume>0)THEN
 !             WRITE(6,*)'--- 9 to 1 grid cell:', i_box, mass_plume, mass_plume_new
@@ -2757,13 +2679,7 @@ CONTAINS
          ! calculate [vertical wind shear advection] and [diffusion]
          !--------------------------------------------------------------
 
-         ! for interaction with background grid cell
-!         WRITE(6,*) box_concnt_2D(n_x_mid, n_y_mid-2:n_y_mid+2)
-!         WRITE(6,*)'2d:', i_box, SHAPE(C2d_prev), SHAPE(box_concnt_2D)
-         
          C2d_prev(1:n_x_max,1:n_y_max) = box_concnt_2D(1:n_x_max,1:n_y_max)
-
-         V_grid_2D       = Pdx*Pdy*box_length*1.0e+6_fp
 
          Concnt2D_bdy(:,:) = 0.0
          Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) = box_concnt_2D(:,:)
@@ -2822,9 +2738,6 @@ CONTAINS
          ! Update the concentration in the background grid cell
          ! after the interaction with 2D plume
          !================================================================
-         grid_volumn     = State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp ! [cm3]
-         V_grid_2D       = Pdx*Pdy*box_length*1.0e+6_fp
-
 
          ! the boundary always represents the background concentration
          ! [molec]
@@ -2836,6 +2749,9 @@ CONTAINS
 
          D_mass_plume = mass_plume_new - mass_plume
 
+
+!         IF(t1s==1.and.box_label==1) WRITE(6,*) 'Mass check 2d: ', 
+!                                   V_grid_2D, D_mass_plume, mass_plume_new
 
 
 !         IF(D_mass_plume<0)THEN
@@ -2905,8 +2821,8 @@ CONTAINS
                                                  box_Ra, box_Rb, box_concnt_1D)
 
 
-           WRITE(6,*)'box_Ra, box_Rb, box_concnt_1D:'
-           WRITE(6,*)box_Ra, box_Rb, box_concnt_1D(n_slab_50-2:n_slab_50+2)
+!           WRITE(6,*)'box_Ra, box_Rb, box_concnt_1D:'
+!           WRITE(6,*)box_Ra, box_Rb, box_concnt_1D(n_slab_50-2:n_slab_50+2)
 
 
            V_grid_1D = box_Ra*box_Rb*box_length*1.0e+6_fp
@@ -2922,6 +2838,9 @@ CONTAINS
            !!! update the background concentration:
            D_mass_plume = mass_plume_new - mass_plume
 
+
+!         IF(box_label==1) WRITE(6,*) 'Mass Test 2d to 1d', &
+!                      V_grid_1D, V_grid_2D, D_mass_plume, mass_plume_new
 
 
 !           IF(D_mass_plume<0)THEN
@@ -2999,10 +2918,12 @@ CONTAINS
              Plume1d_old%LENGTH = box_length
              Plume1d_old%ALPHA  = box_alpha
 
-             Plume1d_old%LIFE = box_life
+             Plume1d_old%label = box_label
+             Plume1d_old%LIFE  = box_life
 
              Plume1d_old%RA = box_Ra
              Plume1d_old%RB = box_Rb
+             Plume1d_old%THETA = box_theta
 
              ALLOCATE(Plume1d_old%CONCNT1d(n_slab_max))
              Plume1d_old%CONCNT1d = box_concnt_1D
@@ -3018,17 +2939,21 @@ CONTAINS
              ALLOCATE(Plume1d_new, stat=alloc_stat)
              IF(alloc_stat/=0) WRITE(6,*)'ERROR 5:', i_box, alloc_stat
 
+             Plume1d_new%label = box_label
+
              Plume1d_new%LON = box_lon
              Plume1d_new%LAT = box_lat
              Plume1d_new%LEV = box_lev
 
              Plume1d_new%LENGTH = box_length
-             Plume1d_new%ALPHA = box_alpha
+             Plume1d_new%ALPHA  = box_alpha
 
-             Plume1d_new%LIFE = box_life
+             Plume1d_new%label  = box_label
+             Plume1d_new%LIFE   = box_life
 
-             Plume1d_new%RA = box_Ra
-             Plume1d_new%RB = box_Rb
+             Plume1d_new%RA    = box_Ra
+             Plume1d_new%RB    = box_Rb
+             Plume1d_new%THETA = box_theta
 
              ALLOCATE(Plume1d_new%CONCNT1d(n_slab_max))
              Plume1d_new%CONCNT1d = box_concnt_1D
@@ -3209,16 +3134,14 @@ CONTAINS
 
 
 
-    WRITE(6,*)'=== loop for 2d plume in plume_run: ', i_box, Num_Plume2d
-
-
-
-
+!    WRITE(6,*)'=== loop for 2d plume in plume_run: ', i_box, Num_Plume2d
 
 
 
        !====================================================================
+       ! ****************************
        ! begin 1D slab model
+       ! ****************************
        !====================================================================
 
        IF(.NOT.ASSOCIATED(Plume1d_head)) GOTO 500
@@ -3239,31 +3162,19 @@ CONTAINS
          box_length = Plume1d%LENGTH
          box_alpha  = Plume1d%ALPHA
 
-         box_life  = Plume1d%LIFE
+         box_label  = Plume1d%label
+         box_life   = Plume1d%LIFE
 
          box_Ra    = Plume1d%RA
          box_Rb    = Plume1d%RB
- 
+         box_theta = Plume1d%THETA
+
          box_concnt_1D = Plume1d%CONCNT1d
 
 
          ! make sure the location is not out of range
-         do while (box_lat > Y_edge(JJPAR+1))
-            box_lat = Y_edge(JJPAR+1) &
-                           - ( box_lat-Y_edge(JJPAR+1) )
-         end do
-
-         do while (box_lat < Y_edge(1))
-            box_lat = Y_edge(1) + ( box_lat-Y_edge(1) )
-         end do
-
-         do while (box_lon > X_edge(IIPAR+1))
-            box_lon = box_lon - 360.0
-         end do
-
-         do while (box_lon < X_edge(1))
-            box_lon = box_lon + 360.0
-         end do
+         box_lat = Within_Range_Lat(box_lat, Y_edge(1), Y_edge(JJPAR+1) )
+         box_lon = Within_Range_Lon(box_lon, X_edge(1), X_edge(IIPAR+1) )
 
 
          curr_lon      = box_lon
@@ -3271,17 +3182,9 @@ CONTAINS
          curr_pressure = box_lev      ! hPa
 
 
-
-         i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
-         if(i_lon>IIPAR) i_lon=i_lon-IIPAR
-         if(i_lon<1) i_lon=i_lon+IIPAR
-
-         i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
-         if(i_lat>JJPAR) i_lat=JJPAR
-         if(i_lat<1) i_lat=1
-
+         i_lon = Find_iLon(curr_lon, Dx, X_edge2)
+         i_lat = Find_iLat(curr_lat, Dy, Y_edge2)
          i_lev = Find_iPLev(curr_pressure,P_edge)
-         if(i_lev>LLPAR) i_lev=LLPAR
 
 
         !====================================================================
@@ -3393,13 +3296,13 @@ CONTAINS
 
 
          !!! uodate box_extra(i_box) ???
-         V_grid_1D       = box_Ra*box_Rb*box_length*1.0e+6_fp
-         mass_plume      = V_grid_1D/2 *SUM(Cslab(1:n_slab_max))
-
-         mass_plume_new = V_grid_1D &
-              *SUM( box_concnt_1D(1:n_slab_max) )
-
-         D_mass_plume = mass_plume_new - mass_plume
+!         V_grid_1D       = box_Ra*box_Rb*box_length*1.0e+6_fp
+!         mass_plume      = V_grid_1D/2 *SUM(Cslab(1:n_slab_max))
+!
+!         mass_plume_new = V_grid_1D &
+!              *SUM( box_concnt_1D(1:n_slab_max) )
+!
+!         D_mass_plume = mass_plume_new - mass_plume
 
 !         IF(D_mass_plume>0)THEN
 !           WRITE(6,*)'--- 2 to 1 grid cell:', i_box, mass_plume, mass_plume_new
@@ -3416,6 +3319,8 @@ CONTAINS
          GOTO 300
        ENDIF
 
+       V_grid_1D       = box_Ra*box_Rb*box_length*1.0e+6_fp
+       grid_volumn     = State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp ![cm3]
 
        !--------------------------------------------------------------------
        ! Begin the loop to calculate the advection & diffusion in slab model
@@ -3424,13 +3329,13 @@ CONTAINS
 !       DO i_specie = 1, 1
        do t1s=1,NINT(Dt/Dt2)
 
+!!! combining grid cells should be in this time loop ???
 
        !--------------------------------------------------------------------
        ! update the boundary grids in 2D model based on background 
        ! contentration
        !--------------------------------------------------------------------
 
-       V_grid_1D       = box_Ra*box_Rb*box_length*1.0e+6_fp
        C1d_prev       = box_concnt_1D(1:n_slab_max)
 
        !--------------------------------------------------------------------
@@ -3492,14 +3397,15 @@ CONTAINS
        ! after the interaction with 1D plume
        !====================================================================
 
-       grid_volumn     = State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp ![cm3]
-
-
        mass_plume = V_grid_1D * SUM( C1d_prev(1:n_slab_max) )
        mass_plume_new = V_grid_1D * SUM(box_concnt_1D(1:n_slab_max))
 
        ! [molec]
        D_mass_plume = mass_plume_new - mass_plume
+
+
+!       IF(t1s==1.and.box_label==1) WRITE(6,*) 'Mass Check 1d: ', &
+!                                  V_grid_1D, D_mass_plume, mass_plume_new
 
 
 !       IF(D_mass_plume<0)THEN
@@ -3549,7 +3455,7 @@ CONTAINS
 
          Num_dissolve = Num_dissolve+1
 
-         WRITE(6,*)'DISSOLVE1:', i_box, Num_dissolve
+         IF(Num_dissolve==1) WRITE(6,*)'*** BEGIN DISSOLVE ***'
 
          backgrd_concnt = &
                   State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
@@ -3792,6 +3698,7 @@ CONTAINS
          do ii_box = 1, N_split-1, 1
 
            ALLOCATE(Plume1d_new)
+           Plume1d_new%label = box_label
 
            Plume1d_new%LON = box_lon_new(ii_box)
            Plume1d_new%LAT = box_lat_new(ii_box)
@@ -3804,6 +3711,7 @@ CONTAINS
 
            Plume1d_new%RA = box_Ra
            Plume1d_new%RB = box_Rb
+           Plume1d_new%THETA = box_theta
 
            ALLOCATE(Plume1d_new%CONCNT1d(n_slab_max))
            Plume1d_new%CONCNT1d = box_concnt_1D
@@ -3835,6 +3743,7 @@ CONTAINS
 
        Plume1d%RA = box_Ra
        Plume1d%RB = box_Rb
+       Plume1d%THETA = box_theta
 
        Plume1d%CONCNT1d = box_concnt_1D
 
@@ -3851,7 +3760,7 @@ CONTAINS
 
 500     CONTINUE
 
-     WRITE(6,*)'=== loop for 1d plume in plume_run: ', i_box, Num_Plume1d
+!     WRITE(6,*)'=== loop for 1d plume in plume_run: ', i_box, Num_Plume1d
 
     !=======================================================================
     ! Convert specie back to original units (ewl, 8/16/16)
@@ -3865,8 +3774,8 @@ CONTAINS
     ENDIF
 
 
-   WRITE(6,*)'Num test:', Num_Plume1d, Num_Plume2d, Num_Plume1d+Num_Plume2d, &
-                                                      Num_dissolve, Num_inject
+!   WRITE(6,*)'Num test:', Num_Plume1d, Num_Plume2d, Num_Plume1d+Num_Plume2d, &
+!                                                      Num_dissolve, Num_inject
 
 
     ! Everything is done, clean up pointers
@@ -3899,17 +3808,41 @@ CONTAINS
 ! functions to which grid cell (i,j,k) contains the box
 !--------------------------------------------------------------------
 
-  integer function Find_iLonLat(curr_xy,  Dxy,  XY_edge2)
+  integer function Find_iLon(curr_x,  Dx,  X_edge2)
     implicit none
-    real(fp) :: curr_xy, Dxy, XY_edge2
-    Find_iLonLat = INT( (curr_xy - (XY_edge2 - Dxy)) / Dxy )+1
+    real(fp) :: curr_x, Dx, X_edge2
+    real(fp) :: edge_init
+
+    edge_init = X_edge2 - Dx
+    Find_iLon = INT( (curr_x - edge_init) / Dx )+1
+
+    ! make sure the index is in the correct range
+    if(Find_iLon>IIPAR) Find_iLon = Find_iLon - IIPAR
+    if(Find_iLon<1) Find_iLon = Find_iLon + IIPAR
+
     ! Notice the difference between INT(), FLOOR(), AINT()
-    ! for lon: Xedge_Sec - Dx = Xedge_first
+    ! for lon: Xedge_Second - Dx = Xedge_first
     return
   end function
 
 
-  integer function Find_iPLev(curr_pressure,P_edge)
+  integer function Find_iLat(curr_y,  Dy,  Y_edge2)
+    implicit none
+    real(fp) :: curr_y, Dy, Y_edge2
+    real(fp) :: edge_init
+
+    edge_init = Y_edge2 - Dy
+    Find_iLat = INT( (curr_y - edge_init) / Dy )+1
+
+    ! make sure the index is in the correct range
+    if(Find_iLat>JJPAR) Find_iLat=JJPAR
+    if(Find_iLat<1) Find_iLat=1
+
+    return
+  end function
+
+
+  integer function Find_iPLev(curr_pressure, P_edge)
     implicit none
     real(fp) :: curr_pressure
     real(fp), pointer :: P_edge(:)
@@ -3923,8 +3856,86 @@ CONTAINS
        Find_iPLev = locate(1) - 1
     endif
 
+    ! make sure the index is in the correct range
+    if(Find_iPLev>LLPAR) Find_iPLev=LLPAR
+    if(Find_iPLev<1) Find_iPLev=1
+
     return
   end function
+
+
+  real(fp) function Within_Range_Lat(box_lat, Y_edge_low, Y_edge_high)
+    implicit none
+    real(fp) box_lat, Y_edge_low, Y_edge_high
+
+    Within_Range_Lat = box_lat
+
+    do while (box_lat > Y_edge_high)
+       Within_Range_Lat = Y_edge_high - ( box_lat-Y_edge_low )
+    end do
+
+    do while (box_lat < Y_edge_low)
+       Within_Range_Lat = Y_edge_low - ( box_lat-Y_edge_low )
+    end do
+
+    return
+  end function
+
+
+  real(fp) function Within_Range_Lon(box_lon, X_edge_low, X_edge_high)
+    implicit none
+    real(fp) box_lon, X_edge_low, X_edge_high
+
+    Within_Range_Lon = box_lon
+
+    do while (box_lon > X_edge_high)
+       Within_Range_Lon = box_lon - 360.0
+    end do
+
+    do while (box_lon < X_edge_low)
+       Within_Range_Lon = box_lon + 360.0
+    end do
+
+    return
+  end function
+
+
+!    init_lon = Find_i_west(curr_lon, i_lon, X_mid(i_lon))
+!    init_lat = Find_j_south(curr_lat, i_lat, Y_mid(i_lat))
+!    init_lev = Find_k_bottom(curr_pressure, i_lev, P_mid(i_lev))
+
+
+!  integer function Find_i_west(curr_x, ix, Xmid)
+!    implicit none
+!    real(fp) :: curr_x, ix, Xmid
+!
+!    ! the range for the output is [0, IIPAR]
+!
+!    if(curr_x>=Xmid)then
+!      Find_i_west = ix
+!    else
+!      Find_i_west = ix - 1
+!    endif
+!
+!    return
+!  end function
+
+
+!  integer function Find_j_south(curr_y, iy, Ymid)
+!    implicit none
+!    real(fp) :: curr_y, iy, Ymid
+!
+!    ! the range for the output is [0, JJPAR]
+!
+!    if(curr_x>=Xmid)then
+!      Find_i_west = ix
+!    else
+!      Find_i_west = ix - 1
+!    endif
+!
+!    return
+!  end function
+
 
 
   !-------------------------------------------------------------------
@@ -4018,6 +4029,8 @@ CONTAINS
 
     enddo
     enddo
+
+
 
     do i = 1,2
       do j = 1,2
