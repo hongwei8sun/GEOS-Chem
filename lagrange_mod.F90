@@ -300,18 +300,17 @@ MODULE Lagrange_Mod
 
   real, parameter       :: Dx_init = 100
   real, parameter       :: Dy_init = 10
-
+  real, parameter       :: Length_init = 1000.0e+0_fp ! [m]
 
   real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
   real(fp), pointer :: P_edge(:)
 
+  real(fp) :: mass_eu, mass_la, mass_la2
 
   integer, parameter    :: N_parcel   = 2 ! 131        
-  integer               :: Num_inject, Num_Plume2d, Num_Plume1d       
+  integer               :: Num_inject, Num_Plume2d, Num_Plume1d, Num_dissolve     
   integer               :: tt     
   ! Aircraft would release 131 aerosol parcels every time step
-
-  integer               :: Num_dissolve
 
 
   TYPE :: Plume2d_list
@@ -398,7 +397,6 @@ CONTAINS
     allocate(box_concnt_2D(n_x_max, n_y_max))
     allocate(box_concnt_1D(n_slab_max))
 
-    Num_dissolve = 0
 
     WRITE(6,'(a)') '--------------------------------------------------------'
     WRITE(6,'(a)') ' Initial Lagrnage Module (Using Dynamic time step)'
@@ -416,7 +414,7 @@ CONTAINS
     Plume2d_old%LAT = -29.95e+0_fp
     Plume2d_old%LEV = 52.0e+0_fp       ! [hPa] at about 20 km
 
-    Plume2d_old%LENGTH = 1000.0e+0_fp ! 1000m 
+    Plume2d_old%LENGTH = Length_init ! 1000m 
     Plume2d_old%ALPHA  = 0.0e+0_fp
 
     Plume2d_old%LIFE = 0.0e+0_fp
@@ -434,6 +432,12 @@ CONTAINS
                               Plume2d_old%CONCNT2d(n_x_mid,n_y_mid) &
                                                  / 1.0e+6_fp / 98.0 * AVO
 
+
+    mass_la  = Plume2d_old%CONCNT2d(n_x_mid,n_y_mid)* &
+             (Plume2d_old%DX*Plume2d_old%DY*Plume2d_old%LENGTH*1.0e+6_fp)
+    mass_la2 = 0.0
+    mass_eu  = 0.0
+
     NULLIFY(Plume2d_old%next)
     Plume2d_head => Plume2d_old
 
@@ -448,6 +452,7 @@ CONTAINS
     ! use this value to set the initial latutude for injected plume
     Num_inject = 1
 
+    Num_dissolve = 0
 
 
 
@@ -698,7 +703,7 @@ CONTAINS
                      * (-1.0)**FLOOR(i_box/6000.0) ! -29.995S:29.995N:0.01
       Plume2d_new%LEV = 52.0e+0_fp       ! [hPa] at about 20 km
 
-      Plume2d_new%LENGTH = 1000.0e+0_fp ! 1000m 
+      Plume2d_new%LENGTH = Length_init ! 1000m 
       Plume2d_new%ALPHA  = 0.0e+0_fp
 
       Plume2d_new%LIFE = 0.0e+0_fp
@@ -714,6 +719,14 @@ CONTAINS
       ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
       Plume2d_new%CONCNT2d(n_x_mid,n_y_mid) = &
                 Plume2d_new%CONCNT2d(n_x_mid,n_y_mid)/1.0e+6_fp/98.0*AVO
+
+
+      mass_la = mass_la + Plume2d_new%CONCNT2d(n_x_mid,n_y_mid)* &
+             (Plume2d_new%DX*Plume2d_new%DY*Plume2d_new%LENGTH*1.0e+6_fp)
+
+
+!      WRITE(6,*) 'mass_la: ', Plume2d_new%CONCNT2d(n_x_mid,n_y_mid)* &
+!             (Plume2d_new%DX*Plume2d_new%DY*Plume2d_new%LENGTH*1.0e+6_fp)
 
       NULLIFY(Plume2d_new%next)
       Plume2d_old%next => Plume2d_new
@@ -821,9 +834,9 @@ CONTAINS
       IF(i_lev==LLPAR) WRITE(6,*) 'box_lev:', curr_pressure, i_lev
 
       ! For new injected plume:
-      if(Plume2d_new%IsNew==1)then
+      if(Plume2d%IsNew==1)then
 
-         Plume2d_new%IsNew = 0
+         Plume2d%IsNew = 0
 
         ! ====================================================================
         ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in 
@@ -845,6 +858,10 @@ CONTAINS
          PASV_EU = PASV_EU + box_length*1.0e-3_fp*30.0 &
                                         /State_Met%AD(i_lon,i_lat,i_lev)
 
+
+          mass_eu = mass_eu + box_length*1.0e-3_fp*30.0 * 1000.0/98*AVO
+
+!          WRITE(6,*)'mass_eu: ', box_length*1.0e-3_fp*30.0 * 1000.0/98*AVO
 
          !======================================================================
          ! Set up the new injected plumes/box
@@ -888,7 +905,7 @@ CONTAINS
 
 
 
-      endif ! if(Plume2d_new%IsNew==1)then
+      endif ! if(Plume2d%IsNew==1)then
 
 
       DO Ki = 1,4,1
@@ -1096,7 +1113,6 @@ CONTAINS
       ! the box_length would not change 
 
 
-
       V_prev = Pdx*Pdy*box_length*1.0e+6_fp
 
       Pdx = Pdx *ratio
@@ -1203,13 +1219,16 @@ CONTAINS
       !------------------------------------------------------------------
 
       length0           = box_length
-      box_length = EXP(Ly*Dt) * box_length
+      box_length = EXP(Ly*Dt) * length0
 
 
       Pdx = Pdx*SQRT(length0/box_length)
       Pdy = Pdy*SQRT(length0/box_length)
 
-     
+
+      ! ----------------------------------------------------------------
+      ! update     
+      ! ----------------------------------------------------------------
       Plume2d%LON = box_lon
       Plume2d%LAT = box_lat
       Plume2d%LEV = box_lev
@@ -1508,6 +1527,7 @@ CONTAINS
 
       ! assume the volume change mainly apply to the cross-section, 
       ! the box_length would not change 
+
       V_prev = box_Ra*box_Rb*box_length*1.0e+6_fp
 
       box_Ra = box_Ra *ratio
@@ -1516,12 +1536,12 @@ CONTAINS
       V_new = box_Ra*box_Rb*box_length*1.0e+6_fp
 
 
-!!! comment this temperary ???
       box_concnt_1D(1:n_slab_max) = box_concnt_1D(1:n_slab_max)*V_prev/V_new
 
 
-      IF(box_label==1)WRITE(6,*)'mass test after idea gas law:', i_box, &
-                                    V_new * SUM(box_concnt_1D(1:n_slab_max))
+
+!      IF(box_label==1)WRITE(6,*)'mass test after idea gas law:', i_box, &
+!                                    V_new * SUM(box_concnt_1D(1:n_slab_max))
 
       !------------------------------------------------------------------
       ! calcualte the box_alpha [0,2*PI)
@@ -1616,18 +1636,18 @@ CONTAINS
       ! Horizontal stretch:
       ! Adjust the length/radius of box based on Lyaponov exponent (Ly)
       !------------------------------------------------------------------
-
       length0           = box_length
-      box_length = EXP(Ly*Dt) * box_length
+      box_length = EXP(Ly*Dt) * length0
 
 
       box_Ra = box_Ra*SQRT(length0/box_length)
       box_Rb = box_Rb*SQRT(length0/box_length)
 
 
-      IF(box_label==1)WRITE(6,*)'mass test after stretch:', i_box, &
-                                box_Ra*box_Rb*box_length*1.0e+6_fp &
-                                  * SUM(box_concnt_1D(1:n_slab_max))
+
+!      IF(box_label==1)WRITE(6,*)'mass test after stretch:', i_box, &
+!                                box_Ra*box_Rb*box_length*1.0e+6_fp &
+!                                  * SUM(box_concnt_1D(1:n_slab_max))
 
 
       Plume1d%LON    = box_lon
@@ -1652,6 +1672,7 @@ CONTAINS
 
 400 CONTINUE
 
+!    WRITE(6,*) 'Total mass: ', mass_eu, mass_la, mass_la2
 
 
     !------------------------------------------------------------------
@@ -2835,15 +2856,14 @@ CONTAINS
          ! [molec]
          mass_plume      = V_grid_2D*SUM(C2d_prev(:,:))
 
-         mass_plume_new = V_grid_2D &
-                *SUM( box_concnt_2D(:,:))
+         mass_plume_new = V_grid_2D * SUM(box_concnt_2D(:,:))
 
 
          D_mass_plume = mass_plume_new - mass_plume
 
 
-         IF(t1s==1 .and. box_label==1) WRITE(6,*) &
-                                'mass test 2d:', i_box, mass_plume_new
+!         IF(box_label==1) WRITE(6,*) &
+!            'mass test 2d:', i_box, D_mass_plume, mass_plume_new
 
 
 !         IF(D_mass_plume<0)THEN
@@ -3069,6 +3089,7 @@ CONTAINS
          !===================================================================
          IF(DAY==31 .and. HOUR==23)THEN
 
+           Num_dissolve = Num_dissolve+1
 
            backgrd_concnt = &
                         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
@@ -3132,6 +3153,7 @@ CONTAINS
          !===================================================================
          IF ( box_lev>State_Met%TROPP(i_lon,i_lat) ) THEN
 
+           Num_dissolve = Num_dissolve+1
 
            backgrd_concnt = &
                     State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
@@ -3357,79 +3379,14 @@ CONTAINS
        !==================================================================
 
        ! ignore the diffusivity in long radius direction
-       eddy_B = eddy_v*SIN(abs(box_theta)) + eddy_h*COS(box_theta) ! b
+       eddy_B = eddy_v*SIN(abs(box_theta))
+       eddy_B = eddy_B + eddy_h*COS(box_theta) ! b
+
 
        Dt2 = Dt
 
        IF((2*eddy_B*Dt2/(box_Rb**2))>0.5) THEN
           Dt2 = Dt*0.1
-       ENDIF
-
-
- 300     CONTINUE
-
-
-       IF((2*eddy_B*Dt2/(box_Rb**2))>0.5) THEN
-
-       
-
-!!! shw put this as a function
-
-
-         !-------------------------------------------------------------------
-         ! Decrease half of slab by combining 2 slab into 1 slab
-         !-------------------------------------------------------------------
-         Cslab       = box_concnt_1D(1:n_slab_max)
-
-
-         DO i_slab = 1, n_slab_50
-           box_concnt_1D(i_slab+N_slab_25) = &
-             (  Cslab(i_slab*2-1) + Cslab(i_slab*2) ) /2
-
-         ENDDO
-
-         box_Rb = box_Rb*2
-
-
-         !-------------------------------------------------------------------
-         ! Meanwhile, add new slab into plume to compensate lost slab
-         !-------------------------------------------------------------------
-         DO i_slab = 1,n_slab_25
-           box_concnt_1D(i_slab) = 0.0
-         ENDDO
-
-
-         DO i_slab = n_slab_75+1, n_slab_max
-           box_concnt_1D(i_slab) = 0.0
-         ENDDO
-
-
-
-         !!! uodate box_extra(i_box) ???
-         V_grid_1D       = box_Ra*box_Rb*box_length*1.0e+6_fp
-         mass_plume      = V_grid_1D/2 *SUM(Cslab(1:n_slab_max))
-
-         mass_plume_new = V_grid_1D &
-              *SUM( box_concnt_1D(1:n_slab_max) )
-
-         D_mass_plume = mass_plume_new - mass_plume
-
-
-!         IF(D_mass_plume/=0.0) WRITE(6,*) "*** ERROR ***"
-
-!         IF(D_mass_plume>0)THEN
-!           WRITE(6,*)'--- 2 to 1 grid cell:', i_box, mass_plume, mass_plume_new
-!           box_extra = box_extra + D_mass_plume
-!         ELSE 
-!           ! WRITE(6,*)'--- ERROR in 2 to 1 grid cell in 1D grid ---', i_box
-!         ENDIF
-
-
-       ENDIF ! IF( 2*eddy_B*Dt2/(box_Rb(i_box)**2)>1 )
-
-    
-       IF(2*eddy_B*Dt2/(box_Rb**2)>0.5 )THEN
-         GOTO 300
        ENDIF
 
 
@@ -3441,6 +3398,54 @@ CONTAINS
        do t1s=1,NINT(Dt/Dt2)
 
 
+       300     CONTINUE
+
+
+       IF((2*eddy_B*Dt2/(box_Rb**2))>0.5) THEN
+
+!!! shw put this as a function
+
+         !-------------------------------------------------------------------
+         ! Decrease half of slab by combining 2 slab into 1 slab
+         !-------------------------------------------------------------------
+         Cslab       = box_concnt_1D(1:n_slab_max)
+
+         DO i_slab = 1, n_slab_50
+           box_concnt_1D(i_slab+N_slab_25) = &
+              (  Cslab(i_slab*2-1) + Cslab(i_slab*2) ) /2
+
+         ENDDO
+
+         box_Rb = box_Rb*2
+
+         !-------------------------------------------------------------------
+         ! Meanwhile, add new slab into plume to compensate lost slab
+         !-------------------------------------------------------------------
+         DO i_slab = 1,n_slab_25
+           box_concnt_1D(i_slab) = 0.0
+         ENDDO
+
+         DO i_slab = n_slab_75+1, n_slab_max
+           box_concnt_1D(i_slab) = 0.0
+         ENDDO
+
+         !!! uodate box_extra(i_box) ???
+         V_grid_1D       = box_Ra*box_Rb*box_length*1.0e+6_fp
+         mass_plume      = V_grid_1D/2 *SUM(Cslab(1:n_slab_max))
+
+         mass_plume_new = V_grid_1D &
+               *SUM( box_concnt_1D(1:n_slab_max) )
+
+         D_mass_plume = mass_plume_new - mass_plume
+
+
+       ENDIF ! IF( 2*eddy_B*Dt2/(box_Rb(i_box)**2)>1 )
+    
+       IF(2*eddy_B*Dt2/(box_Rb**2)>0.5 )THEN
+          GOTO 300
+       ENDIF
+
+
        !--------------------------------------------------------------------
        ! update the boundary grids in 2D model based on background 
        ! contentration
@@ -3448,6 +3453,12 @@ CONTAINS
 
        V_grid_1D       = box_Ra*box_Rb*box_length*1.0e+6_fp
        C1d_prev       = box_concnt_1D(1:n_slab_max)
+
+
+!       IF(box_label==1)THEN
+!         WRITE(6,*)'mass before:', i_box, V_grid_1D, &
+!                        V_grid_1D*SUM( box_concnt_1D(1:n_slab_max) )
+!       ENDIF
 
        !--------------------------------------------------------------------
        ! For deformation of cross-section caused by wind shear 
@@ -3464,16 +3475,16 @@ CONTAINS
        box_Rb = box_Rb * (TAN(box_theta)**2+1)**(-0.5) &
                          / (TAN(theta_previous)**2+1)**(-0.5)
 
+       box_Rb = V_grid_1D/(box_Ra*box_length*1.0e+6_fp) !!! shw ???
+
        !--------------------------------------------------------------------
        ! For the concentration change caused by eddy diffusion:
        ! box_concnt(n_box,N_slab,N_specie)
        !--------------------------------------------------------------------
 
        ! ignore the diffusivity in long radius direction
-       eddy_B = eddy_v*SIN(abs(box_theta)) &
-                          + eddy_h*COS(box_theta) ! b
-
-
+       eddy_B = eddy_v * SIN(abs(box_theta))
+       eddy_B = eddy_B + eddy_h*COS(box_theta) ! b
 
        !---------------------------------------------------------------------
        ! Calculate the diffusion in slab grids
@@ -3495,12 +3506,15 @@ CONTAINS
 !                            +Cslab(1:n_slab_max-2)) /box_Rb(i_box)**2
 
 
+!
 
-       box_concnt_1D(1:n_slab_max) = Concnt1D_bdy(2:n_slab_max2-1)     &
+       Concnt1D_bdy(2:n_slab_max2-1) = Concnt1D_bdy(2:n_slab_max2-1)     &
         + Dt2*eddy_B*(   Concnt1D_bdy(3:n_slab_max2)   &
                       -2*Concnt1D_bdy(2:n_slab_max2-1) &
                       +  Concnt1D_bdy(1:n_slab_max2-2) ) /(box_Rb**2)
 
+
+       box_concnt_1D(1:n_slab_max) = Concnt1D_bdy(2:n_slab_max2-1)
 
 
        !====================================================================
@@ -3518,8 +3532,15 @@ CONTAINS
        D_mass_plume = mass_plume_new - mass_plume
 
 
-       IF(box_label==1) WRITE(6,*)'mass test:', i_box, box_theta, &
-                  eddy_v, eddy_B, V_grid_1D, D_mass_plume, mass_plume_new
+!       IF(box_label==1)THEN
+!         WRITE(6,*)'mass after:', eddy_B, V_grid_1D, mass_plume_new
+!       ENDIF
+
+
+!       IF(DAY==31)THEN
+!         WRITE(6,*)'mass test:', i_box, box_theta, eddy_v, eddy_B
+!         WRITE(6,*) box_theta, V_grid_1D, D_mass_plume, mass_plume_new
+!       ENDIF
 
 
 !       IF(D_mass_plume<0)THEN
@@ -3563,12 +3584,16 @@ CONTAINS
 !       WRITE(6,*)'1d test:', i_box, Num_Plume1d
 
 
-       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.4)THEN !!! shw ???
+       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.4 .OR. &
+                                box_life/3600/24>15.0)THEN 
 
          Num_dissolve = Num_dissolve+1
 
-         IF(box_label==1) WRITE(6,*)'DISSOLVE1:', i_box, &
-                              SUM(box_concnt_1D(1:n_slab_max)) * V_grid_1D
+!         WRITE(6,*)'DISSOLVE1:', i_box, box_label, box_life/3600/24,&
+!                              SUM(box_concnt_1D(1:n_slab_max)) * V_grid_1D
+
+
+         mass_la2 = mass_la2 + SUM(box_concnt_1D(1:n_slab_max)) * V_grid_1D
 
          backgrd_concnt = &
                   State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
@@ -3632,6 +3657,10 @@ CONTAINS
        IF(DAY==31 .and. HOUR==23)THEN
 
 
+         Num_dissolve = Num_dissolve+1
+!         WRITE(6,*) 'test:', box_label, eddy_v, eddy_h, box_theta
+
+
          backgrd_concnt = &
                   State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
 
@@ -3693,6 +3722,8 @@ CONTAINS
        !===================================================================
        IF ( box_lev>State_Met%TROPP(i_lon,i_lat) ) THEN
 
+
+         Num_dissolve = Num_dissolve+1
 
          WRITE(6,*)'DISSOLVE 4:', i_box
 
@@ -3775,9 +3806,9 @@ CONTAINS
 
 
 
-!!! shw
-       IF( box_Ra > 2*Dx*110.0*1000.0 ) THEN
-         WRITE(6,*)"SPLIT:", i_box
+!!! shw 
+       IF( box_Ra > 2*Dx*110.0*1000.0) THEN
+!         WRITE(6,*)"SPLIT:", i_box
 
          !-----------------------------------------------------------------------
          ! set initial location for new added boxes from splitting
@@ -3885,8 +3916,7 @@ CONTAINS
     ENDIF
 
 
-!   WRITE(6,*)'Num test:', Num_Plume1d, Num_Plume2d, Num_Plume1d+Num_Plume2d, &
-!                                                      Num_dissolve, Num_inject
+!    WRITE(6,*)'Num test:', Num_Plume1d, Num_Plume2d, Num_inject, Num_dissolve
 
 
     ! Everything is done, clean up pointers
