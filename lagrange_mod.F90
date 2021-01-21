@@ -1672,8 +1672,6 @@ CONTAINS
 
 400 CONTINUE
 
-!    WRITE(6,*) 'Total mass: ', mass_eu, mass_la, mass_la2
-
 
     !------------------------------------------------------------------
     ! Everything is done, clean up pointers
@@ -2980,7 +2978,7 @@ CONTAINS
 
            IF(.NOT.ASSOCIATED(Plume2d%next) .and. &
                           .NOT.ASSOCIATED(Plume2d_prev))THEN
-              GOTO 500
+              GOTO 900
            ENDIF
 
 
@@ -2994,7 +2992,7 @@ CONTAINS
               DEALLOCATE(Plume2d)
               i_box = i_box-1
               Num_Plume2d = Num_Plume2d - 1
-              GOTO 500
+              GOTO 900
            ELSEIF(ASSOCIATED(Plume2d_prev))THEN ! delete node, not head/tail
               Plume2d => Plume2d_prev%next
               Plume2d_prev%next => Plume2d%next
@@ -3087,7 +3085,8 @@ CONTAINS
          ! If this is the final time step, the model is going to end
          ! dissolve all the plume into GCM in the last time step
          !===================================================================
-         IF(DAY==31 .and. HOUR==23)THEN
+          IF(MONTH==2)THEN
+!         IF(DAY==31 .and. HOUR==23)THEN
 
            Num_dissolve = Num_dissolve+1
 
@@ -3108,7 +3107,7 @@ CONTAINS
 
            IF(.NOT.ASSOCIATED(Plume2d%next) .and. &
                           .NOT.ASSOCIATED(Plume2d_prev))THEN
-              GOTO 500
+              GOTO 900
            ENDIF
 
 
@@ -3122,7 +3121,7 @@ CONTAINS
               DEALLOCATE(Plume2d)
               i_box = i_box-1
               Num_Plume2d = Num_Plume2d - 1
-              GOTO 500
+              GOTO 900
            ELSEIF(ASSOCIATED(Plume2d_prev))THEN ! delete node, not head/tail
               Plume2d => Plume2d_prev%next
               Plume2d_prev%next => Plume2d%next
@@ -3172,7 +3171,7 @@ CONTAINS
            ! ----------------------------------
            IF(.NOT.ASSOCIATED(Plume2d%next) .and. &
                           .NOT.ASSOCIATED(Plume2d_prev))THEN
-              GOTO 500
+              GOTO 900
            ENDIF
 
 
@@ -3186,7 +3185,7 @@ CONTAINS
               DEALLOCATE(Plume2d)
               i_box = i_box-1
               Num_Plume2d = Num_Plume2d - 1
-              GOTO 500
+              GOTO 900
            ELSEIF(ASSOCIATED(Plume2d_prev))THEN ! delete node, not head/tail
               Plume2d => Plume2d_prev%next
               Plume2d_prev%next => Plume2d%next
@@ -3241,7 +3240,7 @@ CONTAINS
 
     ENDDO ! DO WHILE(ASSOCIATED(Plume2d))
 
-
+900     CONTINUE
 
 !    WRITE(6,*)'=== loop for 2d plume in plume_run: ', i_box, Num_Plume2d
 
@@ -3255,7 +3254,7 @@ CONTAINS
        ! begin 1D slab model
        !====================================================================
 
-       IF(.NOT.ASSOCIATED(Plume1d_head)) GOTO 500
+       IF(.NOT.ASSOCIATED(Plume1d_head)) GOTO 500 ! no plume1d, skip loop
 
 
        IF(ASSOCIATED(Plume1d_prev)) NULLIFY(Plume1d_prev)
@@ -3611,7 +3610,7 @@ CONTAINS
 
          IF(.NOT.ASSOCIATED(Plume1d%next) .and. &
                         .NOT.ASSOCIATED(Plume1d_prev))THEN
-            GOTO 500
+            GOTO 500 ! Only 1 plume1d left, skip loop
          ENDIF
 
          IF(.NOT.ASSOCIATED(Plume1d%next))THEN ! delete last node
@@ -3624,7 +3623,7 @@ CONTAINS
             DEALLOCATE(Plume1d)
             i_box = i_box-1
             Num_Plume1d = Num_Plume1d - 1
-            GOTO 500
+            GOTO 500 ! delete last node, skip the loop
          ELSEIF(ASSOCIATED(Plume1d_prev))THEN ! delete node, not head/tail
             Plume1d => Plume1d_prev%next
             Plume1d_prev%next => Plume1d%next
@@ -3654,9 +3653,11 @@ CONTAINS
        ! dissolve all the plume into GCM in the last time step
        !===================================================================
 !       IF ( ITS_TIME_FOR_EXIT() ) THEN
-       IF(DAY==31 .and. HOUR==23)THEN
+       IF(MONTH==2)THEN
+!       IF(DAY==31 .and. HOUR==23)THEN
 
-
+         i_box = i_box-1
+         Num_Plume1d  = Num_Plume1d - 1
          Num_dissolve = Num_dissolve+1
 !         WRITE(6,*) 'test:', box_label, eddy_v, eddy_h, box_theta
 
@@ -3677,7 +3678,7 @@ CONTAINS
 
          IF(.NOT.ASSOCIATED(Plume1d%next) .and. &
                                 .NOT.ASSOCIATED(Plume1d_prev))THEN
-            GOTO 500
+            GOTO 500 ! Only 1 node left, skip the loop
          ENDIF
 
 
@@ -3689,9 +3690,7 @@ CONTAINS
             IF(ASSOCIATED(Plume1d_prev%next)) NULLIFY(Plume1d_prev%next)
             DEALLOCATE(Plume1d%CONCNT1d)
             DEALLOCATE(Plume1d)
-            i_box = i_box-1
-            Num_Plume1d = Num_Plume1d - 1
-            GOTO 500
+            GOTO 500 ! delete the tail node, skip the loop
          ELSEIF(ASSOCIATED(Plume1d_prev))THEN ! delete node, not head/tail
             Plume1d => Plume1d_prev%next
             Plume1d_prev%next => Plume1d%next
@@ -3705,9 +3704,6 @@ CONTAINS
             DEALLOCATE(Plume1d)
             Plume1d => Plume1d_head
          ENDIF
-
-         i_box = i_box-1
-         Num_Plume1d = Num_Plume1d - 1
 
 
 
@@ -3916,8 +3912,8 @@ CONTAINS
     ENDIF
 
 
-!    WRITE(6,*)'Num test:', Num_Plume1d, Num_Plume2d, Num_inject, Num_dissolve
-
+    WRITE(6,*) 'Num test:  ', Num_Plume1d, Num_Plume2d, Num_inject, Num_dissolve
+    WRITE(6,*) 'Total mass:', mass_eu, mass_la, mass_la2
 
     ! Everything is done, clean up pointers
 
