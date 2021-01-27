@@ -307,7 +307,7 @@ MODULE Lagrange_Mod
 
   real(fp) :: mass_eu, mass_la, mass_la2
 
-  integer, parameter    :: N_parcel   = 1 ! 131        
+  integer, parameter    :: N_parcel   = 3 ! 131        
   integer               :: Num_inject, Num_Plume2d, Num_Plume1d, Num_dissolve     
   integer               :: tt     
   ! Aircraft would release 131 aerosol parcels every time step
@@ -382,7 +382,7 @@ CONTAINS
     INTEGER                       :: i_box, i_slab
     INTEGER                       :: ii, jj, kk
     CHARACTER(LEN=255)            :: FILENAME, FILENAME_INIT
-    CHARACTER(LEN=255)            :: FILENAME2, FILENAME3
+    CHARACTER(LEN=255)            :: FILENAME2
 
     integer :: i_lon, i_lat, i_lev            !1:IIPAR
 
@@ -396,24 +396,6 @@ CONTAINS
     TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
 
     Stop_inject = 0
-
-    FILENAME2   = 'Plume_lifetime_seconds.txt'
-
-    OPEN( 484,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE',  &
-          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-    CLOSE(484)
-
-
-
-    FILENAME3 = 'Plume_number.txt'
-
-    OPEN( 261,      FILE=TRIM( FILENAME3   ), STATUS='REPLACE',  &
-          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-    CLOSE(261)
-
-
 
     allocate(box_concnt_2D(n_x_max, n_y_max))
     allocate(box_concnt_1D(n_slab_max))
@@ -537,12 +519,12 @@ CONTAINS
     !-----------------------------------------------------------------
     ! Output State_Met%AD(i_lon,i_lat,i_lev) into State_Met_AD.txt
     !-----------------------------------------------------------------
-    OPEN( 314,      FILE='State_Met_AD_zyx_order.txt', STATUS='REPLACE', &
+    OPEN( 314,      FILE='State_Met_AD.txt', STATUS='REPLACE', &
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-    Do i_lev = 1, LLPAR
-    Do i_lat = 1, JJPAR
+    !!! change xyz order ???
     Do i_lon = 1, IIPAR
+    Do i_lat = 1, JJPAR
+    Do i_lev = 1, LLPAR
        WRITE(314,'(x,E12.5)') State_Met%AD(i_lon,i_lat,i_lev) ![kg]
     End Do
     End Do
@@ -714,8 +696,6 @@ CONTAINS
     ! -----------------------------------------------------------
     ! add new box every time step
     ! -----------------------------------------------------------
-    IF(Stop_inject==0)THEN
-
     DO i_box = Num_inject+1, Num_inject+N_parcel, 1
       ALLOCATE(Plume2d_new)
 
@@ -763,7 +743,6 @@ CONTAINS
     ! use this value to set the initial latutude for injected plume
     Num_inject = Num_inject + N_parcel
 
-    ENDIF ! IF(Stop_inject==0)THEN
 
 
     !--------------------------------------------------------
@@ -820,8 +799,21 @@ CONTAINS
       !-----------------------------------------------------------------------
 
       ! make sure the location is not out of range
-      box_lat = Within_Range_Lat(box_lat, Y_edge(1), Y_edge(JJPAR+1) )
-      box_lon = Within_Range_Lon(box_lon, X_edge(1), X_edge(IIPAR+1) )
+      do while (box_lat > Y_edge(JJPAR+1))
+         box_lat = Y_edge(JJPAR+1) - ( box_lat-Y_edge(JJPAR+1) )
+      end do
+
+      do while (box_lat < Y_edge(1))
+         box_lat = Y_edge(1) + ( box_lat-Y_edge(1) )
+      end do
+
+      do while (box_lon > X_edge(IIPAR+1))
+         box_lon = box_lon - 360.0
+      end do
+
+      do while (box_lon < X_edge(1))
+         box_lon = box_lon + 360.0
+      end do
 
 
       curr_lon      = box_lon
@@ -829,12 +821,21 @@ CONTAINS
       curr_pressure = box_lev      ! hPa
 !      curr_T1       = box_T1(i_box)        ! K
 
-        
-      ! Find the index of the grid cell where the plume is located in
-      i_lon = Find_iLon(curr_lon, Dx, X_edge2)
-      i_lat = Find_iLat(curr_lat, Dy, Y_edge2)
-      i_lev = Find_iPLev(curr_pressure,P_edge)
 
+      ! check this grid box is the neast one or the one located in left-bottom
+      ! ???
+      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+      if(i_lon>IIPAR) i_lon=i_lon-IIPAR
+      if(i_lon<1) i_lon=i_lon+IIPAR
+
+      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+      if(i_lat>JJPAR) i_lat=JJPAR
+      if(i_lat<1) i_lat=1
+
+      i_lev = Find_iPLev(curr_pressure,P_edge)
+      if(i_lev>LLPAR) i_lev=LLPAR
+
+      IF(i_lev==LLPAR) WRITE(6,*) 'box_lev:', curr_pressure, i_lev
 
       ! For new injected plume:
       if(Plume2d%IsNew==1)then
@@ -1088,9 +1089,16 @@ CONTAINS
 
 
 
-      i_lon = Find_iLon(curr_lon, Dx, X_edge2)
-      i_lat = Find_iLat(curr_lat, Dy, Y_edge2)
+      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+      if(i_lon>IIPAR) i_lon=i_lon-IIPAR
+      if(i_lon<1) i_lon=i_lon+IIPAR
+
+      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+      if(i_lat>JJPAR) i_lat=JJPAR
+      if(i_lat<1) i_lat=1
+
       i_lev = Find_iPLev(box_lev,P_edge)
+      if(i_lev>LLPAR)i_lev=LLPAR
 
 
       if(abs(box_lat)>Y_mid(JJPAR))then
@@ -1285,8 +1293,21 @@ CONTAINS
       !-----------------------------------------------------------------------
 
       ! make sure the location is not out of range
-      box_lat = Within_Range_Lat(box_lat, Y_edge(1), Y_edge(JJPAR+1) )
-      box_lon = Within_Range_Lon(box_lon, X_edge(1), X_edge(IIPAR+1) )
+      do while (box_lat > Y_edge(JJPAR+1))
+         box_lat = Y_edge(JJPAR+1) - ( box_lat-Y_edge(JJPAR+1) )
+      end do
+
+      do while (box_lat < Y_edge(1))
+         box_lat = Y_edge(1) + ( box_lat-Y_edge(1) )
+      end do
+
+      do while (box_lon > X_edge(IIPAR+1))
+         box_lon = box_lon - 360.0
+      end do
+
+      do while (box_lon < X_edge(1))
+         box_lon = box_lon + 360.0
+      end do
 
 
       curr_lon      = box_lon
@@ -1294,9 +1315,16 @@ CONTAINS
       curr_pressure = box_lev      ! hPa
 
 
-      i_lon = Find_iLon(curr_lon, Dx, X_edge2)
-      i_lat = Find_iLat(curr_lat, Dy, Y_edge2)
+      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+      if(i_lon>IIPAR) i_lon=i_lon-IIPAR
+      if(i_lon<1) i_lon=i_lon+IIPAR
+
+      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+      if(i_lat>JJPAR) i_lat=JJPAR
+      if(i_lat<1) i_lat=1
+
       i_lev = Find_iPLev(curr_pressure,P_edge)
+      if(i_lev>LLPAR) i_lev=LLPAR
 
       DO Ki = 1,4,1
 
@@ -1476,9 +1504,16 @@ CONTAINS
 
 
 
-      i_lon = Find_iLon(curr_lon, Dx, X_edge2)
-      i_lat = Find_iLat(curr_lat, Dy, Y_edge2)
+      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+      if(i_lon>IIPAR) i_lon=i_lon-IIPAR
+      if(i_lon<1) i_lon=i_lon+IIPAR
+
+      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+      if(i_lat>JJPAR) i_lat=JJPAR
+      if(i_lat<1) i_lat=1
+
       i_lev = Find_iPLev(box_lev,P_edge)
+      if(i_lev>LLPAR) i_lev=LLPAR
 
 
       if(abs(box_lat)>Y_mid(JJPAR))then
@@ -2466,7 +2501,7 @@ CONTAINS
 
 
 
-    CHARACTER(LEN=255)     :: FILENAME2
+!    CHARACTER(LEN=255)     :: FILENAME2
     CHARACTER(LEN=63)      :: OrigUnit
     CHARACTER(LEN=255)     :: ErrMsg
 
@@ -2489,10 +2524,7 @@ CONTAINS
     RC        =  GC_SUCCESS
     ErrMsg    =  ''
 
-    FILENAME2   = 'Plume_lifetime_seconds.txt'
-
-    OPEN( 484,      FILE=TRIM( FILENAME2   ), STATUS='OLD',  &
-          POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+!    FILENAME2   = 'Plume_theta_max_min_radius.txt'
 
 
     Dt = GET_TS_DYN()
@@ -2557,8 +2589,23 @@ CONTAINS
 
 
       ! make sure the location is not out of range
-      box_lat = Within_Range_Lat(box_lat, Y_edge(1), Y_edge(JJPAR+1) )
-      box_lon = Within_Range_Lon(box_lon, X_edge(1), X_edge(IIPAR+1) )
+      do while (box_lat > Y_edge(JJPAR+1))
+         box_lat = Y_edge(JJPAR+1) &
+                        - ( box_lat-Y_edge(JJPAR+1) )
+      end do
+
+      do while (box_lat < Y_edge(1))
+         box_lat = Y_edge(1) + ( box_lat-Y_edge(1) )
+      end do
+
+      do while (box_lon > X_edge(IIPAR+1))
+         box_lon = box_lon - 360.0
+      end do
+
+      do while (box_lon < X_edge(1))
+         box_lon = box_lon + 360.0
+      end do
+
 
       curr_lon      = box_lon
       curr_lat      = box_lat
@@ -2566,8 +2613,14 @@ CONTAINS
 
 
 
-       i_lon = Find_iLon(curr_lon, Dx, X_edge2)
-       i_lat = Find_iLat(curr_lat, Dy, Y_edge2)
+       i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+       if(i_lon>IIPAR) i_lon=i_lon-IIPAR
+       if(i_lon<1) i_lon=i_lon+IIPAR
+
+       i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+       if(i_lat>JJPAR) i_lat=JJPAR
+       if(i_lat<1) i_lat=1
+
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
 
@@ -3042,6 +3095,7 @@ CONTAINS
          IF(MONTH==1 .AND. DAY==31)THEN
          IF(HOUR==23 .AND. MINUTE>=50)THEN
 
+           Stop_inject = 1
 
            i_box = i_box-1
            Num_Plume2d  = Num_Plume2d - 1
@@ -3069,15 +3123,17 @@ CONTAINS
 
               DEALLOCATE(Plume2d%CONCNT2d)
               DEALLOCATE(Plume2d)
-
               GOTO 900
+
            ENDIF
 
 
-           IF(.NOT.ASSOCIATED(Plume2d%next))THEN ! delete last node
+           IF(.NOT.ASSOCIATED(Plume2d%next))THEN ! delete the tail node
+              ! the tail node is also the head node, skip the loop
+              IF(.NOT.ASSOCIATED(Plume1d_prev)) GOTO 900
+
               Plume2d_old%next => Plume2d_prev
               Plume2d_old => Plume2d_old%next
-
 !            Plume2d => Plume2d_prev%next !!! ???
               IF(ASSOCIATED(Plume2d_prev%next)) NULLIFY(Plume2d_prev%next)
               DEALLOCATE(Plume2d%CONCNT2d)
@@ -3090,6 +3146,8 @@ CONTAINS
               DEALLOCATE(Plume2d)
               Plume2d => Plume2d_prev%next
            ELSE ! delete head node
+              ! the head node is also the tail node, skip the loop
+              IF(.NOT.ASSOCIATED(Plume2d%next)) GOTO 900
               Plume2d => Plume2d_head
               Plume2d_head => Plume2d%next
               DEALLOCATE(Plume2d%CONCNT2d)
@@ -3098,7 +3156,8 @@ CONTAINS
            ENDIF
 
 
-           WRITE(6,*)'222', box_label, Num_Plume2d
+
+           WRITE(6,*)'222'
 
            GOTO 800 ! skip this box, go to next box
 
@@ -3241,8 +3300,23 @@ CONTAINS
 
 
          ! make sure the location is not out of range
-         box_lat = Within_Range_Lat(box_lat, Y_edge(1), Y_edge(JJPAR+1) )
-         box_lon = Within_Range_Lon(box_lon, X_edge(1), X_edge(IIPAR+1) )
+         do while (box_lat > Y_edge(JJPAR+1))
+            box_lat = Y_edge(JJPAR+1) &
+                           - ( box_lat-Y_edge(JJPAR+1) )
+         end do
+
+         do while (box_lat < Y_edge(1))
+            box_lat = Y_edge(1) + ( box_lat-Y_edge(1) )
+         end do
+
+         do while (box_lon > X_edge(IIPAR+1))
+            box_lon = box_lon - 360.0
+         end do
+
+         do while (box_lon < X_edge(1))
+            box_lon = box_lon + 360.0
+         end do
+
 
          curr_lon      = box_lon
          curr_lat      = box_lat
@@ -3250,9 +3324,16 @@ CONTAINS
 
 
 
-         i_lon = Find_iLon(curr_lon, Dx, X_edge2)
-         i_lat = Find_iLat(curr_lat, Dy, Y_edge2)
+         i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+         if(i_lon>IIPAR) i_lon=i_lon-IIPAR
+         if(i_lon<1) i_lon=i_lon+IIPAR
+
+         i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+         if(i_lat>JJPAR) i_lat=JJPAR
+         if(i_lat<1) i_lat=1
+
          i_lev = Find_iPLev(curr_pressure,P_edge)
+         if(i_lev>LLPAR) i_lev=LLPAR
 
 
         !====================================================================
@@ -3315,9 +3396,8 @@ CONTAINS
        !==================================================================
 
        ! ignore the diffusivity in long radius direction
-        eddy_B = eddy_v !!! shw ???
-!       eddy_B = eddy_v*SIN(abs(box_theta))
-!       eddy_B = eddy_B + eddy_h*COS(box_theta) ! b
+       eddy_B = eddy_v*SIN(abs(box_theta))
+       eddy_B = eddy_B + eddy_h*COS(box_theta) ! b
 
 
        Dt2 = Dt
@@ -3420,9 +3500,8 @@ CONTAINS
        !--------------------------------------------------------------------
 
        ! ignore the diffusivity in long radius direction
-       eddy_B = eddy_v !!! shw ???
-!       eddy_B = eddy_v * SIN(abs(box_theta))
-!       eddy_B = eddy_B + eddy_h*COS(box_theta) ! b
+       eddy_B = eddy_v * SIN(abs(box_theta))
+       eddy_B = eddy_B + eddy_h*COS(box_theta) ! b
 
        !---------------------------------------------------------------------
        ! Calculate the diffusion in slab grids
@@ -3522,14 +3601,10 @@ CONTAINS
 !       WRITE(6,*)'1d test:', i_box, Num_Plume1d
 
 
-       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.2 .OR. &
-                                (box_life/3600/24)>15.0)THEN 
+       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.4 .OR. &
+                                box_life/3600/24>15.0)THEN 
 
-         i_box = i_box-1
-         Num_Plume1d = Num_Plume1d - 1
          Num_dissolve = Num_dissolve+1
-
-         WRITE(484,*) box_label, box_life
 
 !         WRITE(6,*)'DISSOLVE1:', i_box, box_label, box_life/3600/24,&
 !                              SUM(box_concnt_1D(1:n_slab_max)) * V_grid_1D
@@ -3564,6 +3639,8 @@ CONTAINS
             IF(ASSOCIATED(Plume1d_prev%next)) NULLIFY(Plume1d_prev%next)
             DEALLOCATE(Plume1d%CONCNT1d)
             DEALLOCATE(Plume1d)
+            i_box = i_box-1
+            Num_Plume1d = Num_Plume1d - 1
             GOTO 500 ! delete last node, skip the loop
          ELSEIF(ASSOCIATED(Plume1d_prev))THEN ! delete node, not head/tail
             Plume1d => Plume1d_prev%next
@@ -3578,6 +3655,9 @@ CONTAINS
             DEALLOCATE(Plume1d)
             Plume1d => Plume1d_head
          ENDIF
+
+         i_box = i_box-1
+         Num_Plume1d = Num_Plume1d - 1
 
 
          GOTO 200 ! skip this box, go to next box
@@ -3596,7 +3676,11 @@ CONTAINS
 
          Stop_inject = 1
 
+         i_box = i_box-1
+         Num_Plume1d  = Num_Plume1d - 1
+         Num_dissolve = Num_dissolve+1
 !         WRITE(6,*) 'test:', box_label, eddy_v, eddy_h, box_theta
+
 
          backgrd_concnt = &
                   State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
@@ -3609,38 +3693,25 @@ CONTAINS
          State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) =    &
                                                          backgrd_concnt
 
-         WRITE(6,*)'DISSOLVE:', box_label
+
+
 
          IF(.NOT.ASSOCIATED(Plume1d%next) .and. &
                                 .NOT.ASSOCIATED(Plume1d_prev))THEN
-
             DEALLOCATE(Plume1d%CONCNT1d)
             DEALLOCATE(Plume1d)
-
-            i_box = i_box-1
-            Num_Plume1d  = Num_Plume1d - 1
-            Num_dissolve = Num_dissolve +1
-            WRITE(6,*)333, 11, box_label, Num_Plume1d
             GOTO 500 ! Only 1 node left, skip the loop
          ENDIF
 
 
-         IF(.NOT.ASSOCIATED(Plume1d%next))THEN ! delete tail node
-            ! the tail node is also the head node, skip the loop
-            IF(.NOT.ASSOCIATED(Plume1d_prev)) GOTO 500
-
+         IF(.NOT.ASSOCIATED(Plume1d%next))THEN ! delete the tail node
             Plume1d_old%next => Plume1d_prev
             Plume1d_old => Plume1d_old%next
+
 !            Plume1d => Plume1d_prev%next !!! ???
             IF(ASSOCIATED(Plume1d_prev%next)) NULLIFY(Plume1d_prev%next)
-
             DEALLOCATE(Plume1d%CONCNT1d)
             DEALLOCATE(Plume1d)
-
-            i_box = i_box-1
-            Num_Plume1d  = Num_Plume1d - 1
-            Num_dissolve = Num_dissolve+1
-            WRITE(6,*)333, 22, box_label, Num_Plume1d
             GOTO 500 ! delete the tail node, skip the loop
          ELSEIF(ASSOCIATED(Plume1d_prev))THEN ! delete node, not head/tail
             Plume1d => Plume1d_prev%next
@@ -3648,27 +3719,17 @@ CONTAINS
             DEALLOCATE(Plume1d%CONCNT1d)
             DEALLOCATE(Plume1d)
             Plume1d => Plume1d_prev%next
-
-            i_box = i_box-1
-            Num_Plume1d  = Num_Plume1d - 1
-            Num_dissolve = Num_dissolve+1
-            WRITE(6,*)333, 33, box_label, Num_Plume1d
          ELSE ! delete head node
-            ! the head node is also the tail node, skip the loop
-            IF(.NOT.ASSOCIATED(Plume1d%next)) GOTO 500
-
             Plume1d => Plume1d_head
             Plume1d_head => Plume1d%next
-
             DEALLOCATE(Plume1d%CONCNT1d)
             DEALLOCATE(Plume1d)
             Plume1d => Plume1d_head
-
-            i_box = i_box-1
-            Num_Plume1d  = Num_Plume1d - 1
-            Num_dissolve = Num_dissolve+1
-            WRITE(6,*)333, 44, box_label, Num_Plume1d
          ENDIF
+
+           
+
+         WRITE(6,*)'333'
 
 
          GOTO 200 ! skip this box, go to next box
@@ -3876,15 +3937,13 @@ CONTAINS
     ENDIF
 
 
-    ! Everything is done, clean up pointers
-    CLOSE(484)
-
-
 999      CONTINUE
-
 
     WRITE(6,*) 'Num test:  ', Num_Plume1d, Num_Plume2d, Num_inject, Num_dissolve
     WRITE(6,*) 'Total mass:', mass_eu, mass_la, mass_la2
+
+    ! Everything is done, clean up pointers
+
 
     IF(ALLOCATED(box_lon_new)) deallocate(box_lon_new)
     IF(ALLOCATED(box_lat_new)) deallocate(box_lat_new)
@@ -3907,56 +3966,20 @@ CONTAINS
     IF(ASSOCIATED(Plume1d)) nullify(Plume1d)
     IF(ASSOCIATED(Plume1d_prev)) nullify(Plume1d_prev)
 
-
   END SUBROUTINE plume_run
 
 !--------------------------------------------------------------------
 ! functions to which grid cell (i,j,k) contains the box
 !--------------------------------------------------------------------
 
-!  integer function Find_iLonLat(curr_xy,  Dxy,  XY_edge2)
-!    implicit none
-!    real(fp) :: curr_xy, Dxy, XY_edge2
-!    Find_iLonLat = INT( (curr_xy - (XY_edge2 - Dxy)) / Dxy )+1
-!    ! Notice the difference between INT(), FLOOR(), AINT()
-!    ! for lon: Xedge_Sec - Dx = Xedge_first
-!    return
-!  end function
-
-
-  integer function Find_iLon(curr_x,  Dx,  X_edge2)
+  integer function Find_iLonLat(curr_xy,  Dxy,  XY_edge2)
     implicit none
-    real(fp) :: curr_x, Dx, X_edge2
-    real(fp) :: edge_init
-
-    edge_init = X_edge2 - Dx
-    Find_iLon = INT( (curr_x - edge_init) / Dx )+1
-
-    ! make sure the index is in the correct range
-    if(Find_iLon>IIPAR) Find_iLon = Find_iLon - IIPAR
-    if(Find_iLon<1) Find_iLon = Find_iLon + IIPAR
-
+    real(fp) :: curr_xy, Dxy, XY_edge2
+    Find_iLonLat = INT( (curr_xy - (XY_edge2 - Dxy)) / Dxy )+1
     ! Notice the difference between INT(), FLOOR(), AINT()
-    ! for lon: Xedge_Second - Dx = Xedge_first
+    ! for lon: Xedge_Sec - Dx = Xedge_first
     return
   end function
-
-
-  integer function Find_iLat(curr_y,  Dy,  Y_edge2)
-    implicit none
-    real(fp) :: curr_y, Dy, Y_edge2
-    real(fp) :: edge_init
-
-    edge_init = Y_edge2 - Dy
-    Find_iLat = INT( (curr_y - edge_init) / Dy )+1
-
-    ! make sure the index is in the correct range
-    if(Find_iLat>JJPAR) Find_iLat=JJPAR
-    if(Find_iLat<1) Find_iLat=1
-
-    return
-  end function
-
 
 
   integer function Find_iPLev(curr_pressure,P_edge)
@@ -3973,49 +3996,9 @@ CONTAINS
        Find_iPLev = locate(1) - 1
     endif
 
-    ! make sure the index is in the correct range
-    if(Find_iPLev>LLPAR) Find_iPLev=LLPAR
-    if(Find_iPLev<1) Find_iPLev=1
-
     return
   end function
 
-
-
-  real(fp) function Within_Range_Lat(box_lat, Y_edge_low, Y_edge_high)
-    implicit none
-    real(fp) box_lat, Y_edge_low, Y_edge_high
-
-    Within_Range_Lat = box_lat
-
-    IF(Within_Range_Lat  > Y_edge_high)THEN
-       Within_Range_Lat = Y_edge_high - ( Within_Range_Lat-Y_edge_high )
-    ENDIF
-
-    IF(Within_Range_Lat  < Y_edge_low)THEN
-       Within_Range_Lat = Y_edge_low - ( Within_Range_Lat-Y_edge_low )
-    ENDIF
-
-    return
-  end function
-
-
-  real(fp) function Within_Range_Lon(box_lon, X_edge_low, X_edge_high)
-    implicit none
-    real(fp) box_lon, X_edge_low, X_edge_high
-
-    Within_Range_Lon = box_lon
-
-    do while (Within_Range_Lon > X_edge_high)
-       Within_Range_Lon = Within_Range_Lon - 360.0
-    end do
-
-    do while (box_lon < X_edge_low)
-       Within_Range_Lon = Within_Range_Lon + 360.0
-    end do
-
-    return
-  end function
 
   !-------------------------------------------------------------------
   ! calculation the great-circle distance between two points on the earth
@@ -4640,7 +4623,7 @@ CONTAINS
     INTEGER :: MINUTE
     INTEGER :: SECOND
 
-    CHARACTER(LEN=255)            :: FILENAME3
+    CHARACTER(LEN=255)            :: FILENAME
     CHARACTER(LEN=255)            :: FILENAME2
 
     CHARACTER(LEN=25) :: YEAR_C
@@ -4654,7 +4637,7 @@ CONTAINS
     TYPE(Plume2d_list), POINTER :: Plume2d_new, PLume2d, Plume2d_prev
     TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
 
-
+    IF(Stop_inject==1) GOTO 888
 
     YEAR        = GET_YEAR()
     MONTH       = GET_MONTH()
@@ -4663,12 +4646,12 @@ CONTAINS
     MINUTE      = GET_MINUTE()
     SECOND      = GET_SECOND()
 
-!    WRITE(YEAR_C,*) YEAR
-!    WRITE(MONTH_C,*) MONTH
-!    WRITE(DAY_C,*) DAY
-!    WRITE(HOUR_C,*) HOUR
-!    WRITE(MINUTE_C,*) MINUTE
-!    WRITE(SECOND_C,*) SECOND
+    WRITE(YEAR_C,*) YEAR
+    WRITE(MONTH_C,*) MONTH
+    WRITE(DAY_C,*) DAY
+    WRITE(HOUR_C,*) HOUR
+    WRITE(MINUTE_C,*) MINUTE
+    WRITE(SECOND_C,*) SECOND
 
     !-------------------------------------------------------------------
     ! Output box location
@@ -4677,21 +4660,27 @@ CONTAINS
     IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
 
 
-!    FILENAME   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) // '-'   &
-!        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
-!        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
-!        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
-
-    FILENAME3 = 'Plume_number.txt'
-
-    OPEN( 261,      FILE=TRIM( FILENAME3   ), STATUS='OLD',  &
-          POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+    FILENAME   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) // '-'   &
+        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
+        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
+        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
 
 
+    OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE',  &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-    WRITE(261,*) YEAR, MONTH, DAY, HOUR, MINUTE, SECOND, &
-        Num_Plume1d, Num_Plume2d, Num_inject,Num_dissolve, Num_inject
 
+    Plume2d => Plume2d_head
+    i_box = 0
+
+    DO WHILE(ASSOCIATED(Plume2d))
+      i_box = i_box+1
+
+      WRITE(261,*) i_box, Plume2d%LIFE/3600/24, Plume2d%LON, &
+                                                Plume2d%LAT, Plume2d%LEV
+
+      Plume2d => Plume2d%next
+    ENDDO
 
     ENDIF ! IF(mod(tt,1440)==0)THEN
 
@@ -4750,14 +4739,15 @@ CONTAINS
     tt = tt + 1
 !
 
-    CLOSE(261)
+888     CONTINUE
 
-    nullify(Plume2d_new)
-    nullify(PLume2d)
-    nullify(Plume2d_prev)
-    nullify(Plume1d_new)
-    nullify(Plume1d)
-    nullify(Plume1d_prev)
+    IF(ASSOCIATED(Plume2d_new)) nullify(Plume2d_new)
+    IF(ASSOCIATED(PLume2d)) nullify(PLume2d)
+    IF(ASSOCIATED(Plume2d_prev)) nullify(Plume2d_prev)
+    IF(ASSOCIATED(Plume1d_new)) nullify(Plume1d_new)
+    IF(ASSOCIATED(Plume1d)) nullify(Plume1d)
+    IF(ASSOCIATED(Plume1d_prev)) nullify(Plume1d_prev)
+
 
   END SUBROUTINE lagrange_write_std
 
