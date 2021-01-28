@@ -3,9 +3,10 @@
 !--------------------------------------------------------------------------
 
 ! New version
-! first simulate plume cross-section in 2D model
-! Once the plume cross-section is highly distorted,
-! simulate plume cross-section in 1D slab model.
+! use linked link to store injected plumes' character(concentration, location,
+! etc.)
+! this version could successfully run !!!
+
 
 ! 1. dissolve plume once hitting tropopause
 
@@ -307,7 +308,7 @@ MODULE Lagrange_Mod
 
   real(fp) :: mass_eu, mass_la, mass_la2
 
-  integer, parameter    :: N_parcel   = 3 ! 131        
+  integer, parameter    :: N_parcel   = 131 ! 131        
   integer               :: Num_inject, Num_Plume2d, Num_Plume1d, Num_dissolve     
   integer               :: tt     
   ! Aircraft would release 131 aerosol parcels every time step
@@ -381,8 +382,8 @@ CONTAINS
 
     INTEGER                       :: i_box, i_slab
     INTEGER                       :: ii, jj, kk
-    CHARACTER(LEN=255)            :: FILENAME, FILENAME_INIT
-    CHARACTER(LEN=255)            :: FILENAME2
+    CHARACTER(LEN=255)            :: FILENAME
+    CHARACTER(LEN=255)            :: FILENAME2, FILENAME3
 
     integer :: i_lon, i_lat, i_lev            !1:IIPAR
 
@@ -396,6 +397,24 @@ CONTAINS
     TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
 
     Stop_inject = 0
+
+
+    FILENAME2   = 'Plume_lifetime_seconds.txt'
+
+    OPEN( 484,      FILE=TRIM( FILENAME2   ), STATUS='REPLACE',  &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+    CLOSE(484)
+
+
+
+    FILENAME3 = 'Plume_number.txt'
+
+    OPEN( 261,      FILE=TRIM( FILENAME3   ), STATUS='REPLACE',  &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+    CLOSE(261)
+
 
     allocate(box_concnt_2D(n_x_max, n_y_max))
     allocate(box_concnt_1D(n_slab_max))
@@ -2501,7 +2520,7 @@ CONTAINS
 
 
 
-!    CHARACTER(LEN=255)     :: FILENAME2
+    CHARACTER(LEN=255)     :: FILENAME2
     CHARACTER(LEN=63)      :: OrigUnit
     CHARACTER(LEN=255)     :: ErrMsg
 
@@ -2524,7 +2543,11 @@ CONTAINS
     RC        =  GC_SUCCESS
     ErrMsg    =  ''
 
-!    FILENAME2   = 'Plume_theta_max_min_radius.txt'
+
+    FILENAME2   = 'Plume_lifetime_seconds.txt'
+
+    OPEN( 484,      FILE=TRIM( FILENAME2   ), STATUS='OLD',  &
+          POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
 
     Dt = GET_TS_DYN()
@@ -3601,10 +3624,13 @@ CONTAINS
 !       WRITE(6,*)'1d test:', i_box, Num_Plume1d
 
 
-       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.4 .OR. &
+       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.1 .OR. &
                                 box_life/3600/24>15.0)THEN 
 
          Num_dissolve = Num_dissolve+1
+
+
+         WRITE(484,*) box_label, box_life
 
 !         WRITE(6,*)'DISSOLVE1:', i_box, box_label, box_life/3600/24,&
 !                              SUM(box_concnt_1D(1:n_slab_max)) * V_grid_1D
@@ -3936,6 +3962,8 @@ CONTAINS
        RETURN
     ENDIF
 
+    ! Everything is done, clean up pointers
+    CLOSE(484)
 
 999      CONTINUE
 
@@ -4623,8 +4651,7 @@ CONTAINS
     INTEGER :: MINUTE
     INTEGER :: SECOND
 
-    CHARACTER(LEN=255)            :: FILENAME
-    CHARACTER(LEN=255)            :: FILENAME2
+    CHARACTER(LEN=255)            :: FILENAME2, FILENAME3
 
     CHARACTER(LEN=25) :: YEAR_C
     CHARACTER(LEN=25) :: MONTH_C
@@ -4637,7 +4664,6 @@ CONTAINS
     TYPE(Plume2d_list), POINTER :: Plume2d_new, PLume2d, Plume2d_prev
     TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
 
-    IF(Stop_inject==1) GOTO 888
 
     YEAR        = GET_YEAR()
     MONTH       = GET_MONTH()
@@ -4659,28 +4685,21 @@ CONTAINS
 
     IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
 
+!    FILENAME   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) // '-'   &
+!        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
+!        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
+!        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
 
-    FILENAME   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) // '-'   &
-        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
-        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
-        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
+    FILENAME3 = 'Plume_number.txt'
+
+    OPEN( 261,      FILE=TRIM( FILENAME3   ), STATUS='OLD',  &
+          POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
 
-    OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='REPLACE',  &
-          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
+    WRITE(261,*) YEAR, MONTH, DAY, HOUR, MINUTE, SECOND, &
+        Num_Plume1d, Num_Plume2d, Num_inject,Num_dissolve, Num_inject
 
-    Plume2d => Plume2d_head
-    i_box = 0
-
-    DO WHILE(ASSOCIATED(Plume2d))
-      i_box = i_box+1
-
-      WRITE(261,*) i_box, Plume2d%LIFE/3600/24, Plume2d%LON, &
-                                                Plume2d%LAT, Plume2d%LEV
-
-      Plume2d => Plume2d%next
-    ENDDO
 
     ENDIF ! IF(mod(tt,1440)==0)THEN
 
@@ -4739,7 +4758,7 @@ CONTAINS
     tt = tt + 1
 !
 
-888     CONTINUE
+    CLOSE(261)
 
     IF(ASSOCIATED(Plume2d_new)) nullify(Plume2d_new)
     IF(ASSOCIATED(PLume2d)) nullify(PLume2d)
