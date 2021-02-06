@@ -217,7 +217,6 @@
 ! add curr_Ptemp interplating in plume_module
 
 
-
 ! Jan 8, 2021 (BIG CHANGE)
 ! add linked list to store plume information (box_lat, box_concnt_2D, etc)
 
@@ -227,15 +226,12 @@
 ! only transport from plume into background.
 
 
+! Feb 5, 2021
+! introduce more than 1 species
+! first use for the fake 2nd order chemical reaction
 
 
 
-
-! The simulation has issue after 25 days' simulating. Too much 2D grid left for
-! unknown reason.
-
-
-! when plume is dissolved, delete it from the n_box
 
 
 ! reconsider plume dissolve criteria, which should involve extra mass
@@ -313,6 +309,11 @@ MODULE Lagrange_Mod
   integer               :: tt     
   ! Aircraft would release 131 aerosol parcels every time step
 
+  integer, parameter    :: n_species = 2
+  integer, parameter    :: i_tracer  = 1
+  integer, parameter    :: i_product = 2
+
+
   integer               :: Stop_inject ! 1: stop injecting; 0: keep injecting
 
   TYPE :: Plume2d_list
@@ -324,7 +325,7 @@ MODULE Lagrange_Mod
     real(fp) :: LIFE
 
     real(fp) :: DX, DY
-    real(fp), DIMENSION(:,:), POINTER :: CONCNT2d 
+    real(fp), DIMENSION(:,:,:), POINTER :: CONCNT2d ! [n_x_max, n_y_max, n_species]
     !!! Don't assign dimension value first ???
 
 
@@ -340,7 +341,7 @@ MODULE Lagrange_Mod
     real(fp) :: LIFE
 
     real(fp) :: RA, RB, THETA
-    real(fp), DIMENSION(:), POINTER :: CONCNT1d 
+    real(fp), DIMENSION(:,:), POINTER :: CONCNT1d ! [n_slab_max,n_species]
 
 
     TYPE(Plume1d_list), POINTER :: next 
@@ -390,8 +391,8 @@ CONTAINS
     REAL(fp) :: lon1, lat1, lon2, lat2
     REAL(fp) :: box_lon_edge, box_lat_edge        
 
-    real(fp), dimension(:,:), allocatable :: box_concnt_2D
-    real(fp), dimension(:), allocatable   :: box_concnt_1D
+    real(fp), dimension(:,:,:), allocatable :: box_concnt_2D
+    real(fp), dimension(:,:), allocatable   :: box_concnt_1D
 
     TYPE(Plume2d_list), POINTER :: Plume2d_new, PLume2d, Plume2d_prev
     TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
@@ -416,8 +417,8 @@ CONTAINS
     CLOSE(261)
 
 
-    allocate(box_concnt_2D(n_x_max, n_y_max))
-    allocate(box_concnt_1D(n_slab_max))
+    allocate(box_concnt_2D(n_x_max, n_y_max, n_species))
+    allocate(box_concnt_1D(n_slab_max,n_species))
 
 
     WRITE(6,'(a)') '--------------------------------------------------------'
@@ -445,17 +446,17 @@ CONTAINS
     Plume2d_old%DY = Dy_init
 
     ! Here assume the injection rate is 30 kg/km (=30 g/m) for H2SO4
-    ALLOCATE(Plume2d_old%CONCNT2d(n_x_max, n_y_max))
+    ALLOCATE(Plume2d_old%CONCNT2d(n_x_max, n_y_max, n_species))
     Plume2d_old%CONCNT2d = 0.0e+0_fp
-    Plume2d_old%CONCNT2d(n_x_mid,n_y_mid) = Plume2d_old%LENGTH*30.0 &
+    Plume2d_old%CONCNT2d(n_x_mid,n_y_mid,i_tracer) = Plume2d_old%LENGTH*30.0 &
                   /(Plume2d_old%DX*Plume2d_old%DY*Plume2d_old%LENGTH)
     ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
-    Plume2d_old%CONCNT2d(n_x_mid,n_y_mid) = &
-                              Plume2d_old%CONCNT2d(n_x_mid,n_y_mid) &
-                                                 / 1.0e+6_fp / 98.0 * AVO
+    Plume2d_old%CONCNT2d(n_x_mid,n_y_mid,i_tracer) = &
+                              Plume2d_old%CONCNT2d(n_x_mid,n_y_mid,i_tracer) &
+                                                      / 1.0e+6_fp / 98.0 * AVO
 
 
-    mass_la  = Plume2d_old%CONCNT2d(n_x_mid,n_y_mid)* &
+    mass_la  = Plume2d_old%CONCNT2d(n_x_mid,n_y_mid,i_tracer)* &
              (Plume2d_old%DX*Plume2d_old%DY*Plume2d_old%LENGTH*1.0e+6_fp)
     mass_la2 = 0.0
     mass_eu  = 0.0
@@ -518,14 +519,14 @@ CONTAINS
     !--------------------------------------------------------
     ! State_Chm%nAdvect: the last one is PASV
 !    DO i_box = 1, n_box
-!      box_concnt_2D(:,:,N_specie,i_box) = 0.0e+0_fp
-!      box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) = &
+!      box_concnt_2D(:,:,N_species,i_box) = 0.0e+0_fp
+!      box_concnt_2D(n_x_mid,n_y_mid,N_species,i_box) = &
 !                                box_length(i_box)*30.0 &
 !                              / (Pdx(i_box)*Pdy(i_box)*box_length(i_box))
 !
 !      ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
-!      box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) = &
-!        box_concnt_2D(n_x_mid,n_y_mid,N_specie,i_box) &
+!      box_concnt_2D(n_x_mid,n_y_mid,N_species,i_box) = &
+!        box_concnt_2D(n_x_mid,n_y_mid,N_species,i_box) &
 !          / 1.0e+6_fp / 98.0 * AVO
 !
 !    ENDDO
@@ -554,6 +555,8 @@ CONTAINS
     ! set initial background concentration of injected aerosol as 0 in GCM
     State_Chm%Species(:,:,:,State_Chm%nAdvect) = 0.0e+0_fp  ! [kg/kg]
     State_Chm%Species(:,:,:,State_Chm%nAdvect-1) = 0.0e+0_fp  ! [kg/kg]
+    State_Chm%Species(:,:,:,State_Chm%nAdvect-2) = 0.0e+0_fp  ! [kg/kg]
+    State_Chm%Species(:,:,:,State_Chm%nAdvect-3) = 0.0e+0_fp  ! [kg/kg]
     ! output the apecies' name for double check ???
 
 
@@ -660,8 +663,8 @@ CONTAINS
     real(fp) :: box_Ra, box_Rb
     real(fp) :: box_extra, box_life, box_label
 
-    real(fp), dimension(:,:), allocatable :: box_concnt_2D
-    real(fp), dimension(:), allocatable :: box_concnt_1D
+    real(fp), dimension(:,:,:), allocatable :: box_concnt_2D
+    real(fp), dimension(:,:), allocatable :: box_concnt_1D
 
 
     TYPE(Plume2d_list), POINTER :: Plume2d_new, PLume2d, Plume2d_prev
@@ -674,8 +677,8 @@ CONTAINS
 
     IF(Stop_inject==1) GOTO 400
 
-    allocate(box_concnt_2D(n_x_max, n_y_max))
-    allocate(box_concnt_1D(n_slab_max))
+    allocate(box_concnt_2D(n_x_max, n_y_max, n_species))
+    allocate(box_concnt_1D(n_slab_max, n_species))
 
 
     RC     =  GC_SUCCESS
@@ -735,16 +738,16 @@ CONTAINS
       Plume2d_new%DY = Dy_init
 
 
-      ALLOCATE(Plume2d_new%CONCNT2d(n_x_max, n_y_max))
+      ALLOCATE(Plume2d_new%CONCNT2d(n_x_max, n_y_max, n_species))
       Plume2d_new%CONCNT2d = 0.0e+0_fp
-      Plume2d_new%CONCNT2d(n_x_mid,n_y_mid) = Plume2d_new%LENGTH*30.0 &
+      Plume2d_new%CONCNT2d(n_x_mid,n_y_mid,i_tracer) = Plume2d_new%LENGTH*30.0 &
                    / (Plume2d_new%DX*Plume2d_new%DY*Plume2d_new%LENGTH)
       ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
-      Plume2d_new%CONCNT2d(n_x_mid,n_y_mid) = &
-                Plume2d_new%CONCNT2d(n_x_mid,n_y_mid)/1.0e+6_fp/98.0*AVO
+      Plume2d_new%CONCNT2d(n_x_mid,n_y_mid,i_tracer) = &
+                Plume2d_new%CONCNT2d(n_x_mid,n_y_mid,i_tracer)/1.0e+6_fp/98.0*AVO
 
 
-      mass_la = mass_la + Plume2d_new%CONCNT2d(n_x_mid,n_y_mid)* &
+      mass_la = mass_la + Plume2d_new%CONCNT2d(n_x_mid,n_y_mid,i_tracer)* &
              (Plume2d_new%DX*Plume2d_new%DY*Plume2d_new%LENGTH*1.0e+6_fp)
 
 
@@ -868,12 +871,12 @@ CONTAINS
         !
         !  AD(I,J,L) = grid box dry air mass [kg]
         !  AIRMW     = dry air molecular wt [g/mol]
-        !  MW_G(N)   = specie molecular wt [g/mol]
+        !  MW_G(N)   = species molecular wt [g/mol]
         !     
         ! the conversion is:
         ! 
         !====================================================================
-         nAdv = State_Chm%nAdvect         ! the last one is PASV_EU
+         nAdv = State_Chm%nAdvect-3         ! the last 4 is PASV_EU
          PASV_EU => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)  ! [kg/kg]
 
          MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
@@ -894,7 +897,7 @@ CONTAINS
          !======================================================================
 
          !======================================================================
-         ! Convert specie to [molec/cm3] (ewl, 8/16/16)
+         ! Convert species to [molec/cm3] (ewl, 8/16/16)
          !======================================================================
 !         CALL Convert_Spc_Units( am_I_Root, Input_Opt, State_Met, &
 !                                 State_Chm, 'molec/cm3', RC, OrigUnit=OrigUnit )
@@ -906,8 +909,8 @@ CONTAINS
 !         ENDIF
 
 
-!         do i_specie = 1, N_specie
-!           box_concnt_2D(:,:,i_specie)=box_concnt_2D(:,:,i_specie) &
+!         do i_species = 1, N_species
+!           box_concnt_2D(:,:,i_species)=box_concnt_2D(:,:,i_species) &
 !                    + State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
 !        
 !         ![molec]
@@ -916,7 +919,7 @@ CONTAINS
 
 
          !=======================================================================
-         ! Convert specie back to original units (ewl, 8/16/16)
+         ! Convert species back to original units (ewl, 8/16/16)
          !=======================================================================
 !         CALL Convert_Spc_Units( am_I_Root, Input_Opt, State_Met, &
 !                                 State_Chm, OrigUnit,  RC )
@@ -1143,7 +1146,7 @@ CONTAINS
 
       V_new = Pdx*Pdy*box_length*1.0e+6_fp
 
-      box_concnt_2D(:,:) = box_concnt_2D(:,:)*V_prev/V_new
+      box_concnt_2D(:,:,:) = box_concnt_2D(:,:,:)*V_prev/V_new
 
 
 
@@ -1559,7 +1562,7 @@ CONTAINS
       V_new = box_Ra*box_Rb*box_length*1.0e+6_fp
 
 
-      box_concnt_1D(1:n_slab_max) = box_concnt_1D(1:n_slab_max)*V_prev/V_new
+      box_concnt_1D(:,:) = box_concnt_1D(:,:)*V_prev/V_new
 
 
 
@@ -2415,12 +2418,13 @@ CONTAINS
 
     integer  :: N_split
 
-    integer  :: i_box   !, i_specie
+    integer  :: i_box   !, i_species
     integer  :: ii_box
     integer  :: i_x, i_y, i, j
     integer  :: i_slab
 
     integer  :: i_lon, i_lat, i_lev
+    integer  :: i_species, i_advect
 
     integer  :: t1s
 
@@ -2511,8 +2515,8 @@ CONTAINS
     real(fp) :: box_Ra, box_Rb
     real(fp) :: box_extra, box_life, box_label
 
-    real(fp) :: box_concnt_2D(n_x_max, n_y_max)
-    real(fp) :: box_concnt_1D(n_slab_max)
+    real(fp) :: box_concnt_2D(n_x_max, n_y_max, n_species)
+    real(fp) :: box_concnt_1D(n_slab_max, n_species)
 
 
     TYPE(Plume2d_list), POINTER :: Plume2d_new, PLume2d, Plume2d_prev
@@ -2571,7 +2575,7 @@ CONTAINS
     Y_edge2       = Y_edge(2)
 
     !======================================================================
-    ! Convert specie to [molec/cm3] (ewl, 8/16/16)
+    ! Convert species to [molec/cm3] (ewl, 8/16/16)
     !======================================================================
     CALL Convert_Spc_Units( am_I_Root, Input_Opt, State_Met, &
                             State_Chm, 'molec/cm3', RC, OrigUnit=OrigUnit )
@@ -2580,6 +2584,13 @@ CONTAINS
        CALL GC_Error( ErrMsg, RC, 'plume_run in lagrange_mod.F90')
        RETURN
     ENDIF
+
+
+    ! run the fake 2nd order chemical reaction
+    i_advect = State_Chm%nAdvect - 2 ! PASV_EU2
+
+    State_Chm%Species(:,:,:,i_advect) = State_Chm%Species(:,:,:,i_advect) &
+                               + Dt* State_Chm%Species(:,:,:,i_advect-1)**2
 
 
     !=====================================================================
@@ -2609,6 +2620,12 @@ CONTAINS
       Pdy    = Plume2d%DY
 
       box_concnt_2D = Plume2d%CONCNT2d
+
+
+      ! run the fake 2nd order chemical reaction
+      box_concnt_2D(:,:,2) = box_concnt_2D(:,:,2) &
+                           + Dt* box_concnt_2D(:,:,1)**2
+
 
 
       ! make sure the location is not out of range
@@ -2749,11 +2766,10 @@ CONTAINS
 
 600     CONTINUE
 
+           DO i_species = 1, n_species
          
-           Pc = box_concnt_2D(:,:) ! [molec cm-3]
-
-           box_concnt_2D(:,:)       = 0.0
-
+           Pc = box_concnt_2D(:,:,i_species) ! [molec cm-3]
+           box_concnt_2D(:,:,i_species) = 0.0
 
            DO i = 1, n_x_max/3, 1
            DO j = 1, n_y_max/3, 1
@@ -2761,24 +2777,27 @@ CONTAINS
              i_x = (i-1)*3+1
              i_y = (j-1)*3+1
 
-             box_concnt_2D(i+n_x_max/3,j+n_y_max/3) = &
+             box_concnt_2D(i+n_x_max/3,j+n_y_max/3,i_species) = &
                                       SUM(Pc(i_x:i_x+2,i_y:i_y+2))/9
 
            ENDDO
            ENDDO
+
+           ENDDO ! DO i_species = 1, n_species
+
 
            Pdx = Pdx*3
            Pdy = Pdy*3
 
 
            ! uodate box_extra(i_box)
-           V_grid_2D       = Pdx*Pdy*box_length*1.0e+6_fp
-           mass_plume      = V_grid_2D/9 *SUM(Pc(:,:))
-
-           mass_plume_new = V_grid_2D &
-                *SUM( box_concnt_2D(:,:))
-
-           D_mass_plume = mass_plume_new - mass_plume
+!           V_grid_2D       = Pdx*Pdy*box_length*1.0e+6_fp
+!           mass_plume      = V_grid_2D/9 *SUM(Pc(:,:))
+!
+!           mass_plume_new = V_grid_2D &
+!                *SUM( box_concnt_2D(:,:))
+!
+!           D_mass_plume = mass_plume_new - mass_plume
 
 !           IF(D_mass_plume>0)THEN
 !             WRITE(6,*)'--- 9 to 1 grid cell:', i_box, mass_plume, mass_plume_new
@@ -2814,13 +2833,16 @@ CONTAINS
          ! for interaction with background grid cell
 !         WRITE(6,*) box_concnt_2D(n_x_mid, n_y_mid-2:n_y_mid+2)
 !         WRITE(6,*)'2d:', i_box, SHAPE(C2d_prev), SHAPE(box_concnt_2D)
+
+         DO i_species=1,n_species,1
          
-         C2d_prev(1:n_x_max,1:n_y_max) = box_concnt_2D(1:n_x_max,1:n_y_max)
+         C2d_prev(1:n_x_max,1:n_y_max) = &
+                                box_concnt_2D(1:n_x_max,1:n_y_max,i_species)
 
          V_grid_2D       = Pdx*Pdy*box_length*1.0e+6_fp
 
          Concnt2D_bdy(:,:) = 0.0
-         Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) = box_concnt_2D(:,:)
+         Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) = box_concnt_2D(:,:,i_species)
 
 
          ! advection
@@ -2870,7 +2892,8 @@ CONTAINS
 
 
 
-         box_concnt_2D(:,:) = Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1)
+         box_concnt_2D(:,:,i_species) = Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1)
+
 
          !================================================================
          ! Update the concentration in the background grid cell
@@ -2884,7 +2907,7 @@ CONTAINS
          ! [molec]
          mass_plume      = V_grid_2D*SUM(C2d_prev(:,:))
 
-         mass_plume_new = V_grid_2D * SUM(box_concnt_2D(:,:))
+         mass_plume_new = V_grid_2D * SUM(box_concnt_2D(:,:,i_species))
 
 
          D_mass_plume = mass_plume_new - mass_plume
@@ -2906,15 +2929,16 @@ CONTAINS
 !
 !         ENDIF
 
-         backgrd_concnt = &
-                    State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+         i_advect = State_Chm%nAdvect - (n_species-i_species)
+
+         backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
 
          backgrd_concnt = ( backgrd_concnt*grid_volumn &
-                                                - D_mass_plume) /grid_volumn
+                                           - D_mass_plume) /grid_volumn
 
-         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = &
-                                                           backgrd_concnt
+         State_Chm%Species(i_lon,i_lat,i_lev,i_advect) = backgrd_concnt
 
+         ENDDO ! DO i_species=1,n_species,1
 
          !====================================================================
          ! Change from 2D to 1D, 
@@ -2927,7 +2951,7 @@ CONTAINS
          frac_mass = 0.95
 
 
-         Pc2 = box_concnt_2D(:,:)
+         Pc2 = box_concnt_2D(:,:,1)
          Xscale = Get_XYscale(Pc2, Pdx, Pdy, frac_mass, 2)
          Yscale = Get_XYscale(Pc2, Pdx, Pdy, frac_mass, 1)
 
@@ -2946,9 +2970,9 @@ CONTAINS
          IF( box_theta>(87.0/180.0*PI) &
                         .or. Plume2d%LIFE>6.0*3600.0 ) THEN !!! shw ???
 
+           DO i_species=1,n_species,1
 
-
-           Pc = box_concnt_2D(:,:)
+           Pc = box_concnt_2D(:,:,i_species)
 
 
            IF(box_theta>1.56) WRITE(6,*)&
@@ -2957,49 +2981,35 @@ CONTAINS
 
            ! assign length/width and concentration to 1D slab model 
            ! return initial box_Ra(i_box), box_Rb(i_box), box_concnt_1D(i_box)
+
+           Cslab = box_concnt_1D(:,i_species)
            CALL Slab_init(Pdx, Pdy, box_theta, Pc, Yscale, &
-                                                 box_Ra, box_Rb, box_concnt_1D)
-
-
-!           WRITE(6,*)'box_Ra, box_Rb, box_concnt_1D:'
-!           WRITE(6,*)box_Ra, box_Rb, box_concnt_1D(n_slab_50-2:n_slab_50+2)
+                               box_Ra, box_Rb, Cslab)
+           box_concnt_1D(:,i_species) = Cslab
 
 
            V_grid_1D = box_Ra*box_Rb*box_length*1.0e+6_fp
 
            mass_plume_new = V_grid_1D &
-                            * SUM(box_concnt_1D(1:n_slab_max))
+                            * SUM(box_concnt_1D(1:n_slab_max,i_species))
 
-           mass_plume = V_grid_2D &
-                        * SUM(box_concnt_2D(:,:))
+           mass_plume = V_grid_2D * SUM(box_concnt_2D(:,:,i_species))
 
 
 
            !!! update the background concentration:
            D_mass_plume = mass_plume_new - mass_plume
 
+           i_advect = State_Chm%nAdvect - (n_species-i_species)
 
-
-!           IF(D_mass_plume<0)THEN
-!             ! generally D_mass_plume is negative
-!             D_mass_plume = (1-box_extra/mass_plume)*D_mass_plume
-!
-!
-!             box_extra = box_extra &
-!                             + box_extra/mass_plume *D_mass_plume
-!           ENDIF
-
-
-
-           backgrd_concnt = &
-                        State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+           backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
 
            backgrd_concnt = ( backgrd_concnt*grid_volumn &
-                                                   - D_mass_plume ) /grid_volumn
+                                            - D_mass_plume ) /grid_volumn
 
-           State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = &
-                                                               backgrd_concnt
+           State_Chm%Species(i_lon,i_lat,i_lev,i_advect) = backgrd_concnt
 
+           ENDDO ! DO i_species=1,n_species,1
 
 
            ! ----------------------------------
@@ -3061,7 +3071,7 @@ CONTAINS
              Plume1d_old%RA = box_Ra
              Plume1d_old%RB = box_Rb
 
-             ALLOCATE(Plume1d_old%CONCNT1d(n_slab_max))
+             ALLOCATE(Plume1d_old%CONCNT1d(n_slab_max,n_species))
              Plume1d_old%CONCNT1d = box_concnt_1D
 
              NULLIFY(Plume1d_old%next)
@@ -3090,7 +3100,7 @@ CONTAINS
              Plume1d_new%RA = box_Ra
              Plume1d_new%RB = box_Rb
 
-             ALLOCATE(Plume1d_new%CONCNT1d(n_slab_max))
+             ALLOCATE(Plume1d_new%CONCNT1d(n_slab_max,n_species))
              Plume1d_new%CONCNT1d = box_concnt_1D
 
              NULLIFY(Plume1d_new%next)
@@ -3125,17 +3135,19 @@ CONTAINS
            Num_dissolve = Num_dissolve + 1
 
 
+           DO i_species=1,n_species
+
+           i_advect = State_Chm%nAdvect - (n_species-i_species)
+
+           backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
 
            backgrd_concnt = &
-                        State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
-
-           backgrd_concnt = &
-                       ( SUM( box_concnt_2D(:,:) )*V_grid_2D  &
+                       ( SUM( box_concnt_2D(:,:,i_species) )*V_grid_2D  &
                            + backgrd_concnt*grid_volumn ) / grid_volumn
 
-           State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) =    &
-                                                         backgrd_concnt
+           State_Chm%Species(i_lon,i_lat,i_lev,i_advect) = backgrd_concnt
 
+           ENDDO
 
            ! ----------------------------------
            ! delete the node for 2D plume:
@@ -3195,17 +3207,20 @@ CONTAINS
 
            Num_dissolve = Num_dissolve+1
 
-           backgrd_concnt = &
-                    State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
 
-           backgrd_concnt = &
-                ( SUM( box_concnt_2D(:,:) )*V_grid_2D  &
+           DO i_species=1,n_species
+
+           i_advect = State_Chm%nAdvect - (n_species-i_species)
+
+           backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
+
+           backgrd_concnt = ( SUM( box_concnt_2D(:,:,i_species) )*V_grid_2D &
                              + backgrd_concnt*grid_volumn ) / grid_volumn
 
 
-           State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) =    &
-                                                           backgrd_concnt
+           State_Chm%Species(i_lon,i_lat,i_lev,i_advect) = backgrd_concnt
 
+           ENDDO
 
            ! ----------------------------------
            ! delete the node for 2D plume:
@@ -3289,8 +3304,6 @@ CONTAINS
 
 
 
-
-
        !====================================================================
        ! begin 1D slab model
        !====================================================================
@@ -3320,6 +3333,13 @@ CONTAINS
          box_Rb    = Plume1d%RB
  
          box_concnt_1D = Plume1d%CONCNT1d
+
+
+
+         ! run the fake 2nd order chemical reaction
+         box_concnt_1D(:,2) = box_concnt_1D(:,2) &
+                            + Dt* box_concnt_1D(:,1)**2
+
 
 
          ! make sure the location is not out of range
@@ -3433,8 +3453,8 @@ CONTAINS
        !--------------------------------------------------------------------
        ! Begin the loop to calculate the advection & diffusion in slab model
        !--------------------------------------------------------------------
-!       DO i_specie = 1,N_specie
-!       DO i_specie = 1, 1
+!       DO i_species = 1,N_species
+!       DO i_species = 1, 1
        do t1s=1,NINT(Dt/Dt2)
 
 
@@ -3448,35 +3468,34 @@ CONTAINS
          !-------------------------------------------------------------------
          ! Decrease half of slab by combining 2 slab into 1 slab
          !-------------------------------------------------------------------
-         Cslab       = box_concnt_1D(1:n_slab_max)
+         DO i_species = 1, n_species, 1
+
+         Cslab       = box_concnt_1D(1:n_slab_max,i_species)
 
          DO i_slab = 1, n_slab_50
-           box_concnt_1D(i_slab+N_slab_25) = &
+           box_concnt_1D(i_slab+N_slab_25,i_species) = &
               (  Cslab(i_slab*2-1) + Cslab(i_slab*2) ) /2
-
          ENDDO
-
-         box_Rb = box_Rb*2
 
          !-------------------------------------------------------------------
          ! Meanwhile, add new slab into plume to compensate lost slab
          !-------------------------------------------------------------------
-         DO i_slab = 1,n_slab_25
-           box_concnt_1D(i_slab) = 0.0
-         ENDDO
+         box_concnt_1D(1:n_slab_25,i_species) = 0.0
+         box_concnt_1D(n_slab_75+1:n_slab_max,i_species) = 0.0
 
-         DO i_slab = n_slab_75+1, n_slab_max
-           box_concnt_1D(i_slab) = 0.0
-         ENDDO
+         ENDDO ! DO i_species = 1, n_species, 1
+
+
+         box_Rb = box_Rb*2
 
          !!! uodate box_extra(i_box) ???
-         V_grid_1D       = box_Ra*box_Rb*box_length*1.0e+6_fp
-         mass_plume      = V_grid_1D/2 *SUM(Cslab(1:n_slab_max))
-
-         mass_plume_new = V_grid_1D &
-               *SUM( box_concnt_1D(1:n_slab_max) )
-
-         D_mass_plume = mass_plume_new - mass_plume
+!         V_grid_1D       = box_Ra*box_Rb*box_length*1.0e+6_fp
+!         mass_plume      = V_grid_1D/2 *SUM(Cslab(1:n_slab_max))
+!
+!         mass_plume_new = V_grid_1D &
+!               *SUM( box_concnt_1D(1:n_slab_max) )
+!
+!         D_mass_plume = mass_plume_new - mass_plume
 
 
        ENDIF ! IF( 2*eddy_B*Dt2/(box_Rb(i_box)**2)>1 )
@@ -3492,7 +3511,6 @@ CONTAINS
        !--------------------------------------------------------------------
 
        V_grid_1D       = box_Ra*box_Rb*box_length*1.0e+6_fp
-       C1d_prev       = box_concnt_1D(1:n_slab_max)
 
 
 !       IF(box_label==1)THEN
@@ -3519,34 +3537,30 @@ CONTAINS
 
        !--------------------------------------------------------------------
        ! For the concentration change caused by eddy diffusion:
-       ! box_concnt(n_box,N_slab,N_specie)
+       ! box_concnt(n_box,N_slab,N_species)
        !--------------------------------------------------------------------
 
        ! ignore the diffusivity in long radius direction
        eddy_B = eddy_v * SIN(abs(box_theta))
        eddy_B = eddy_B + eddy_h*COS(box_theta) ! b
 
+
+       DO i_species=1,n_species,1
+
+       C1d_prev       = box_concnt_1D(1:n_slab_max,i_species)
+
        !---------------------------------------------------------------------
        ! Calculate the diffusion in slab grids
        !---------------------------------------------------------------------
-
-       Cslab       = box_concnt_1D(1:n_slab_max)
+       Cslab       = box_concnt_1D(1:n_slab_max,i_species)
 
        Concnt1D_bdy(1)          = 0.0
        Concnt1D_bdy(n_slab_max2) = 0.0
-       Concnt1D_bdy(2:n_slab_max2-1) = box_concnt_1D(1:n_slab_max)
-
-
+       Concnt1D_bdy(2:n_slab_max2-1) = box_concnt_1D(1:n_slab_max,i_species)
 
 
        IF(2.0*eddy_B*Dt2/(box_Rb**2)>1) WRITE(6,*)'*** CFL ERROR ***'
 
-!       box_concnt_1D(i_box,2:n_slab_max-1,1) = Cslab(2:n_slab_max-1)     &
-!              + Dt2*eddy_B *(Cslab(3:n_slab_max)-2*Cslab(2:n_slab_max-1) &
-!                            +Cslab(1:n_slab_max-2)) /box_Rb(i_box)**2
-
-
-!
 
        Concnt1D_bdy(2:n_slab_max2-1) = Concnt1D_bdy(2:n_slab_max2-1)     &
         + Dt2*eddy_B*(   Concnt1D_bdy(3:n_slab_max2)   &
@@ -3554,7 +3568,7 @@ CONTAINS
                       +  Concnt1D_bdy(1:n_slab_max2-2) ) /(box_Rb**2)
 
 
-       box_concnt_1D(1:n_slab_max) = Concnt1D_bdy(2:n_slab_max2-1)
+       box_concnt_1D(1:n_slab_max,i_species) = Concnt1D_bdy(2:n_slab_max2-1)
 
 
        !====================================================================
@@ -3564,43 +3578,22 @@ CONTAINS
 
        grid_volumn     = State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp ![cm3]
 
-
        mass_plume = V_grid_1D * SUM( C1d_prev(1:n_slab_max) )
-       mass_plume_new = V_grid_1D * SUM(box_concnt_1D(1:n_slab_max))
+       mass_plume_new = V_grid_1D * SUM(box_concnt_1D(1:n_slab_max,i_species))
 
        ! [molec]
        D_mass_plume = mass_plume_new - mass_plume
 
+       i_advect = State_Chm%nAdvect - (n_species-i_species)
 
-!       IF(box_label==1)THEN
-!         WRITE(6,*)'mass after:', eddy_B, V_grid_1D, mass_plume_new
-!       ENDIF
-
-
-!       IF(DAY==31)THEN
-!         WRITE(6,*)'mass test:', i_box, box_theta, eddy_v, eddy_B
-!         WRITE(6,*) box_theta, V_grid_1D, D_mass_plume, mass_plume_new
-!       ENDIF
-
-
-!       IF(D_mass_plume<0)THEN
-!       ! generally D_mass_plume is negative
-!
-!       box_extra = box_extra + box_extra/mass_plume *D_mass_plume
-!
-!       D_mass_plume = (1-box_extra/mass_plume)*D_mass_plume
-!       ENDIF
-
-       backgrd_concnt = &
-                   State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+       backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
 
        backgrd_concnt = ( backgrd_concnt*grid_volumn &
                                               - D_mass_plume) / grid_volumn
 
-       State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = &
-                                                          backgrd_concnt
+       State_Chm%Species(i_lon,i_lat,i_lev,i_advect) = backgrd_concnt
 
-
+       ENDDO ! DO i_species=1,n_species,1
 
        !===================================================================
        ! Second judge:
@@ -3610,10 +3603,10 @@ CONTAINS
        ! test this once big time step
        !===================================================================
 
-       Rate_Mix = V_grid_1D * SUM( box_concnt_1D(1:n_slab_max)**2 ) &
+       Rate_Mix = V_grid_1D * SUM( box_concnt_1D(1:n_slab_max,1)**2 ) &
                 + backgrd_concnt**2 * grid_volumn
 
-       Eul_concnt = ( SUM(box_concnt_1D(1:n_slab_max)) *V_grid_1D &
+       Eul_concnt = ( SUM(box_concnt_1D(1:n_slab_max,1)) *V_grid_1D &
                     + backgrd_concnt*grid_volumn ) / grid_volumn
        Rate_Eul = Eul_concnt**2*grid_volumn
 
@@ -3625,7 +3618,7 @@ CONTAINS
 
 
        IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.1 .OR. &
-                                box_life/3600/24>15.0)THEN 
+                                box_life/3600/24>30.0)THEN 
 
          Num_dissolve = Num_dissolve+1
 
@@ -3635,18 +3628,20 @@ CONTAINS
 !         WRITE(6,*)'DISSOLVE1:', i_box, box_label, box_life/3600/24,&
 !                              SUM(box_concnt_1D(1:n_slab_max)) * V_grid_1D
 
+         mass_la2 = mass_la2 + SUM(box_concnt_1D(1:n_slab_max,1)) * V_grid_1D
 
-         mass_la2 = mass_la2 + SUM(box_concnt_1D(1:n_slab_max)) * V_grid_1D
+         DO i_species=1,n_species,1
+         i_advect = State_Chm%nAdvect - (n_species-i_species)
 
          backgrd_concnt = &
-                  State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+                  State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
 
          backgrd_concnt = &
-           ( SUM(box_concnt_1D(1:n_slab_max)) * V_grid_1D   &
+           ( SUM(box_concnt_1D(1:n_slab_max,i_species)) * V_grid_1D   &
                 + backgrd_concnt*grid_volumn ) / grid_volumn
 
-         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) = &
-                                                         backgrd_concnt
+         State_Chm%Species(i_lon,i_lat,i_lev,i_advect) = backgrd_concnt
+         ENDDO
 
          ! ----------------------------------
          ! delete the node for 1D plume:
@@ -3708,17 +3703,18 @@ CONTAINS
 !         WRITE(6,*) 'test:', box_label, eddy_v, eddy_h, box_theta
 
 
-         backgrd_concnt = &
-                  State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+         DO i_species=1,n_species,1
+         i_advect = State_Chm%nAdvect - (n_species-i_species)
 
          backgrd_concnt = &
-           ( SUM(box_concnt_1D(1:n_slab_max)) * V_grid_1D   &
-                           + backgrd_concnt*grid_volumn ) / grid_volumn
+                  State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
 
+         backgrd_concnt = &
+           ( SUM(box_concnt_1D(1:n_slab_max,i_species)) * V_grid_1D   &
+                + backgrd_concnt*grid_volumn ) / grid_volumn
 
-         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) =    &
-                                                         backgrd_concnt
-
+         State_Chm%Species(i_lon,i_lat,i_lev,i_advect) = backgrd_concnt
+         ENDDO
 
 
 
@@ -3774,21 +3770,22 @@ CONTAINS
 
          WRITE(6,*)'DISSOLVE 4:', i_box
 
-         backgrd_concnt = &
-                 State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+
+         DO i_species=1,n_species,1
+         i_advect = State_Chm%nAdvect - (n_species-i_species)
 
          backgrd_concnt = &
-           ( SUM(box_concnt_1D(1:n_slab_max)) * V_grid_1D   &
-                          + backgrd_concnt*grid_volumn ) / grid_volumn
+                  State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
 
+         backgrd_concnt = &
+           ( SUM(box_concnt_1D(1:n_slab_max,i_species)) * V_grid_1D   &
+                + backgrd_concnt*grid_volumn ) / grid_volumn
 
-         State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1) =    &
-                                                        backgrd_concnt
+         State_Chm%Species(i_lon,i_lat,i_lev,i_advect) = backgrd_concnt
+         ENDDO
 
 
          WRITE(6,*) '*** Dissolved in 4th Judge ***', i_box
-
-
 
 
 
@@ -3843,7 +3840,8 @@ CONTAINS
        ! If slab length(Ra) is bigger than 2* horizontal resolution (2*Dx),
        ! split slab into five smaller segment (Ra/5)
        !===================================================================
-       N_split = 3
+       N_split = 7
+       IF(N_split==1) GOTO 111
 
 
        IF(.NOT.ALLOCATED(box_lon_new))THEN
@@ -3903,7 +3901,7 @@ CONTAINS
            Plume1d_new%RA = box_Ra
            Plume1d_new%RB = box_Rb
 
-           ALLOCATE(Plume1d_new%CONCNT1d(n_slab_max))
+           ALLOCATE(Plume1d_new%CONCNT1d(n_slab_max,n_species))
            Plume1d_new%CONCNT1d = box_concnt_1D
 
            ! add new splitting plume into the end of linked list
@@ -3920,7 +3918,7 @@ CONTAINS
 
        ENDIF ! IF( box_Ra(i_box) > 2*Dx )
 
-
+111     CONTINUE
 
        ! update the 1d plume for current node
        Plume1d%LON = box_lon
@@ -3952,7 +3950,7 @@ CONTAINS
 !     WRITE(6,*)'=== loop for 1d plume in plume_run: ', i_box, Num_Plume1d
 
     !=======================================================================
-    ! Convert specie back to original units (ewl, 8/16/16)
+    ! Convert species back to original units (ewl, 8/16/16)
     !=======================================================================
     CALL Convert_Spc_Units( am_I_Root, Input_Opt, State_Met, &
                             State_Chm, OrigUnit,  RC )
@@ -4443,13 +4441,13 @@ CONTAINS
 
 
 
-  SUBROUTINE Slab_init(Pdx, Pdy, theta1, Pc_2D, Height1, box_Ra, box_Rb, box_concnt_1D)
+  SUBROUTINE Slab_init(Pdx, Pdy, theta1, Pc_2D, Height1, box_Ra, box_Rb, Cslab)
  
     IMPLICIT NONE
 
     REAL(fp)    :: Pdx, Pdy, theta1, Height1
     REAL(fp), INTENT(INOUT)  :: box_Ra, box_Rb
-    REAL(fp), INTENT(INOUT)  :: box_concnt_1D(n_slab_max)
+    REAL(fp), INTENT(INOUT)  :: Cslab(n_slab_max)
     REAL(fp)    :: Pc_2D(n_x_max,n_y_max) !, Ec_2D(n_x_max,n_y_max)
 
 
@@ -4537,7 +4535,7 @@ CONTAINS
       ! Return:
       box_Ra = La
       box_Rb = Lb
-      box_concnt_1D(1:n_slab_max) = C_slab(1:n_slab_max)
+      Cslab(1:n_slab_max) = C_slab(1:n_slab_max)
 
   END SUBROUTINE
 
@@ -4731,12 +4729,12 @@ CONTAINS
 !        IF(Judge_plume(i_box)==2) THEN
 !          WRITE(262,*) i_box, ': 2D model, total mass [molec]:'
 !          WRITE(262,*) Pdx(i_box)*Pdy(i_box)*box_length(i_box)*1.0e+6_fp &
-!                * SUM(box_concnt_2D(:,:,N_specie,i_box))
+!                * SUM(box_concnt_2D(:,:,N_species,i_box))
 !        ENDIF
 !
 !        IF(Judge_plume(i_box)==1) THEN
 !          WRITE(262,*) i_box, ': 1D model'
-!          WRITE(262,*) SUM(box_concnt_1D(1:n_slab_max,N_specie,i_box)) &
+!          WRITE(262,*) SUM(box_concnt_1D(1:n_slab_max,N_species,i_box)) &
 !                   *box_Ra(i_box)*box_Rb(i_box)*box_length(i_box)*1.0e+6_fp
 !        ENDIF
 !
@@ -4747,10 +4745,10 @@ CONTAINS
 !
 !
 !!       DO i_box = 1, n_box
-!!          WRITE(262,*) i_box, SUM(box_concnt(i_box,:,N_specie)*V_slab(i_box,:))
+!!          WRITE(262,*) i_box, SUM(box_concnt(i_box,:,N_species)*V_slab(i_box,:))
 !!       ENDDO
 !
-!!        WRITE(262,*) box_concnt(1,:,N_specie)
+!!        WRITE(262,*) box_concnt(1,:,N_species)
 !
 !    ENDIF ! IF(mod(tt,144)==0)THEN
 !!    ENDIF
