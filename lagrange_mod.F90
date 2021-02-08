@@ -304,7 +304,7 @@ MODULE Lagrange_Mod
 
   real(fp) :: mass_eu, mass_la, mass_la2
 
-  integer, parameter    :: N_parcel   = 131 ! 131        
+  integer, parameter    :: N_parcel   = 5 ! 131        
   integer               :: Num_inject, Num_Plume2d, Num_Plume1d, Num_dissolve     
   integer               :: tt     
   ! Aircraft would release 131 aerosol parcels every time step
@@ -313,6 +313,7 @@ MODULE Lagrange_Mod
   integer, parameter    :: i_tracer  = 1
   integer, parameter    :: i_product = 2
 
+  real, parameter       :: Kchem = 1e-10 ! chemical reaction rate
 
   integer               :: Stop_inject ! 1: stop injecting; 0: keep injecting
 
@@ -2590,8 +2591,14 @@ CONTAINS
     i_advect = State_Chm%nAdvect - 2 ! PASV_EU2
 
     State_Chm%Species(:,:,:,i_advect) = State_Chm%Species(:,:,:,i_advect) &
-                               + Dt* State_Chm%Species(:,:,:,i_advect-1)**2
+                             + Dt* Kchem*State_Chm%Species(:,:,:,i_advect-1)**2
 
+
+
+    i_advect = State_Chm%nAdvect ! PASV_LA2
+
+    State_Chm%Species(:,:,:,i_advect) = State_Chm%Species(:,:,:,i_advect) &
+                             + Dt* Kchem*State_Chm%Species(:,:,:,i_advect-1)**2
 
     !=====================================================================
     ! For 2D plume: Run distortion & dilution HERE
@@ -2624,7 +2631,7 @@ CONTAINS
 
       ! run the fake 2nd order chemical reaction
       box_concnt_2D(:,:,2) = box_concnt_2D(:,:,2) &
-                           + Dt* box_concnt_2D(:,:,1)**2
+                           + Dt* Kchem*box_concnt_2D(:,:,1)**2
 
 
 
@@ -3338,7 +3345,7 @@ CONTAINS
 
          ! run the fake 2nd order chemical reaction
          box_concnt_1D(:,2) = box_concnt_1D(:,2) &
-                            + Dt* box_concnt_1D(:,1)**2
+                              + Dt* Kchem* box_concnt_1D(:,1)**2
 
 
 
@@ -3602,6 +3609,8 @@ CONTAINS
        ! background grid cell.                                          shw
        ! test this once big time step
        !===================================================================
+       i_advect = State_Chm%nAdvect - 1
+       backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
 
        Rate_Mix = V_grid_1D * SUM( box_concnt_1D(1:n_slab_max,1)**2 ) &
                 + backgrd_concnt**2 * grid_volumn
@@ -3840,7 +3849,7 @@ CONTAINS
        ! If slab length(Ra) is bigger than 2* horizontal resolution (2*Dx),
        ! split slab into five smaller segment (Ra/5)
        !===================================================================
-       N_split = 7
+       N_split = 3
        IF(N_split==1) GOTO 111
 
 
