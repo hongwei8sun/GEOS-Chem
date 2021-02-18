@@ -252,8 +252,8 @@ MODULE Lagrange_Mod
   USE precision_mod
   USE ERROR_MOD
   USE ErrCode_Mod
-  USE PhysConstants, ONLY : PI, Re, g0, AIRMW, AVO
-  USE CMN_SIZE_Mod,  ONLY : IIPAR, JJPAR, LLPAR
+  USE PhysConstants,   ONLY : PI, Re, g0, AIRMW, AVO
+!  USE CMN_SIZE_Mod,    ONLY : IIPAR, JJPAR, LLPAR
 
   USE TIME_MOD,        ONLY : GET_YEAR
   USE TIME_MOD,        ONLY : GET_MONTH
@@ -279,21 +279,25 @@ MODULE Lagrange_Mod
 
   PUBLIC :: n_slab_max, n_slab_25, n_slab_50, n_slab_75
 
-  integer, parameter    :: n_x_max = 483    ! number of x grids in 2D
-  integer, parameter    :: n_y_max = 165    !279     ! number of y grids in 2D
+
+  integer, parameter    :: n_x_max = 483-99    ! number of x grids in 2D
+  integer, parameter    :: n_y_max = 165-33    !279     ! number of y grids in 2D
+
   ! the odd number of n_x_max can ensure a center grid
-  integer, parameter    :: n_x_mid = 242
-  integer, parameter    :: n_y_mid = 83
+  integer, parameter    :: n_x_mid = (n_x_max+1)/2 !242
+  integer, parameter    :: n_y_mid = (n_y_max+1)/2  !83
 
   integer, parameter    :: n_x_max2 = n_x_max+2
   integer, parameter    :: n_y_max2 = n_y_max+2
 
   ! n_slab_max should be divided by 4, to ensure n_slab_25 is an integer.
-  integer, parameter    :: n_slab_max = 164 ! close to n_y_max, number of slabs in 1D
+  integer, parameter    :: n_slab_max = n_y_max-1 ! close to n_y_max, number of slabs in 1D
   integer, parameter    :: n_slab_max2 = n_slab_max+2
   ! add 2 more slab grid to containing background concentration
 
   integer               :: n_slab_25, n_slab_50, n_slab_75
+  integer               :: IIPAR, JJPAR, LLPAR
+
 
   real, parameter       :: Dx_init = 100
   real, parameter       :: Dy_init = 10
@@ -304,7 +308,7 @@ MODULE Lagrange_Mod
 
   real(fp) :: mass_eu, mass_la, mass_la2
 
-  integer, parameter    :: N_parcel   = 5 ! 131        
+  integer, parameter    :: N_parcel   = 131 ! 131        
   integer               :: Num_inject, Num_Plume2d, Num_Plume1d, Num_dissolve     
   integer               :: tt     
   ! Aircraft would release 131 aerosol parcels every time step
@@ -358,14 +362,16 @@ CONTAINS
 
 !-----------------------------------------------------------------
 
-  SUBROUTINE lagrange_init(am_I_root, Input_Opt, State_Chm, State_Met, RC)
+  SUBROUTINE lagrange_init(am_I_root, Input_Opt, State_Chm, State_Grid, State_Met, RC)
 
     USE Input_Opt_Mod, ONLY : OptInput
     USE State_Met_Mod, ONLY : MetState
     USE State_Chm_Mod, ONLY : ChmState
 
-    USE GC_GRID_MOD,   ONLY : XMID, YMID
-    USE GC_GRID_MOD,   ONLY : GET_AREA_M2
+!    USE GC_GRID_MOD,   ONLY : XMID, YMID
+!    USE GC_GRID_MOD,   ONLY : GET_AREA_M2 ! new
+
+    USE State_Grid_Mod,  ONLY : GrdState
 
     USE TIME_MOD,      ONLY : GET_YEAR
     USE TIME_MOD,      ONLY : GET_MONTH
@@ -380,6 +386,7 @@ CONTAINS
     TYPE(MetState), intent(in)    :: State_Met
     TYPE(ChmState), intent(inout) :: State_Chm
     TYPE(OptInput), intent(in)    :: Input_Opt
+    TYPE(GrdState), INTENT(IN)    :: State_Grid  ! Grid State objectgg
     INTEGER,        INTENT(OUT)   :: RC         ! Success or failure
 
     INTEGER                       :: i_box, i_slab
@@ -399,6 +406,11 @@ CONTAINS
     TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
 
     Stop_inject = 0
+
+
+    IIPAR = State_Grid%NX
+    JJPAR = State_Grid%NY
+    LLPAR = State_Grid%NZ
 
 
     FILENAME2   = 'Plume_lifetime_seconds.txt'
@@ -485,8 +497,8 @@ CONTAINS
     n_slab_75 = (n_slab_max-2)/4*3
 
 
-    X_mid  => XMID(:,1,1)   ! IIPAR
-    Y_mid  => YMID(1,:,1)
+    X_mid  => State_Grid%XMid(:,1) ! Grid box longitude [degrees] ! XMID(:,1,1)   ! IIPAR ! new
+    Y_mid  => State_Grid%YMid(1,:) ! Grid box latitude center [degree] ! YMID(1,:,1)
     P_mid  => State_Met%PMID(1,1,:)  ! Pressure at level centers (hPa)
 
     P_edge => State_Met%PEDGE(1,1,:)  ! Wet air press @ level edges [hPa]
@@ -577,7 +589,7 @@ CONTAINS
 !-----------------------------------------------------------------
 !=================================================================
 
-  SUBROUTINE lagrange_run(am_I_Root, State_Chm, State_Met, Input_Opt, RC)
+  SUBROUTINE lagrange_run(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
 
     USE Input_Opt_Mod, ONLY : OptInput
 
@@ -586,14 +598,17 @@ CONTAINS
 
     USE TIME_MOD,      ONLY : GET_TS_DYN
 
-    USE GC_GRID_MOD,   ONLY : XEDGE, YEDGE              
-    USE CMN_SIZE_Mod,  ONLY : DLAT, DLON 
+!    USE GC_GRID_MOD,   ONLY : XEDGE, YEDGE
+              
+!    USE CMN_SIZE_Mod,  ONLY : DLAT, DLON !new
+    USE State_Grid_Mod,  ONLY : GrdState
 
     USE UnitConv_Mod,  ONLY : Convert_Spc_Units
 
     logical, intent(in)           :: am_I_Root
     TYPE(MetState), intent(in)    :: State_Met
     TYPE(ChmState), intent(inout) :: State_Chm
+    TYPE(GrdState), INTENT(IN)    :: State_Grid  ! Grid State objectgg
     TYPE(OptInput), intent(in)    :: Input_Opt
     INTEGER,        INTENT(OUT)   :: RC         ! Success or failure
 
@@ -704,10 +719,10 @@ CONTAINS
     T2    => State_Met%TMPU2     ! Temperature at end of
                                  !  timestep [K]
 
-    Dx = DLON(1,1,1)
-    Dy = DLAT(1,2,1)  ! DLAT(1,1,1) is half of DLAT(1,2,1) !!!
-    X_edge => XEDGE(:,1,1)   ! IIPAR+1
-    Y_edge => YEDGE(1,:,1)  
+    Dx = State_Grid%DX
+    Dy = State_Grid%DY 
+    X_edge => State_Grid%XEdge(:,1) !XEDGE(:,1,1)   ! IIPAR+1 ! new
+    Y_edge => State_Grid%YEdge(1,:) !YEDGE(1,:,1)  
     ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
 
     X_edge2       = X_edge(2)
@@ -880,7 +895,7 @@ CONTAINS
          nAdv = State_Chm%nAdvect-3         ! the last 4 is PASV_EU
          PASV_EU => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)  ! [kg/kg]
 
-         MW_g = State_Chm%SpcData(nAdv)%Info%emMW_g
+         MW_g = State_Chm%SpcData(nAdv)%Info%MW_g
          ! Here assume the injection rate is 30 kg/km for H2SO4: 
          PASV_EU = PASV_EU + box_length*1.0e-3_fp*30.0 &
                                         /State_Met%AD(i_lon,i_lat,i_lev)
@@ -2381,7 +2396,7 @@ CONTAINS
 !*********************************************************************
 !---------------------------------------------------------------------
 
-  SUBROUTINE plume_run(am_I_Root, State_Chm, State_Met, Input_Opt, RC)
+  SUBROUTINE plume_run(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
 
     USE Input_Opt_Mod,   ONLY : OptInput
 
@@ -2398,8 +2413,9 @@ CONTAINS
     USE TIME_MOD,        ONLY : GET_HOUR
     USE TIME_MOD,        ONLY : GET_MINUTE
 
-    USE GC_GRID_MOD,     ONLY : XEDGE, YEDGE, XMID, YMID
-    USE CMN_SIZE_Mod,    ONLY : IIPAR, JJPAR, LLPAR, DLAT, DLON
+    USE State_Grid_Mod,  ONLY : GrdState
+!    USE GC_GRID_MOD,     ONLY : XEDGE, YEDGE, XMID, YMID
+!    USE CMN_SIZE_Mod,    ONLY : IIPAR, JJPAR, LLPAR, DLAT, DLON
     ! DLAT( IIPAR, JJPAR, LLPAR ), DLON( IIPAR, JJPAR, LLPAR )
     ! XEDGE( IM+1, JM,   L ), YEDGE( IM,   JM+1, L ), IM=IIPAR, JM=JJPAR
 
@@ -2409,6 +2425,7 @@ CONTAINS
     logical, intent(in)           :: am_I_Root
     TYPE(MetState), intent(in)    :: State_Met
     TYPE(ChmState), intent(inout) :: State_Chm
+    TYPE(GrdState), INTENT(IN)    :: State_Grid  ! Grid State objectgg
     TYPE(OptInput), intent(in)    :: Input_Opt
 
     INTEGER,        INTENT(OUT)   :: RC         ! Success or failure
@@ -2484,6 +2501,11 @@ CONTAINS
     real(fp)  :: CFL_2d(n_x_max,n_y_max) ! for 2D advection
 
     real(fp)  :: Pu(n_x_max,n_y_max) ! for 2D advection
+
+
+    real(fp)  :: Pc_bottom(n_x_max2,n_y_max2), Pc_top(n_x_max2,n_y_max2)
+    real(fp)  :: Pc_left(n_x_max2,n_y_max2), Pc_right(n_x_max2,n_y_max2)
+
 
     real(fp)  :: Pc(n_x_max,n_y_max),Pc2(n_x_max,n_y_max) !, Ec(n_x_max,n_y_max)
     real(fp)  :: Pc_bdy(n_x_max2,n_y_max2)
@@ -2566,10 +2588,11 @@ CONTAINS
     P_BXHEIGHT => State_Met%BXHEIGHT  ![IIPAR,JJPAR,KKPAR]
 
 
-    Dx = DLON(1,1,1)
-    Dy = DLAT(1,2,1)  ! DLAT(1,1,1) is half of DLAT(1,2,1) !!!
-    X_edge => XEDGE(:,1,1)   ! IIPAR+1
-    Y_edge => YEDGE(1,:,1)
+    Dx = State_Grid%DX
+    Dy = State_Grid%DY
+
+    X_edge => State_Grid%XEdge(:,1) !XEDGE(:,1,1)   ! IIPAR+1 ! new
+    Y_edge => State_Grid%YEdge(1,:) !YEDGE(1,:,1) 
     ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
 
     X_edge2       = X_edge(2)
@@ -2578,8 +2601,8 @@ CONTAINS
     !======================================================================
     ! Convert species to [molec/cm3] (ewl, 8/16/16)
     !======================================================================
-    CALL Convert_Spc_Units( am_I_Root, Input_Opt, State_Met, &
-                            State_Chm, 'molec/cm3', RC, OrigUnit=OrigUnit )
+    CALL Convert_Spc_Units( Input_Opt, State_Chm, State_Grid, State_Met, &
+                            'molec/cm3', RC, OrigUnit=OrigUnit )
     IF ( RC /= GC_SUCCESS ) THEN
        ErrMsg = 'Unit conversion error!'
        CALL GC_Error( ErrMsg, RC, 'plume_run in lagrange_mod.F90')
@@ -2857,46 +2880,95 @@ CONTAINS
 !         Pc = box_concnt_2D(i_box,:,:,1) ! [molec cm-3]
          Pc_bdy = Concnt2D_bdy
 
-         CFL_2d = Pdt*Pu(:,:)/Pdx ! [n_x_max, n_y_max]
-
-         Concnt2D_bdy(2:n_x_max2-1, 2:n_y_max2-1) = &
-                Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) &
-                - 0.5 *CFL_2d(:,:) *( Pc_bdy(3:n_x_max2,2:n_y_max2-1) &
-                             -Pc_bdy(1:n_x_max2-2,2:n_y_max2-1) ) &
-                + 0.5 *CFL_2d(:,:)**2 *(   Pc_bdy(3:n_x_max2,2:n_y_max2-1) &
-                                -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) &
-                                  +Pc_bdy(1:n_x_max2-2,2:n_y_max2-1) )
-
-
-
-
-!         DO i_y = 2, n_y_max-1, 1
-!           CFL = Pdt*Pu(2,i_y)/Pdx(i_box) ! [1]
+!         CFL_2d = Pdt*Pu(:,:)/Pdx ! [n_x_max, n_y_max]
 !
-!           box_concnt_2D(i_box,2:n_x_max-1,i_y,1) = Pc(2:n_x_max-1,i_y) &
-!            - 0.5 *CFL *(Pc(3:n_x_max,i_y)-Pc(1:n_x_max-2,i_y))         &
-!            + 0.5 *CFL**2 *(Pc(3:n_x_max,i_y)-2*Pc(2:n_x_max-1,i_y)     &
-!                                               +Pc(1:n_x_max-2,i_y))
-!
-!
-!
-!         ENDDO
+!         Concnt2D_bdy(2:n_x_max2-1, 2:n_y_max2-1) = &
+!                Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) &
+!                - 0.5 *CFL_2d(:,:) *( Pc_bdy(3:n_x_max2,2:n_y_max2-1) &
+!                             -Pc_bdy(1:n_x_max2-2,2:n_y_max2-1) ) &
+!                + 0.5 *CFL_2d(:,:)**2 *(   Pc_bdy(3:n_x_max2,2:n_y_max2-1) &
+!                                -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) &
+!                                  +Pc_bdy(1:n_x_max2-2,2:n_y_max2-1) )
+
+
+
+
+         Pc_left   = Pc_bdy
+         Pc_right  = Pc_bdy
+
+
+         !$OMP PARALLEL DO           &
+         !$OMP DEFAULT( SHARED     ) &
+         !$OMP PRIVATE( i_y, i_x )
+         DO i_y = 2,n_y_max2-1,1
+         DO i_x = 2,n_x_max2-1,1       
+
+           CFL_2d((i_x-1,i_y-1)) = Pdt*Pu(i_x-1,i_y-1)/Pdx ! [n_x_max, n_y_max]
+
+
+           Concnt2D_bdy(i_x, i_y) = Pc_bdy(i_x,i_y) &
+                - 0.5 *CFL_2d(i_x-1,i_y-1) &
+                   *( Pc_bdy(i_x+1,i_y) - Pc_bdy(i_x-1,i_y) ) &
+                + 0.5 *CFL_2d(i_x-1,i_y-1)**2 &  
+                   *(Pc_bdy(i_x+1,i_y)-2*Pc_bdy(i_x,i_y)+Pc_bdy(i_x-1,i_y) )
+
+
+
+
+
+           Concnt2D_bdy(i_x, i_y) = Pc_bdy(i_x,i_y) + Pdt*( &
+             eddy_h*( Pc_right(i_x+1,i_y)-2*Pc_bdy(i_x,i_y)+Pc_left(i_x-1,i_y) ) &
+                                                 /(Pdx**2)        &
+            +eddy_v*( Pc_top(i_x,i_y+1)-2*Pc_bdy(i_x,i_y)+Pc_bottom(i_x,i_y-1) ) &
+                                                 /(Pdy**2) )
+
+         ENDDO
+         ENDDO
+         !$OMP END PARALLEL DO
+
+
+
+
+
 
 
          ! diffusion
          Pc_bdy = Concnt2D_bdy
 
-         Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) =               &
-                Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)                             &
-           + Pdt*( eddy_h*(   Pc_bdy(1:n_x_max2-2,2:n_y_max2-1)               &
-                           -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)               &
-                             +Pc_bdy(3:n_x_max2,2:n_y_max2-1)  )              &
-                                                /(Pdx**2)        &
-                 + eddy_v*(   Pc_bdy(2:n_x_max2-1,1:n_y_max2-2)               &
-                           -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)               &
-                             +Pc_bdy(2:n_x_max2-1,3:n_y_max2)  )              &
-                                                /(Pdy**2) )
+!         Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) =               &
+!                Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)                             &
+!           + Pdt*( eddy_h*(   Pc_bdy(1:n_x_max2-2,2:n_y_max2-1)               &
+!                           -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)               &
+!                             +Pc_bdy(3:n_x_max2,2:n_y_max2-1)  )              &
+!                                                /(Pdx**2)        &
+!                 + eddy_v*(   Pc_bdy(2:n_x_max2-1,1:n_y_max2-2)               &
+!                           -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)               &
+!                             +Pc_bdy(2:n_x_max2-1,3:n_y_max2)  )              &
+!                                                /(Pdy**2) )
 
+
+
+         Pc_top    = Pc_bdy
+         Pc_bottom = Pc_bdy
+         Pc_left   = Pc_bdy
+         Pc_right  = Pc_bdy
+
+
+         !$OMP PARALLEL DO           &
+         !$OMP DEFAULT( SHARED     ) &
+         !$OMP PRIVATE( i_y, i_x )
+         DO i_y = 2,n_y_max2-1,1
+         DO i_x = 2,n_x_max2-1,1
+
+           Concnt2D_bdy(i_x, i_y) = Pc_bdy(i_x,i_y) + Pdt*( &
+             eddy_h*( Pc_right(i_x+1,i_y)-2*Pc_bdy(i_x,i_y)+Pc_left(i_x-1,i_y) ) &
+                                                 /(Pdx**2)        &
+            +eddy_v*( Pc_top(i_x,i_y+1)-2*Pc_bdy(i_x,i_y)+Pc_bottom(i_x,i_y-1)  ) &
+                                                 /(Pdy**2) )
+
+         ENDDO
+         ENDDO
+         !$OMP END PARALLEL DO
 
 
          box_concnt_2D(:,:,i_species) = Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1)
@@ -3961,8 +4033,9 @@ CONTAINS
     !=======================================================================
     ! Convert species back to original units (ewl, 8/16/16)
     !=======================================================================
-    CALL Convert_Spc_Units( am_I_Root, Input_Opt, State_Met, &
-                            State_Chm, OrigUnit,  RC )
+    CALL Convert_Spc_Units( Input_Opt, State_Chm,  State_Grid, State_Met, &
+                            OrigUnit,  RC )
+
     IF ( RC /= GC_SUCCESS ) THEN
        ErrMsg = 'Unit conversion error!'
        CALL GC_Error( ErrMsg, RC, 'plume_mod.F90' )
