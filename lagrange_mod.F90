@@ -2880,51 +2880,51 @@ CONTAINS
 !         Pc = box_concnt_2D(i_box,:,:,1) ! [molec cm-3]
          Pc_bdy = Concnt2D_bdy
 
-!         CFL_2d = Pdt*Pu(:,:)/Pdx ! [n_x_max, n_y_max]
+         CFL_2d = Pdt*Pu(:,:)/Pdx ! [n_x_max, n_y_max]
+
+         Concnt2D_bdy(2:n_x_max2-1, 2:n_y_max2-1) = &
+                Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) &
+                - 0.5 *CFL_2d(:,:) *( Pc_bdy(3:n_x_max2,2:n_y_max2-1) &
+                             -Pc_bdy(1:n_x_max2-2,2:n_y_max2-1) ) &
+                + 0.5 *CFL_2d(:,:)**2 *(   Pc_bdy(3:n_x_max2,2:n_y_max2-1) &
+                                -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) &
+                                  +Pc_bdy(1:n_x_max2-2,2:n_y_max2-1) )
+
+
+
+
+!         Pc_left   = Pc_bdy
+!         Pc_right  = Pc_bdy
 !
-!         Concnt2D_bdy(2:n_x_max2-1, 2:n_y_max2-1) = &
-!                Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) &
-!                - 0.5 *CFL_2d(:,:) *( Pc_bdy(3:n_x_max2,2:n_y_max2-1) &
-!                             -Pc_bdy(1:n_x_max2-2,2:n_y_max2-1) ) &
-!                + 0.5 *CFL_2d(:,:)**2 *(   Pc_bdy(3:n_x_max2,2:n_y_max2-1) &
-!                                -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) &
-!                                  +Pc_bdy(1:n_x_max2-2,2:n_y_max2-1) )
-
-
-
-
-         Pc_left   = Pc_bdy
-         Pc_right  = Pc_bdy
-
-
-         !$OMP PARALLEL DO           &
-         !$OMP DEFAULT( SHARED     ) &
-         !$OMP PRIVATE( i_y, i_x )
-         DO i_y = 2,n_y_max2-1,1
-         DO i_x = 2,n_x_max2-1,1       
-
-           CFL_2d((i_x-1,i_y-1)) = Pdt*Pu(i_x-1,i_y-1)/Pdx ! [n_x_max, n_y_max]
-
-
-           Concnt2D_bdy(i_x, i_y) = Pc_bdy(i_x,i_y) &
-                - 0.5 *CFL_2d(i_x-1,i_y-1) &
-                   *( Pc_bdy(i_x+1,i_y) - Pc_bdy(i_x-1,i_y) ) &
-                + 0.5 *CFL_2d(i_x-1,i_y-1)**2 &  
-                   *(Pc_bdy(i_x+1,i_y)-2*Pc_bdy(i_x,i_y)+Pc_bdy(i_x-1,i_y) )
-
-
-
-
-
-           Concnt2D_bdy(i_x, i_y) = Pc_bdy(i_x,i_y) + Pdt*( &
-             eddy_h*( Pc_right(i_x+1,i_y)-2*Pc_bdy(i_x,i_y)+Pc_left(i_x-1,i_y) ) &
-                                                 /(Pdx**2)        &
-            +eddy_v*( Pc_top(i_x,i_y+1)-2*Pc_bdy(i_x,i_y)+Pc_bottom(i_x,i_y-1) ) &
-                                                 /(Pdy**2) )
-
-         ENDDO
-         ENDDO
-         !$OMP END PARALLEL DO
+!
+!         !$OMP PARALLEL DO           &
+!         !$OMP DEFAULT( SHARED     ) &
+!         !$OMP PRIVATE( i_y, i_x )
+!         DO i_y = 2,n_y_max2-1,1
+!         DO i_x = 2,n_x_max2-1,1       
+!
+!           CFL_2d(i_x-1,i_y-1) = Pdt*Pu(i_x-1,i_y-1)/Pdx ! [n_x_max, n_y_max]
+!
+!
+!           Concnt2D_bdy(i_x, i_y) = Pc_bdy(i_x,i_y) &
+!                - 0.5 *CFL_2d(i_x-1,i_y-1) &
+!                   *( Pc_bdy(i_x+1,i_y) - Pc_bdy(i_x-1,i_y) ) &
+!                + 0.5 *CFL_2d(i_x-1,i_y-1)**2 &  
+!                   *(Pc_bdy(i_x+1,i_y)-2*Pc_bdy(i_x,i_y)+Pc_bdy(i_x-1,i_y) )
+!
+!
+!
+!
+!
+!           Concnt2D_bdy(i_x, i_y) = Pc_bdy(i_x,i_y) + Pdt*( &
+!             eddy_h*( Pc_right(i_x+1,i_y)-2*Pc_bdy(i_x,i_y)+Pc_left(i_x-1,i_y) ) &
+!                                                 /(Pdx**2)        &
+!            +eddy_v*( Pc_top(i_x,i_y+1)-2*Pc_bdy(i_x,i_y)+Pc_bottom(i_x,i_y-1) ) &
+!                                                 /(Pdy**2) )
+!
+!         ENDDO
+!         ENDDO
+!         !$OMP END PARALLEL DO
 
 
 
@@ -2935,18 +2935,23 @@ CONTAINS
          ! diffusion
          Pc_bdy = Concnt2D_bdy
 
-!         Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) =               &
-!                Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)                             &
-!           + Pdt*( eddy_h*(   Pc_bdy(1:n_x_max2-2,2:n_y_max2-1)               &
-!                           -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)               &
-!                             +Pc_bdy(3:n_x_max2,2:n_y_max2-1)  )              &
-!                                                /(Pdx**2)        &
-!                 + eddy_v*(   Pc_bdy(2:n_x_max2-1,1:n_y_max2-2)               &
-!                           -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)               &
-!                             +Pc_bdy(2:n_x_max2-1,3:n_y_max2)  )              &
-!                                                /(Pdy**2) )
+         call cpu_time(start)
 
+         Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) =               &
+                Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)                             &
+           + Pdt*( eddy_h*(   Pc_bdy(1:n_x_max2-2,2:n_y_max2-1)               &
+                           -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)               &
+                             +Pc_bdy(3:n_x_max2,2:n_y_max2-1)  )              &
+                                                /(Pdx**2)        &
+                 + eddy_v*(   Pc_bdy(2:n_x_max2-1,1:n_y_max2-2)               &
+                           -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)               &
+                             +Pc_bdy(2:n_x_max2-1,3:n_y_max2)  )              &
+                                                /(Pdy**2) )
 
+        call cpu_time(finish)
+        WRITE(6,*)'Time (finish-start) for 2D:', i_box, finish-start
+
+        call cpu_time(start)
 
          Pc_top    = Pc_bdy
          Pc_bottom = Pc_bdy
@@ -2960,6 +2965,7 @@ CONTAINS
          DO i_y = 2,n_y_max2-1,1
          DO i_x = 2,n_x_max2-1,1
 
+
            Concnt2D_bdy(i_x, i_y) = Pc_bdy(i_x,i_y) + Pdt*( &
              eddy_h*( Pc_right(i_x+1,i_y)-2*Pc_bdy(i_x,i_y)+Pc_left(i_x-1,i_y) ) &
                                                  /(Pdx**2)        &
@@ -2970,6 +2976,8 @@ CONTAINS
          ENDDO
          !$OMP END PARALLEL DO
 
+         call cpu_time(finish)
+         WRITE(6,*)'Time (finish-start) for 2D:', i_box, finish-start
 
          box_concnt_2D(:,:,i_species) = Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1)
 
