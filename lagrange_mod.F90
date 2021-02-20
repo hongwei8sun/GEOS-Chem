@@ -628,6 +628,9 @@ CONTAINS
 
     integer :: Ki
 
+    integer :: i_species
+    integer :: i_x, i_y
+    integer :: i_slab
 
 
     real(fp) :: curr_lon, curr_lat, curr_pressure
@@ -682,6 +685,7 @@ CONTAINS
     real(fp), dimension(:,:,:), allocatable :: box_concnt_2D
     real(fp), dimension(:,:), allocatable :: box_concnt_1D
 
+    real(fp)  :: start, finish
 
     TYPE(Plume2d_list), POINTER :: Plume2d_new, PLume2d, Plume2d_prev
     TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
@@ -690,6 +694,11 @@ CONTAINS
 
     CHARACTER(LEN=63)      :: OrigUnit
     CHARACTER(LEN=255)     :: ErrMsg
+
+
+    call cpu_time(start)
+
+
 
     IF(Stop_inject==1) GOTO 400
 
@@ -803,11 +812,15 @@ CONTAINS
 
 
 
-
+    call cpu_time(finish)
+    WRITE(6,*)'Lagrange time 1:', finish-start
 
     !=======================================================================
     ! for 2D plume: Run Lagrangian trajectory-track HERE
     !=======================================================================
+    call cpu_time(start)
+
+
     Plume2d => Plume2d_head
     i_box = 0
 
@@ -1162,8 +1175,25 @@ CONTAINS
 
       V_new = Pdx*Pdy*box_length*1.0e+6_fp
 
-      box_concnt_2D(:,:,:) = box_concnt_2D(:,:,:)*V_prev/V_new
 
+!      call cpu_time(start)
+!      box_concnt_2D(:,:,:) = box_concnt_2D(:,:,:)*V_prev/V_new
+!      call cpu_time(finish)
+!      WRITE(6,*)'Time1 (finish-start) for 2D:', i_box, finish-start
+
+
+      DO i_species = 1, n_species, 1
+      !$OMP PARALLEL DO           &
+      !$OMP DEFAULT( SHARED     ) &
+      !$OMP PRIVATE( i_y, i_x )
+      DO i_y = 1,n_y_max,1
+      DO i_x = 1,n_x_max,1
+         box_concnt_2D(i_x,i_y,i_species) = &
+                        box_concnt_2D(i_x,i_y,i_species)*V_prev/V_new
+      ENDDO
+      ENDDO
+      !$OMP END PARALLEL DO
+      ENDDO
 
 
       !------------------------------------------------------------------
@@ -1291,11 +1321,13 @@ CONTAINS
 
 
 !    WRITE(6,*)'=== loop for 2d plume in lagrange_run: ', i_box, Num_Plume2d
-
+    call cpu_time(finish)
+    WRITE(6,*)'Lagrange time 2:', finish-start
 
     !=======================================================================
     ! For 1d plume: Run Lagrangian trajectory-track HERE
     !=======================================================================
+    call cpu_time(start)
 
     IF(.NOT.ASSOCIATED(Plume1d_head)) GOTO 400
 
@@ -1577,9 +1609,26 @@ CONTAINS
 
       V_new = box_Ra*box_Rb*box_length*1.0e+6_fp
 
-
       box_concnt_1D(:,:) = box_concnt_1D(:,:)*V_prev/V_new
 
+
+!      call cpu_time(start)
+!
+!      !$OMP PARALLEL DO           &
+!      !$OMP DEFAULT( SHARED     ) &
+!      !$OMP PRIVATE( i_species, i_slab )
+!      DO i_species = 1, n_species, 1
+!      DO i_slab = 1,n_slab_max,1
+!
+!         box_concnt_1D(i_slab,i_species) = &
+!                        box_concnt_1D(i_slab,i_species)*V_prev/V_new
+!
+!      ENDDO
+!      ENDDO
+!      !$OMP END PARALLEL DO
+!
+!      call cpu_time(finish)
+!      WRITE(6,*)'Time2 (finish-start) for 1D:', finish-start
 
 
 !      IF(box_label==1)WRITE(6,*)'mass test after idea gas law:', i_box, &
@@ -1710,6 +1759,9 @@ CONTAINS
     ENDDO  ! DO WHILE(ASSOCIATED(Plume1d))
 
 !    WRITE(6,*) '=== loop for 1d plume in lagrange_run: ', i_box, Num_Plume1d
+
+    call cpu_time(finish)
+    WRITE(6,*)'Lagrange time 3:', finish-start
 
 
 400 CONTINUE
@@ -2443,6 +2495,7 @@ CONTAINS
 
     integer  :: i_lon, i_lat, i_lev
     integer  :: i_species, i_advect
+    integer  :: i_advect1, i_advect2
 
     integer  :: t1s
 
@@ -2498,13 +2551,14 @@ CONTAINS
     real(fp)  :: L_b, L_O, Ee
 
     real(fp)  :: CFL
-    real(fp)  :: CFL_2d(n_x_max,n_y_max) ! for 2D advection
+    real(fp)  :: CFL_2d(n_x_max2,n_y_max2) ! for 2D advection
 
-    real(fp)  :: Pu(n_x_max,n_y_max) ! for 2D advection
+    real(fp)  :: Pu(n_x_max2,n_y_max2) ! for 2D advection
 
 
-    real(fp)  :: Pc_bottom(n_x_max2,n_y_max2), Pc_top(n_x_max2,n_y_max2)
-    real(fp)  :: Pc_left(n_x_max2,n_y_max2), Pc_right(n_x_max2,n_y_max2)
+    real(fp)  :: Pc_middle
+    real(fp)  :: Pc_bottom, Pc_top
+    real(fp)  :: Pc_left, Pc_right
 
 
     real(fp)  :: Pc(n_x_max,n_y_max),Pc2(n_x_max,n_y_max) !, Ec(n_x_max,n_y_max)
@@ -2529,6 +2583,7 @@ CONTAINS
     real(fp), allocatable :: box_lon_new(:), box_lat_new(:)
 
     real(fp)  :: start, finish
+    real(fp)  :: start2, finish2
 
 
 
@@ -2557,6 +2612,10 @@ CONTAINS
     INTEGER :: DAY
     INTEGER :: HOUR
     INTEGER :: MINUTE
+
+
+    call cpu_time(start)
+
 
     IF(Stop_inject==1) GOTO 999
 
@@ -2610,22 +2669,53 @@ CONTAINS
     ENDIF
 
 
+    !======================================================================
     ! run the fake 2nd order chemical reaction
-    i_advect = State_Chm%nAdvect - 2 ! PASV_EU2
+    !======================================================================
 
-    State_Chm%Species(:,:,:,i_advect) = State_Chm%Species(:,:,:,i_advect) &
-                             + Dt* Kchem*State_Chm%Species(:,:,:,i_advect-1)**2
+!    call cpu_time(start)
+
+    !-----------------------------------------------------------------------
+
+    i_advect1 = State_Chm%nAdvect - 2 ! PASV_EU2
+    i_advect2 = State_Chm%nAdvect ! PASV_LA2
+
+    !$OMP PARALLEL DO           &
+    !$OMP DEFAULT( SHARED     ) &
+    !$OMP PRIVATE( i_lev, i_lat, i_lon )
+    DO i_lev = 1, LLPAR
+    DO i_lat = 1, JJPAR
+    DO i_lon = 1, IIPAR
+
+
+    State_Chm%Species(i_lon,i_lat,i_lev,i_advect1) = &
+              State_Chm%Species(i_lon,i_lat,i_lev,i_advect1) &
+            + Dt* Kchem*State_Chm%Species(i_lon,i_lat,i_lev,i_advect1-1)**2
+
+
+    State_Chm%Species(i_lon,i_lat,i_lev,i_advect2) = &
+                 State_Chm%Species(i_lon,i_lat,i_lev,i_advect2) &
+               + Dt*Kchem*State_Chm%Species(i_lon,i_lat,i_lev,i_advect2-1)**2
+
+    ENDDO
+    ENDDO
+    ENDDO
+    !$OMP END PARALLEL DO
 
 
 
-    i_advect = State_Chm%nAdvect ! PASV_LA2
+!    call cpu_time(finish)
+!    WRITE(6,*)'Time2 (finish-start) for 2D:', i_box, finish-start
 
-    State_Chm%Species(:,:,:,i_advect) = State_Chm%Species(:,:,:,i_advect) &
-                             + Dt* Kchem*State_Chm%Species(:,:,:,i_advect-1)**2
+
+    call cpu_time(finish)
+    WRITE(6,*)'Plume time 1:', finish-start
 
     !=====================================================================
     ! For 2D plume: Run distortion & dilution HERE
     !=====================================================================
+
+    call cpu_time(start)
 
     IF(ASSOCIATED(Plume2d_prev)) NULLIFY(Plume2d_prev)
 
@@ -2633,6 +2723,9 @@ CONTAINS
     i_box = 0
 
     DO WHILE(ASSOCIATED(Plume2d))
+
+
+!      call cpu_time(start)
 
       i_box = i_box+1
 
@@ -2652,9 +2745,26 @@ CONTAINS
       box_concnt_2D = Plume2d%CONCNT2d
 
 
+
+!      call cpu_time(start)
+
+      !$OMP PARALLEL DO           &
+      !$OMP DEFAULT( SHARED     ) &
+      !$OMP PRIVATE( i_y, i_x )
+      DO i_y = 1,n_y_max,1
+      DO i_x = 1,n_x_max,1
+
       ! run the fake 2nd order chemical reaction
-      box_concnt_2D(:,:,2) = box_concnt_2D(:,:,2) &
-                           + Dt* Kchem*box_concnt_2D(:,:,1)**2
+      box_concnt_2D(i_x,i_y,2) = box_concnt_2D(i_x,i_y,2) &
+                           + Dt* Kchem*box_concnt_2D(i_x,i_y,1)**2
+
+      ENDDO
+      ENDDO
+      !$OMP END PARALLEL DO
+
+!      call cpu_time(finish)
+!      WRITE(6,*)'Time2 (finish-start) for 2D:', i_box, finish-start
+
 
 
 
@@ -2693,6 +2803,8 @@ CONTAINS
 
        i_lev = Find_iPLev(curr_pressure,P_edge)
 
+!       call cpu_time(finish)
+!       WRITE(6,*)'Plume time 2-1:', finish-start
 
 !       backgrd_concnt(i_box,:) = State_Chm%Species(i_lon,i_lat,i_lev,:)
 !       backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
@@ -2707,6 +2819,9 @@ CONTAINS
        ! calculate the wind shear along plume corss-section
        ! calculate the diffusivity in horizontal and vertical direction
        !====================================================================
+
+!       call cpu_time(start)
+
        ! calculate the wind_s shear along pressure direction
        wind_s_shear = Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, i_lon, &
                         i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
@@ -2760,32 +2875,12 @@ CONTAINS
 
 
        ! Define the wind field based on wind shear
-       DO i_y = 1, n_y_max
+       DO i_y = 1, n_y_max2
          Pu(:,i_y) = (i_y-n_y_mid)*Pdy * wind_s_shear
          ! [m s-1]
        ENDDO
 
 
-       !-------------------------------------------------------------------
-       ! Calculate the advection-diffusion in 2D grids
-       !-------------------------------------------------------------------
-
-       Pdt = Dt*0.5*0.5*0.5
-
-       ! Find the best Pdt to meet CFL condition:
- 700     CONTINUE
-
-       Pdt = 0.5*Pdt
-
-       CFL = Pdt*Pu(2,n_y_max)/Pdx
-       IF(ABS(CFL)>1) GOTO 700
-       IF(ABS(2*eddy_h*Pdt/(Pdx**2))>1) GOTO 700
-       IF(ABS(2*eddy_v*Pdt/(Pdy**2))>1) GOTO 700
-
-
-
-
-       DO t1s = 1, NINT(Dt/Pdt)
 
          !--------------------------------------------------------------
          ! if Pdx become smaller than half Dx_initm,
@@ -2848,144 +2943,81 @@ CONTAINS
 
 
 
-         IF(ABS(2*eddy_h*Pdt/(Pdx**2))>1) &
-                WRITE(6,*) '*** ERROR 2 ***', eddy_h, Pdt, Pdx
+       !-------------------------------------------------------------------
+       ! Calculate the advection-diffusion in 2D grids
+       !-------------------------------------------------------------------
+       call cpu_time(start2)
 
-         IF(ABS(2*eddy_v*Pdt/(Pdy**2))>1) &
-                WRITE(6,*) '*** ERROR 3 ***', eddy_v, Pdt, Pdy
+       V_grid_2D       = Pdx*Pdy*box_length*1.0e+6_fp
 
+       DO i_species=1,n_species,1
 
+       C2d_prev(1:n_x_max,1:n_y_max) = &
+                              box_concnt_2D(1:n_x_max,1:n_y_max,i_species)
 
-         !--------------------------------------------------------------
-         ! calculate [vertical wind shear advection] and [diffusion]
-         !--------------------------------------------------------------
+       Pdt = 0.5*Dt
 
-         ! for interaction with background grid cell
-!         WRITE(6,*) box_concnt_2D(n_x_mid, n_y_mid-2:n_y_mid+2)
-!         WRITE(6,*)'2d:', i_box, SHAPE(C2d_prev), SHAPE(box_concnt_2D)
+       ! Find the best Pdt to meet CFL condition:
+ 700     CONTINUE
 
-         DO i_species=1,n_species,1
-         
-         C2d_prev(1:n_x_max,1:n_y_max) = &
-                                box_concnt_2D(1:n_x_max,1:n_y_max,i_species)
+       Pdt = 0.5*Pdt
 
-         V_grid_2D       = Pdx*Pdy*box_length*1.0e+6_fp
+       CFL = Pdt*Pu(1,1)/Pdx
+       IF(ABS(CFL)>1) GOTO 700
+       IF(ABS(2*eddy_h*Pdt/(Pdx**2))>1) GOTO 700
+       IF(ABS(2*eddy_v*Pdt/(Pdy**2))>1) GOTO 700
+
+       IF(i_box==1) WRITE(6,*)'Dt in 2D is:', Pdt
+
+       DO t1s = 1, NINT(Dt/Pdt)
 
          Concnt2D_bdy(:,:) = 0.0
          Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) = box_concnt_2D(:,:,i_species)
 
-
-         ! advection
-
-!         Pc = box_concnt_2D(i_box,:,:,1) ! [molec cm-3]
          Pc_bdy = Concnt2D_bdy
-
-         CFL_2d = Pdt*Pu(:,:)/Pdx ! [n_x_max, n_y_max]
-
-         Concnt2D_bdy(2:n_x_max2-1, 2:n_y_max2-1) = &
-                Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) &
-                - 0.5 *CFL_2d(:,:) *( Pc_bdy(3:n_x_max2,2:n_y_max2-1) &
-                             -Pc_bdy(1:n_x_max2-2,2:n_y_max2-1) ) &
-                + 0.5 *CFL_2d(:,:)**2 *(   Pc_bdy(3:n_x_max2,2:n_y_max2-1) &
-                                -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) &
-                                  +Pc_bdy(1:n_x_max2-2,2:n_y_max2-1) )
-
-
-
-
-!         Pc_left   = Pc_bdy
-!         Pc_right  = Pc_bdy
-!
-!
-!         !$OMP PARALLEL DO           &
-!         !$OMP DEFAULT( SHARED     ) &
-!         !$OMP PRIVATE( i_y, i_x )
-!         DO i_y = 2,n_y_max2-1,1
-!         DO i_x = 2,n_x_max2-1,1       
-!
-!           CFL_2d(i_x-1,i_y-1) = Pdt*Pu(i_x-1,i_y-1)/Pdx ! [n_x_max, n_y_max]
-!
-!
-!           Concnt2D_bdy(i_x, i_y) = Pc_bdy(i_x,i_y) &
-!                - 0.5 *CFL_2d(i_x-1,i_y-1) &
-!                   *( Pc_bdy(i_x+1,i_y) - Pc_bdy(i_x-1,i_y) ) &
-!                + 0.5 *CFL_2d(i_x-1,i_y-1)**2 &  
-!                   *(Pc_bdy(i_x+1,i_y)-2*Pc_bdy(i_x,i_y)+Pc_bdy(i_x-1,i_y) )
-!
-!
-!
-!
-!
-!           Concnt2D_bdy(i_x, i_y) = Pc_bdy(i_x,i_y) + Pdt*( &
-!             eddy_h*( Pc_right(i_x+1,i_y)-2*Pc_bdy(i_x,i_y)+Pc_left(i_x-1,i_y) ) &
-!                                                 /(Pdx**2)        &
-!            +eddy_v*( Pc_top(i_x,i_y+1)-2*Pc_bdy(i_x,i_y)+Pc_bottom(i_x,i_y-1) ) &
-!                                                 /(Pdy**2) )
-!
-!         ENDDO
-!         ENDDO
-!         !$OMP END PARALLEL DO
-
-
-
-
-
-
-
-         ! diffusion
-         Pc_bdy = Concnt2D_bdy
-
-         call cpu_time(start)
-
-         Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) =               &
-                Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)                             &
-           + Pdt*( eddy_h*(   Pc_bdy(1:n_x_max2-2,2:n_y_max2-1)               &
-                           -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)               &
-                             +Pc_bdy(3:n_x_max2,2:n_y_max2-1)  )              &
-                                                /(Pdx**2)        &
-                 + eddy_v*(   Pc_bdy(2:n_x_max2-1,1:n_y_max2-2)               &
-                           -2*Pc_bdy(2:n_x_max2-1,2:n_y_max2-1)               &
-                             +Pc_bdy(2:n_x_max2-1,3:n_y_max2)  )              &
-                                                /(Pdy**2) )
-
-        call cpu_time(finish)
-        WRITE(6,*)'Time (finish-start) for 2D:', i_box, finish-start
-
-        call cpu_time(start)
-
-         Pc_top    = Pc_bdy
-         Pc_bottom = Pc_bdy
-         Pc_left   = Pc_bdy
-         Pc_right  = Pc_bdy
-
 
          !$OMP PARALLEL DO           &
          !$OMP DEFAULT( SHARED     ) &
-         !$OMP PRIVATE( i_y, i_x )
+         !$OMP PRIVATE(i_y,i_x,CFL,Pc_middle,Pc_top,Pc_bottom,Pc_right,Pc_left)
          DO i_y = 2,n_y_max2-1,1
          DO i_x = 2,n_x_max2-1,1
 
+           Pc_middle = Pc_bdy( i_x,   i_y  )
+           Pc_top    = Pc_bdy( i_x,   i_y+1)
+           Pc_bottom = Pc_bdy( i_x,   i_y-1)
+           Pc_right  = Pc_bdy( i_x+1, i_y  )
+           Pc_left   = Pc_bdy( i_x-1, i_y  )
 
-           Concnt2D_bdy(i_x, i_y) = Pc_bdy(i_x,i_y) + Pdt*( &
-             eddy_h*( Pc_right(i_x+1,i_y)-2*Pc_bdy(i_x,i_y)+Pc_left(i_x-1,i_y) ) &
-                                                 /(Pdx**2)        &
-            +eddy_v*( Pc_top(i_x,i_y+1)-2*Pc_bdy(i_x,i_y)+Pc_bottom(i_x,i_y-1)  ) &
-                                                 /(Pdy**2) )
+           CFL       = Pdt*Pu(i_x,i_y)/Pdx
+
+           Concnt2D_bdy(i_x, i_y) = Pc_middle           &
+              - 0.5 * CFL    * ( Pc_right - Pc_left )   &
+              + 0.5 * CFL**2 * ( Pc_right - 2*Pc_middle + Pc_left )         &
+              + Pdt*( eddy_h*( Pc_right -2*Pc_middle +Pc_left   ) /(Pdx**2) &
+                     +eddy_v*( Pc_top -2*Pc_middle +Pc_bottom ) /(Pdy**2) )
 
          ENDDO
          ENDDO
          !$OMP END PARALLEL DO
 
-         call cpu_time(finish)
-         WRITE(6,*)'Time (finish-start) for 2D:', i_box, finish-start
+       ENDDO ! DO t1s = 1, NINT(Dt/Pdt)
+
+
+
+
+
+
+
+
+
 
          box_concnt_2D(:,:,i_species) = Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1)
-
 
          !================================================================
          ! Update the concentration in the background grid cell
          ! after the interaction with 2D plume
          !================================================================
+
          grid_volumn     = State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp ! [cm3]
          V_grid_2D       = Pdx*Pdy*box_length*1.0e+6_fp
 
@@ -2998,10 +3030,6 @@ CONTAINS
 
 
          D_mass_plume = mass_plume_new - mass_plume
-
-
-!         IF(box_label==1) WRITE(6,*) &
-!            'mass test 2d:', i_box, D_mass_plume, mass_plume_new
 
 
 !         IF(D_mass_plume<0)THEN
@@ -3025,7 +3053,21 @@ CONTAINS
 
          State_Chm%Species(i_lon,i_lat,i_lev,i_advect) = backgrd_concnt
 
+
+
+
+
+
+
+
+
          ENDDO ! DO i_species=1,n_species,1
+
+
+         call cpu_time(finish2)
+         WRITE(6,*)'Plume time adv-diff:', finish2-start2
+
+
 
          !====================================================================
          ! Change from 2D to 1D, 
@@ -3033,7 +3075,7 @@ CONTAINS
          !====================================================================
          
 
-         IF(Plume2d%LIFE>3.0*3600.0)THEN
+         IF(Plume2d%LIFE>4.0*3600.0)THEN
 
          frac_mass = 0.95
 
@@ -3355,8 +3397,7 @@ CONTAINS
 
 
 
-       ENDDO ! DO t1s = 1, NINT(Dt/Pdt)
-
+!       ENDDO ! DO t1s = 1, NINT(Dt/Pdt)
 
 
        Plume2d%LON = box_lon
@@ -3383,17 +3424,20 @@ CONTAINS
 
     ENDDO ! DO WHILE(ASSOCIATED(Plume2d))
 
+
+    call cpu_time(finish)
+    WRITE(6,*)'Plume time 2:', finish-start
+
+
 900     CONTINUE
 
 !    WRITE(6,*)'=== loop for 2d plume in plume_run: ', i_box, Num_Plume2d
 
 
-
-
-
        !====================================================================
        ! begin 1D slab model
        !====================================================================
+       call cpu_time(start)
 
        IF(.NOT.ASSOCIATED(Plume1d_head)) GOTO 500 ! no plume1d, skip loop
 
@@ -3422,10 +3466,29 @@ CONTAINS
          box_concnt_1D = Plume1d%CONCNT1d
 
 
-
          ! run the fake 2nd order chemical reaction
          box_concnt_1D(:,2) = box_concnt_1D(:,2) &
                               + Dt* Kchem* box_concnt_1D(:,1)**2
+
+
+
+!         call cpu_time(start)
+!
+!         !$OMP PARALLEL DO           &
+!         !$OMP DEFAULT( SHARED     ) &
+!         !$OMP PRIVATE( i_slab )
+!         DO i_slab = 1,n_slab_max,1
+!
+!         ! run the fake 2nd order chemical reaction
+!         box_concnt_1D(i_slab,2) = box_concnt_1D(i_slab,2) &
+!                              + Dt* Kchem*box_concnt_1D(i_slab,1)**2
+!
+!         ENDDO
+!         !$OMP END PARALLEL DO
+!
+!         call cpu_time(finish)
+!         WRITE(6,*)'Time2 (finish-start) for 2D:', i_box, finish-start
+
 
 
 
@@ -4038,6 +4101,9 @@ CONTAINS
 
 !     WRITE(6,*)'=== loop for 1d plume in plume_run: ', i_box, Num_Plume1d
 
+    call cpu_time(finish)
+    WRITE(6,*)'Plume time 3:', finish-start
+
     !=======================================================================
     ! Convert species back to original units (ewl, 8/16/16)
     !=======================================================================
@@ -4554,6 +4620,8 @@ CONTAINS
 
     REAL(fp)    :: C_slab(Nb) !, Extra_slab(Nb)
 
+    real(fp)  :: start, finish
+
     INTEGER     :: i, j
 
       Nb_mid = INT(Nb/2)
@@ -4595,11 +4663,20 @@ CONTAINS
       ENDDO
 
 
+!      call cpu_time(start)
+
+      !$OMP PARALLEL DO           &
+      !$OMP DEFAULT( SHARED     ) &
+      !$OMP PRIVATE( i, j )
       DO i=1,Na,1
       DO j=1,Nb,1
         C2d(i,j)       = Interplt_2D(Pdx, Pdy, X2d(i,j), Y2d(i,j), Pc_2D, 2)
       ENDDO
       ENDDO
+      !$OMP END PARALLEL DO
+
+!      call cpu_time(finish)
+!      WRITE(6,*)'Time2 (finish-start):', finish-start
 
 
       ! define the length/width of slab based on a seconde order chamical reaction
