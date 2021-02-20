@@ -290,6 +290,9 @@ MODULE Lagrange_Mod
   integer, parameter    :: n_x_max2 = n_x_max+2
   integer, parameter    :: n_y_max2 = n_y_max+2
 
+  integer, parameter    :: n_x_mid2 = (n_x_max2+1)/2 !242
+  integer, parameter    :: n_y_mid2 = (n_y_max2+1)/2  !83
+
   ! n_slab_max should be divided by 4, to ensure n_slab_25 is an integer.
   integer, parameter    :: n_slab_max = n_y_max-1 ! close to n_y_max, number of slabs in 1D
   integer, parameter    :: n_slab_max2 = n_slab_max+2
@@ -696,7 +699,7 @@ CONTAINS
     CHARACTER(LEN=255)     :: ErrMsg
 
 
-    call cpu_time(start)
+!    call cpu_time(start)
 
 
 
@@ -812,13 +815,13 @@ CONTAINS
 
 
 
-    call cpu_time(finish)
-    WRITE(6,*)'Lagrange time 1:', finish-start
+!    call cpu_time(finish)
+!    WRITE(6,*)'Lagrange time 1:', finish-start
 
     !=======================================================================
     ! for 2D plume: Run Lagrangian trajectory-track HERE
     !=======================================================================
-    call cpu_time(start)
+!    call cpu_time(start)
 
 
     Plume2d => Plume2d_head
@@ -1321,13 +1324,13 @@ CONTAINS
 
 
 !    WRITE(6,*)'=== loop for 2d plume in lagrange_run: ', i_box, Num_Plume2d
-    call cpu_time(finish)
-    WRITE(6,*)'Lagrange time 2:', finish-start
+!    call cpu_time(finish)
+!    WRITE(6,*)'Lagrange time 2:', finish-start
 
     !=======================================================================
     ! For 1d plume: Run Lagrangian trajectory-track HERE
     !=======================================================================
-    call cpu_time(start)
+!    call cpu_time(start)
 
     IF(.NOT.ASSOCIATED(Plume1d_head)) GOTO 400
 
@@ -1760,8 +1763,8 @@ CONTAINS
 
 !    WRITE(6,*) '=== loop for 1d plume in lagrange_run: ', i_box, Num_Plume1d
 
-    call cpu_time(finish)
-    WRITE(6,*)'Lagrange time 3:', finish-start
+!    call cpu_time(finish)
+!    WRITE(6,*)'Lagrange time 3:', finish-start
 
 
 400 CONTINUE
@@ -2614,7 +2617,7 @@ CONTAINS
     INTEGER :: MINUTE
 
 
-    call cpu_time(start)
+!    call cpu_time(start)
 
 
     IF(Stop_inject==1) GOTO 999
@@ -2708,14 +2711,14 @@ CONTAINS
 !    WRITE(6,*)'Time2 (finish-start) for 2D:', i_box, finish-start
 
 
-    call cpu_time(finish)
-    WRITE(6,*)'Plume time 1:', finish-start
+!    call cpu_time(finish)
+!    WRITE(6,*)'Plume time 1:', finish-start
 
     !=====================================================================
     ! For 2D plume: Run distortion & dilution HERE
     !=====================================================================
 
-    call cpu_time(start)
+!    call cpu_time(start)
 
     IF(ASSOCIATED(Plume2d_prev)) NULLIFY(Plume2d_prev)
 
@@ -2946,7 +2949,7 @@ CONTAINS
        !-------------------------------------------------------------------
        ! Calculate the advection-diffusion in 2D grids
        !-------------------------------------------------------------------
-       call cpu_time(start2)
+!       call cpu_time(start2)
 
        V_grid_2D       = Pdx*Pdy*box_length*1.0e+6_fp
 
@@ -2955,32 +2958,38 @@ CONTAINS
        C2d_prev(1:n_x_max,1:n_y_max) = &
                               box_concnt_2D(1:n_x_max,1:n_y_max,i_species)
 
-       Pdt = 0.5*Dt
+       Pdt = Dt/10 ! FLOOR(Pdx/Pu(1,1)/10)*10
 
        ! Find the best Pdt to meet CFL condition:
  700     CONTINUE
 
-       Pdt = 0.5*Pdt
+       Pdt = Pdt-10
 
        CFL = Pdt*Pu(1,1)/Pdx
        IF(ABS(CFL)>1) GOTO 700
        IF(ABS(2*eddy_h*Pdt/(Pdx**2))>1) GOTO 700
        IF(ABS(2*eddy_v*Pdt/(Pdy**2))>1) GOTO 700
 
-       IF(i_box==1) WRITE(6,*)'Dt in 2D is:', Pdt
+!       IF(i_box==1) WRITE(6,*)'Dt in 2D is:', Pdt, Pdx/Pu(1,1), Pdy**2/(2*eddy_v)
 
+       Concnt2D_bdy(:,:) = 0.0
+       Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) = box_concnt_2D(:,:,i_species)
+
+
+       IF(MOD(Dt, Pdt).ne.0) WRITE(6,*) "*** ERROR ***"
        DO t1s = 1, NINT(Dt/Pdt)
 
-         Concnt2D_bdy(:,:) = 0.0
-         Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) = box_concnt_2D(:,:,i_species)
-
+         Pc_bdy(:,:) = 0.0
          Pc_bdy = Concnt2D_bdy
+
+
+         ! Only calculate the vertical half 2D domain         
 
          !$OMP PARALLEL DO           &
          !$OMP DEFAULT( SHARED     ) &
          !$OMP PRIVATE(i_y,i_x,CFL,Pc_middle,Pc_top,Pc_bottom,Pc_right,Pc_left)
-         DO i_y = 2,n_y_max2-1,1
-         DO i_x = 2,n_x_max2-1,1
+         DO i_y = n_y_mid2, n_y_max2-1, 1
+         DO i_x = 2, n_x_max2-1, 1
 
            Pc_middle = Pc_bdy( i_x,   i_y  )
            Pc_top    = Pc_bdy( i_x,   i_y+1)
@@ -2996,9 +3005,15 @@ CONTAINS
               + Pdt*( eddy_h*( Pc_right -2*Pc_middle +Pc_left   ) /(Pdx**2) &
                      +eddy_v*( Pc_top -2*Pc_middle +Pc_bottom ) /(Pdy**2) )
 
+
+           ! update the other half based on vertical symmetry 
+           Concnt2D_bdy(n_x_max2+1-i_x, n_y_max2+1-i_y) = Concnt2D_bdy(i_x, i_y)
+
+
          ENDDO
          ENDDO
          !$OMP END PARALLEL DO
+
 
        ENDDO ! DO t1s = 1, NINT(Dt/Pdt)
 
@@ -3054,18 +3069,11 @@ CONTAINS
          State_Chm%Species(i_lon,i_lat,i_lev,i_advect) = backgrd_concnt
 
 
-
-
-
-
-
-
-
          ENDDO ! DO i_species=1,n_species,1
 
 
-         call cpu_time(finish2)
-         WRITE(6,*)'Plume time adv-diff:', finish2-start2
+!         call cpu_time(finish2)
+!         WRITE(6,*)'Plume time adv-diff:', finish2-start2
 
 
 
@@ -3425,8 +3433,8 @@ CONTAINS
     ENDDO ! DO WHILE(ASSOCIATED(Plume2d))
 
 
-    call cpu_time(finish)
-    WRITE(6,*)'Plume time 2:', finish-start
+!    call cpu_time(finish)
+!    WRITE(6,*)'Plume time 2:', finish-start
 
 
 900     CONTINUE
@@ -3437,7 +3445,7 @@ CONTAINS
        !====================================================================
        ! begin 1D slab model
        !====================================================================
-       call cpu_time(start)
+!       call cpu_time(start)
 
        IF(.NOT.ASSOCIATED(Plume1d_head)) GOTO 500 ! no plume1d, skip loop
 
@@ -4101,8 +4109,8 @@ CONTAINS
 
 !     WRITE(6,*)'=== loop for 1d plume in plume_run: ', i_box, Num_Plume1d
 
-    call cpu_time(finish)
-    WRITE(6,*)'Plume time 3:', finish-start
+!    call cpu_time(finish)
+!    WRITE(6,*)'Plume time 3:', finish-start
 
     !=======================================================================
     ! Convert species back to original units (ewl, 8/16/16)
