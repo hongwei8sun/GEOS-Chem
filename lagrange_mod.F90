@@ -267,9 +267,10 @@ MODULE Lagrange_Mod
 
   ! !PUBLIC MEMBER FUNCTIONS:
   PUBLIC :: lagrange_init
-  PUBLIC :: lagrange_run
-  PUBLIC :: plume_run
-  PUBLIC :: lagrange_write_std
+  PUBLIC :: plume_inject
+!  PUBLIC :: lagrange_run
+!  PUBLIC :: plume_run
+!  PUBLIC :: lagrange_write_std
   PUBLIC :: lagrange_cleanup
 
   ! PUBLIC VARIABLES:
@@ -279,9 +280,12 @@ MODULE Lagrange_Mod
 
   PUBLIC :: n_slab_max, n_slab_25, n_slab_50, n_slab_75
 
+  PUBLIC :: use_lagrange
 
-  integer, parameter    :: n_x_max = 483-99    ! number of x grids in 2D
-  integer, parameter    :: n_y_max = 165-33    !279     ! number of y grids in 2D
+  integer               :: use_lagrange = 1
+
+  integer, parameter    :: n_x_max = 243  ! number of x grids in 2D, should be 9 x odd
+  integer, parameter    :: n_y_max = 99   ! number of y grids in 2D
 
   ! the odd number of n_x_max can ensure a center grid
   integer, parameter    :: n_x_mid = (n_x_max+1)/2 !242
@@ -294,7 +298,7 @@ MODULE Lagrange_Mod
   integer, parameter    :: n_y_mid2 = (n_y_max2+1)/2  !83
 
   ! n_slab_max should be divided by 4, to ensure n_slab_25 is an integer.
-  integer, parameter    :: n_slab_max = n_y_max-1 ! close to n_y_max, number of slabs in 1D
+  integer, parameter    :: n_slab_max = 100 ! close to n_y_max, number of slabs in 1D
   integer, parameter    :: n_slab_max2 = n_slab_max+2
   ! add 2 more slab grid to containing background concentration
 
@@ -302,8 +306,8 @@ MODULE Lagrange_Mod
   integer               :: IIPAR, JJPAR, LLPAR
 
 
-  real, parameter       :: Dx_init = 100
-  real, parameter       :: Dy_init = 10
+  real, parameter       :: Dx_init = 200
+  real, parameter       :: Dy_init = 20
   real, parameter       :: Length_init = 1000.0e+0_fp ! [m]
 
   real(fp), pointer :: X_mid(:), Y_mid(:), P_mid(:)
@@ -409,6 +413,11 @@ CONTAINS
     TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
 
     Stop_inject = 0
+
+
+    ! Check 2D domain grid
+    IF(MOD(n_x_max,9).ne.0) WRITE(6,*)"*** ERROR ***"
+    IF(MOD(n_y_max,9).ne.0) WRITE(6,*)"*** ERROR ***"
 
 
     IIPAR = State_Grid%NX
@@ -589,7 +598,119 @@ CONTAINS
 
   END SUBROUTINE lagrange_init
 
-!-----------------------------------------------------------------
+!=================================================================
+
+  SUBROUTINE plume_inject(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
+
+    USE Input_Opt_Mod, ONLY : OptInput
+    USE State_Met_Mod, ONLY : MetState
+    USE State_Chm_Mod, ONLY : ChmState
+    USE State_Grid_Mod,  ONLY : GrdState
+
+    LOGICAL,        INTENT(IN)    :: am_I_Root   ! Are we on the root CPU
+    TYPE(MetState), intent(in)    :: State_Met
+    TYPE(ChmState), intent(inout) :: State_Chm
+    TYPE(OptInput), intent(in)    :: Input_Opt
+    TYPE(GrdState), INTENT(IN)    :: State_Grid  ! Grid State objectgg
+    INTEGER,        INTENT(OUT)   :: RC         ! Success or failure
+
+
+    real(fp), pointer :: X_edge(:), Y_edge(:)
+    real(fp)          :: X_edge2, Y_edge2
+    real(fp)          :: Dx, Dy
+
+
+    integer  :: i_box
+
+    integer  :: i_lon, i_lat, i_lev
+    real(fp) :: box_lon, box_lat, box_lev
+
+    real(fp), pointer  :: PASV_EU
+    integer            :: nAdv
+    REAL(fp)           :: MW_g
+
+
+    IF(use_lagrange==0)THEN 
+    ! instantly dissolve injected plume into Eulerian grid 
+
+      Dx = State_Grid%DX
+      Dy = State_Grid%DY
+      X_edge => State_Grid%XEdge(:,1) !XEDGE(:,1,1)   ! IIPAR+1 ! new
+      Y_edge => State_Grid%YEdge(1,:) !YEDGE(1,:,1)  
+      ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
+
+      X_edge2       = X_edge(2)
+      Y_edge2       = Y_edge(2)
+ 
+
+      ! -----------------------------------------------------------
+      ! add new box every time step
+      ! -----------------------------------------------------------
+      DO i_box = Num_inject+1, Num_inject+N_parcel, 1
+
+        box_lon = -141.0e+0_fp
+        box_lat = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) &
+                     * (-1.0)**FLOOR(i_box/6000.0) ! -29.995S:29.995N:0.01
+        box_lev = 52.0e+0_fp       ! [hPa] at about 20 km
+
+
+        ! check this grid box is the neast one or the one located in left-bottom
+        ! ???
+        i_lon = Find_iLonLat(box_lon, Dx, X_edge2)
+        if(i_lon>IIPAR) i_lon=i_lon-IIPAR
+        if(i_lon<1) i_lon=i_lon+IIPAR
+
+        i_lat = Find_iLonLat(box_lat, Dy, Y_edge2)
+        if(i_lat>JJPAR) i_lat=JJPAR
+        if(i_lat<1) i_lat=1
+
+        i_lev = Find_iPLev(box_lev,P_edge)
+        if(i_lev>LLPAR) i_lev=LLPAR
+
+        IF(i_lev==LLPAR) WRITE(6,*) 'box_lev:', box_lev, i_lev
+
+
+
+        ! ====================================================================
+        ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in 
+        ! corresponding with injected parcels in Lagrangian model
+        ! For conventional GEOS-Chem for comparison with Lagrangian Model:
+        !
+        !  AD(I,J,L) = grid box dry air mass [kg]
+        !  AIRMW     = dry air molecular wt [g/mol]
+        !  MW_G(N)   = species molecular wt [g/mol]
+        !     
+        ! the conversion is:
+        ! 
+        !====================================================================
+        nAdv = State_Chm%nAdvect-3         ! the last 4 is PASV_EU
+        PASV_EU => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)  ! [kg/kg]
+
+        MW_g = State_Chm%SpcData(nAdv)%Info%MW_g
+        ! Here assume the injection rate is 30 kg/km for H2SO4: 
+        PASV_EU = PASV_EU + Length_init*1.0e-3_fp*30.0 &
+                                    /State_Met%AD(i_lon,i_lat,i_lev)
+
+
+      ENDDO ! i_box = Num_inject+1, Num_inject+N_parcel, 1
+
+
+      ! use this value to set the initial latutude for injected plume
+      Num_inject = Num_inject + N_parcel
+
+
+    ELSE
+    ! call the lagrnage_run() and plume_run() to calculate injected plume
+
+      CALL lagrange_run(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
+      CALL plume_run(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
+      CALL lagrange_write_std( am_I_Root, RC )
+
+    ENDIF
+
+
+  END SUBROUTINE
+
 !=================================================================
 
   SUBROUTINE lagrange_run(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
@@ -638,8 +759,7 @@ CONTAINS
 
     real(fp) :: curr_lon, curr_lat, curr_pressure
     real(fp) :: RK_lon, RK_lat
-    real(fp) :: X_edge2
-    real(fp) :: Y_edge2
+    real(fp) :: X_edge2, Y_edge2
 
     real(fp) :: dbox_lon, dbox_lat, dbox_lev
     real(fp) :: dbox_x_PS, dbox_y_PS
@@ -699,7 +819,7 @@ CONTAINS
     CHARACTER(LEN=255)     :: ErrMsg
 
 
-!    call cpu_time(start)
+    call cpu_time(start)
 
 
 
@@ -815,13 +935,13 @@ CONTAINS
 
 
 
-!    call cpu_time(finish)
-!    WRITE(6,*)'Lagrange time 1:', finish-start
+    call cpu_time(finish)
+    WRITE(6,*)'Lagrange time 1:', finish-start
 
     !=======================================================================
     ! for 2D plume: Run Lagrangian trajectory-track HERE
     !=======================================================================
-!    call cpu_time(start)
+    call cpu_time(start)
 
 
     Plume2d => Plume2d_head
@@ -1324,13 +1444,13 @@ CONTAINS
 
 
 !    WRITE(6,*)'=== loop for 2d plume in lagrange_run: ', i_box, Num_Plume2d
-!    call cpu_time(finish)
-!    WRITE(6,*)'Lagrange time 2:', finish-start
+    call cpu_time(finish)
+    WRITE(6,*)'Lagrange time 2:', finish-start
 
     !=======================================================================
     ! For 1d plume: Run Lagrangian trajectory-track HERE
     !=======================================================================
-!    call cpu_time(start)
+    call cpu_time(start)
 
     IF(.NOT.ASSOCIATED(Plume1d_head)) GOTO 400
 
@@ -1763,8 +1883,8 @@ CONTAINS
 
 !    WRITE(6,*) '=== loop for 1d plume in lagrange_run: ', i_box, Num_Plume1d
 
-!    call cpu_time(finish)
-!    WRITE(6,*)'Lagrange time 3:', finish-start
+    call cpu_time(finish)
+    WRITE(6,*)'Lagrange time 3:', finish-start
 
 
 400 CONTINUE
@@ -2617,7 +2737,7 @@ CONTAINS
     INTEGER :: MINUTE
 
 
-!    call cpu_time(start)
+    call cpu_time(start)
 
 
     IF(Stop_inject==1) GOTO 999
@@ -2711,14 +2831,14 @@ CONTAINS
 !    WRITE(6,*)'Time2 (finish-start) for 2D:', i_box, finish-start
 
 
-!    call cpu_time(finish)
-!    WRITE(6,*)'Plume time 1:', finish-start
+    call cpu_time(finish)
+    WRITE(6,*)'Plume time 1:', finish-start
 
     !=====================================================================
     ! For 2D plume: Run distortion & dilution HERE
     !=====================================================================
 
-!    call cpu_time(start)
+    call cpu_time(start)
 
     IF(ASSOCIATED(Plume2d_prev)) NULLIFY(Plume2d_prev)
 
@@ -2879,7 +2999,7 @@ CONTAINS
 
        ! Define the wind field based on wind shear
        DO i_y = 1, n_y_max2
-         Pu(:,i_y) = (i_y-n_y_mid)*Pdy * wind_s_shear
+         Pu(:,i_y) = (i_y-n_y_mid2)*Pdy * wind_s_shear
          ! [m s-1]
        ENDDO
 
@@ -2966,21 +3086,22 @@ CONTAINS
        Pdt = Pdt-10
 
        CFL = Pdt*Pu(1,1)/Pdx
-       IF(ABS(CFL)>1) GOTO 700
-       IF(ABS(2*eddy_h*Pdt/(Pdx**2))>1) GOTO 700
-       IF(ABS(2*eddy_v*Pdt/(Pdy**2))>1) GOTO 700
+       IF(ABS(CFL)>=0.9) GOTO 700
+       IF(ABS(2*eddy_h*Pdt/(Pdx**2))+ABS(2*eddy_v*Pdt/(Pdy**2))>=0.9) GOTO 700
 
-!       IF(i_box==1) WRITE(6,*)'Dt in 2D is:', Pdt, Pdx/Pu(1,1), Pdy**2/(2*eddy_v)
+!       IF(box_label==1) WRITE(6,*)'Dt in 2D is:', Pdt, Pdx/Pu(1,1), Pdy**2/(2*eddy_v)
 
        Concnt2D_bdy(:,:) = 0.0
        Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) = box_concnt_2D(:,:,i_species)
 
-
-       IF(MOD(Dt, Pdt).ne.0) WRITE(6,*) "*** ERROR ***"
+        
+       IF(MOD(Dt, Pdt).ne.0) WRITE(6,*) "*** ERROR: Check Pdt ***"
        DO t1s = 1, NINT(Dt/Pdt)
 
+         ! advection ----------------------------------------------
+
          Pc_bdy(:,:) = 0.0
-         Pc_bdy = Concnt2D_bdy
+         Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) = Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1)
 
 
          ! Only calculate the vertical half 2D domain         
@@ -2988,7 +3109,39 @@ CONTAINS
          !$OMP PARALLEL DO           &
          !$OMP DEFAULT( SHARED     ) &
          !$OMP PRIVATE(i_y,i_x,CFL,Pc_middle,Pc_top,Pc_bottom,Pc_right,Pc_left)
-         DO i_y = n_y_mid2, n_y_max2-1, 1
+         DO i_y = 1, n_y_mid2, 1
+         DO i_x = 2, n_x_max2-1, 1
+
+           Pc_middle = Pc_bdy( i_x,   i_y  )
+           Pc_right  = Pc_bdy( i_x+1, i_y  )
+           Pc_left   = Pc_bdy( i_x-1, i_y  )
+
+           CFL       = Pdt*Pu(i_x,i_y)/Pdx
+
+           Concnt2D_bdy(i_x, i_y) = Pc_middle           &
+              - 0.5 * CFL    * ( Pc_right - Pc_left )   &
+              + 0.5 * CFL**2 * ( Pc_right - 2*Pc_middle + Pc_left ) 
+
+         ENDDO
+         ENDDO
+         !$OMP END PARALLEL DO
+
+         ! update the other half based on vertical symmetry 
+         Concnt2D_bdy(2:n_x_max2-1:1, n_y_mid2+1) = Concnt2D_bdy(n_x_max2-1:2:-1, n_y_mid2-1)
+
+
+         ! diffusion ----------------------------------------------------
+
+         Pc_bdy(:,:) = 0.0
+         Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) = Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1)
+
+
+         ! Only calculate the vertical half 2D domain         
+
+         !$OMP PARALLEL DO           &
+         !$OMP DEFAULT( SHARED     ) &
+         !$OMP PRIVATE(i_y,i_x,CFL,Pc_middle,Pc_top,Pc_bottom,Pc_right,Pc_left)
+         DO i_y = 1, n_y_mid2, 1
          DO i_x = 2, n_x_max2-1, 1
 
            Pc_middle = Pc_bdy( i_x,   i_y  )
@@ -3000,30 +3153,19 @@ CONTAINS
            CFL       = Pdt*Pu(i_x,i_y)/Pdx
 
            Concnt2D_bdy(i_x, i_y) = Pc_middle           &
-              - 0.5 * CFL    * ( Pc_right - Pc_left )   &
-              + 0.5 * CFL**2 * ( Pc_right - 2*Pc_middle + Pc_left )         &
               + Pdt*( eddy_h*( Pc_right -2*Pc_middle +Pc_left   ) /(Pdx**2) &
-                     +eddy_v*( Pc_top -2*Pc_middle +Pc_bottom ) /(Pdy**2) )
-
-
-           ! update the other half based on vertical symmetry 
-           Concnt2D_bdy(n_x_max2+1-i_x, n_y_max2+1-i_y) = Concnt2D_bdy(i_x, i_y)
-
+                     +eddy_v*( Pc_top   -2*Pc_middle +Pc_bottom ) /(Pdy**2) )
 
          ENDDO
          ENDDO
          !$OMP END PARALLEL DO
 
+         ! update the other half based on vertical symmetry 
+         DO i_y = n_y_mid2+1, n_y_max2-1, 1
+           Concnt2D_bdy(2:n_x_max2-1:1, i_y) = Concnt2D_bdy(n_x_max2-1:2:-1,n_y_max2+1-i_y)
+         ENDDO
 
        ENDDO ! DO t1s = 1, NINT(Dt/Pdt)
-
-
-
-
-
-
-
-
 
 
          box_concnt_2D(:,:,i_species) = Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1)
@@ -3077,6 +3219,21 @@ CONTAINS
 
 
 
+!         IF( box_label==1 ) THEN
+!           WRITE(6,*) "*** Check 2D concentration ***"
+!           WRITE(6,*) box_concnt_2D(n_x_mid-1:n_x_mid+1, n_y_mid+1, 1)
+!           WRITE(6,*) box_concnt_2D(n_x_mid-1:n_x_mid+1,   n_y_mid, 1)
+!           WRITE(6,*) box_concnt_2D(n_x_mid-1:n_x_mid+1, n_y_mid-1, 1)
+!         ENDIF
+!
+!
+!         IF( box_label==1 ) THEN
+!           WRITE(6,*)" horizontal: "
+!           WRITE(6,*) box_concnt_2D(      :, n_y_mid, 1)
+!           WRITE(6,*)" vertical: "
+!           WRITE(6,*) box_concnt_2D(n_x_mid,       :, 1)
+!         ENDIF
+
          !====================================================================
          ! Change from 2D to 1D, 
          ! once the tilting degree is bigger than 88 deg (88/180*3.14)
@@ -3097,10 +3254,11 @@ CONTAINS
 
 
          IF( Plume2d%LIFE>6.0*3600.0 ) THEN
-           WRITE(6,*) "*** ERROR ***"
-           WRITE(6,*) i_box, Xscale, Yscale, Pdx, Pdy
-           WRITE(6,*) Pc2(n_x_mid-3:n_x_mid+3,n_y_mid-3:n_y_mid+3)
-           WRITE(6,*) Pc2(n_x_mid-3:n_x_mid+3,n_y_mid-3:n_y_mid+3)
+           WRITE(6,*) "*** ERROR: 2D plume live too long! ***"
+           WRITE(6,*) box_label, Xscale, Yscale, Pdx, Pdy
+           WRITE(6,*) Pc2(n_x_mid-1:n_x_mid+1,n_y_mid+1)
+           WRITE(6,*) Pc2(n_x_mid-1:n_x_mid+1,n_y_mid)
+           WRITE(6,*) Pc2(n_x_mid-1:n_x_mid+1,n_y_mid-1)
          ENDIF
 
 
@@ -3433,8 +3591,8 @@ CONTAINS
     ENDDO ! DO WHILE(ASSOCIATED(Plume2d))
 
 
-!    call cpu_time(finish)
-!    WRITE(6,*)'Plume time 2:', finish-start
+    call cpu_time(finish)
+    WRITE(6,*)'Plume time 2:', finish-start
 
 
 900     CONTINUE
@@ -3445,7 +3603,7 @@ CONTAINS
        !====================================================================
        ! begin 1D slab model
        !====================================================================
-!       call cpu_time(start)
+       call cpu_time(start)
 
        IF(.NOT.ASSOCIATED(Plume1d_head)) GOTO 500 ! no plume1d, skip loop
 
@@ -4109,8 +4267,8 @@ CONTAINS
 
 !     WRITE(6,*)'=== loop for 1d plume in plume_run: ', i_box, Num_Plume1d
 
-!    call cpu_time(finish)
-!    WRITE(6,*)'Plume time 3:', finish-start
+    call cpu_time(finish)
+    WRITE(6,*)'Plume time 3:', finish-start
 
     !=======================================================================
     ! Convert species back to original units (ewl, 8/16/16)
