@@ -230,7 +230,12 @@
 ! introduce more than 1 species
 ! first use for the fake 2nd order chemical reaction
 
+! Feb 15, 2021
+! add parallel computing (OMP) to the loop in code
 
+! Feb 21, 2021
+! add a plume_inject() module to decide whether use plume model or directly
+! dissolve the injected plume into Eulerain model grid at the beginning.
 
 
 
@@ -285,7 +290,7 @@ MODULE Lagrange_Mod
   integer               :: use_lagrange = 1
 
   integer, parameter    :: n_x_max = 243  ! number of x grids in 2D, should be 9 x odd
-  integer, parameter    :: n_y_max = 99   ! number of y grids in 2D
+  integer, parameter    :: n_y_max = 81   ! number of y grids in 2D
 
   ! the odd number of n_x_max can ensure a center grid
   integer, parameter    :: n_x_mid = (n_x_max+1)/2 !242
@@ -304,7 +309,8 @@ MODULE Lagrange_Mod
 
   integer               :: n_slab_25, n_slab_50, n_slab_75
   integer               :: IIPAR, JJPAR, LLPAR
-
+  integer               :: id_PASV_LA3, id_PASV_LA2, id_PASV_LA 
+  integer               :: id_PASV_EU2, id_PASV_EU
 
   real, parameter       :: Dx_init = 200
   real, parameter       :: Dy_init = 20
@@ -315,7 +321,7 @@ MODULE Lagrange_Mod
 
   real(fp) :: mass_eu, mass_la, mass_la2
 
-  integer, parameter    :: N_parcel   = 131 ! 131        
+  integer               :: N_parcel   ! 131        
   integer               :: Num_inject, Num_Plume2d, Num_Plume1d, Num_dissolve     
   integer               :: tt     
   ! Aircraft would release 131 aerosol parcels every time step
@@ -380,6 +386,8 @@ CONTAINS
 
     USE State_Grid_Mod,  ONLY : GrdState
 
+    USE TIME_MOD,        ONLY : GET_TS_DYN
+
     USE TIME_MOD,      ONLY : GET_YEAR
     USE TIME_MOD,      ONLY : GET_MONTH
     USE TIME_MOD,      ONLY : GET_DAY
@@ -403,6 +411,7 @@ CONTAINS
 
     integer :: i_lon, i_lat, i_lev            !1:IIPAR
 
+
     REAL(fp) :: lon1, lat1, lon2, lat2
     REAL(fp) :: box_lon_edge, box_lat_edge        
 
@@ -411,6 +420,12 @@ CONTAINS
 
     TYPE(Plume2d_list), POINTER :: Plume2d_new, PLume2d, Plume2d_prev
     TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
+
+    REAL(fp) :: Dt
+
+
+    Dt = GET_TS_DYN()
+    N_parcel = NINT(130/(600/Dt))
 
     Stop_inject = 0
 
@@ -450,6 +465,9 @@ CONTAINS
     WRITE(6,'(a)') ' Initial Lagrnage Module (Using Dynamic time step)'
     WRITE(6,'(a)') '--------------------------------------------------------'
 
+    WRITE(6,*)"  "
+    WRITE(6,*)"Injected plume in every time step:", N_parcel, Dt
+    WRITE(6,*)"  "
 
     ! -----------------------------------------------------------
     ! create first node (head) for 2d linked list:
@@ -576,12 +594,21 @@ CONTAINS
     End Do
 
 
+    id_PASV_LA3 = State_Chm%nAdvect-4
+
+    id_PASV_EU  = State_Chm%nAdvect-3
+    id_PASV_EU2 = State_Chm%nAdvect-2
+    id_PASV_LA  = State_Chm%nAdvect-1
+    id_PASV_LA2 = State_Chm%nAdvect
+
 
     ! set initial background concentration of injected aerosol as 0 in GCM
-    State_Chm%Species(:,:,:,State_Chm%nAdvect) = 0.0e+0_fp  ! [kg/kg]
-    State_Chm%Species(:,:,:,State_Chm%nAdvect-1) = 0.0e+0_fp  ! [kg/kg]
-    State_Chm%Species(:,:,:,State_Chm%nAdvect-2) = 0.0e+0_fp  ! [kg/kg]
-    State_Chm%Species(:,:,:,State_Chm%nAdvect-3) = 0.0e+0_fp  ! [kg/kg]
+    State_Chm%Species(:,:,:,id_PASV_LA3) = 0.0e+0_fp  ! [kg/kg]
+
+    State_Chm%Species(:,:,:,id_PASV_LA2) = 0.0e+0_fp  ! [kg/kg]
+    State_Chm%Species(:,:,:,id_PASV_LA)  = 0.0e+0_fp  ! [kg/kg]
+    State_Chm%Species(:,:,:,id_PASV_EU2) = 0.0e+0_fp  ! [kg/kg]
+    State_Chm%Species(:,:,:,id_PASV_EU)  = 0.0e+0_fp  ! [kg/kg]
     ! output the apecies' name for double check ???
 
 
@@ -602,10 +629,14 @@ CONTAINS
 
   SUBROUTINE plume_inject(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
 
-    USE Input_Opt_Mod, ONLY : OptInput
-    USE State_Met_Mod, ONLY : MetState
-    USE State_Chm_Mod, ONLY : ChmState
+    USE Input_Opt_Mod,   ONLY : OptInput
+    USE State_Met_Mod,   ONLY : MetState
+    USE State_Chm_Mod,   ONLY : ChmState
     USE State_Grid_Mod,  ONLY : GrdState
+
+    USE TIME_MOD,        ONLY : GET_TS_DYN
+    USE UnitConv_Mod,    ONLY : Convert_Spc_Units
+
 
     LOGICAL,        INTENT(IN)    :: am_I_Root   ! Are we on the root CPU
     TYPE(MetState), intent(in)    :: State_Met
@@ -629,9 +660,19 @@ CONTAINS
     integer            :: nAdv
     REAL(fp)           :: MW_g
 
+    integer  :: i_advect1
+
+    REAL(fp) :: Dt
+
+    CHARACTER(LEN=63)      :: OrigUnit
+    CHARACTER(LEN=255)     :: ErrMsg
+
+    ErrMsg = ''
 
     IF(use_lagrange==0)THEN 
     ! instantly dissolve injected plume into Eulerian grid 
+
+      Dt = GET_TS_DYN()
 
       Dx = State_Grid%DX
       Dy = State_Grid%DY
@@ -669,6 +710,8 @@ CONTAINS
 
         IF(i_lev==LLPAR) WRITE(6,*) 'box_lev:', box_lev, i_lev
 
+        
+        IF(ABS(box_lat)>40) WRITE(6,*)'*** ERROR in box_lat:', i_box, box_lat
 
 
         ! ====================================================================
@@ -683,8 +726,7 @@ CONTAINS
         ! the conversion is:
         ! 
         !====================================================================
-        nAdv = State_Chm%nAdvect-3         ! the last 4 is PASV_EU
-        PASV_EU => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)  ! [kg/kg]
+        PASV_EU => State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU)  ! [kg/kg]
 
         MW_g = State_Chm%SpcData(nAdv)%Info%MW_g
         ! Here assume the injection rate is 30 kg/km for H2SO4: 
@@ -699,8 +741,57 @@ CONTAINS
       Num_inject = Num_inject + N_parcel
 
 
+      !======================================================================
+      ! Convert species to [molec/cm3] (ewl, 8/16/16)
+      !======================================================================
+      CALL Convert_Spc_Units( Input_Opt, State_Chm, State_Grid, State_Met, &
+                              'molec/cm3', RC, OrigUnit=OrigUnit )
+      IF ( RC /= GC_SUCCESS ) THEN
+         ErrMsg = 'Unit conversion error!'
+         CALL GC_Error( ErrMsg, RC, 'plume_run in lagrange_mod.F90')
+         RETURN
+      ENDIF
+
+
+      !======================================================================
+      ! run the fake 2nd order chemical reaction
+      !======================================================================
+
+      !$OMP PARALLEL DO           &
+      !$OMP DEFAULT( SHARED     ) &
+      !$OMP PRIVATE( i_lev, i_lat, i_lon )
+      DO i_lev = 1, LLPAR
+      DO i_lat = 1, JJPAR
+      DO i_lon = 1, IIPAR
+
+      ! from EU to EU2
+      State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU2) = &
+              State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU2) &
+            + Dt* Kchem*State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU)**2
+
+
+      ENDDO
+      ENDDO
+      ENDDO
+      !$OMP END PARALLEL DO
+
+      !=======================================================================
+      ! Convert species back to original units (ewl, 8/16/16)
+      !=======================================================================
+      CALL Convert_Spc_Units( Input_Opt, State_Chm,  State_Grid, State_Met, &
+                              OrigUnit,  RC )
+
+      IF ( RC /= GC_SUCCESS ) THEN
+         ErrMsg = 'Unit conversion error!'
+         CALL GC_Error( ErrMsg, RC, 'plume_mod.F90' )
+         RETURN
+      ENDIF
+
+
     ELSE
     ! call the lagrnage_run() and plume_run() to calculate injected plume
+
+      State_Chm%Species(:,:,:,id_PASV_LA3) = 0.0e+0_fp  ! [kg/kg]
 
       CALL lagrange_run(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
       CALL plume_run(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
@@ -819,7 +910,7 @@ CONTAINS
     CHARACTER(LEN=255)     :: ErrMsg
 
 
-    call cpu_time(start)
+!    call cpu_time(start)
 
 
 
@@ -935,13 +1026,13 @@ CONTAINS
 
 
 
-    call cpu_time(finish)
-    WRITE(6,*)'Lagrange time 1:', finish-start
+!    call cpu_time(finish)
+!    WRITE(6,*)'Lagrange time 1:', finish-start
 
     !=======================================================================
     ! for 2D plume: Run Lagrangian trajectory-track HERE
     !=======================================================================
-    call cpu_time(start)
+!    call cpu_time(start)
 
 
     Plume2d => Plume2d_head
@@ -1028,8 +1119,7 @@ CONTAINS
         ! the conversion is:
         ! 
         !====================================================================
-         nAdv = State_Chm%nAdvect-3         ! the last 4 is PASV_EU
-         PASV_EU => State_Chm%Species(i_lon,i_lat,i_lev,nAdv)  ! [kg/kg]
+         PASV_EU => State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU)  ! [kg/kg]
 
          MW_g = State_Chm%SpcData(nAdv)%Info%MW_g
          ! Here assume the injection rate is 30 kg/km for H2SO4: 
@@ -1321,6 +1411,7 @@ CONTAINS
 
       !------------------------------------------------------------------
       ! calcualte the box_alpha [0,2*PI)
+      ! angle between plume length and westward
       !------------------------------------------------------------------
       if((box_u**2+box_v**2)==0)then
           box_alpha = 0.0
@@ -1444,13 +1535,13 @@ CONTAINS
 
 
 !    WRITE(6,*)'=== loop for 2d plume in lagrange_run: ', i_box, Num_Plume2d
-    call cpu_time(finish)
-    WRITE(6,*)'Lagrange time 2:', finish-start
+!    call cpu_time(finish)
+!    WRITE(6,*)'Lagrange time 2:', finish-start
 
     !=======================================================================
     ! For 1d plume: Run Lagrangian trajectory-track HERE
     !=======================================================================
-    call cpu_time(start)
+!    call cpu_time(start)
 
     IF(.NOT.ASSOCIATED(Plume1d_head)) GOTO 400
 
@@ -1883,8 +1974,8 @@ CONTAINS
 
 !    WRITE(6,*) '=== loop for 1d plume in lagrange_run: ', i_box, Num_Plume1d
 
-    call cpu_time(finish)
-    WRITE(6,*)'Lagrange time 3:', finish-start
+!    call cpu_time(finish)
+!    WRITE(6,*)'Lagrange time 3:', finish-start
 
 
 400 CONTINUE
@@ -2620,6 +2711,8 @@ CONTAINS
     integer  :: i_species, i_advect
     integer  :: i_advect1, i_advect2
 
+    integer  :: Nt
+
     integer  :: t1s
 
     integer :: alloc_stat
@@ -2800,9 +2893,6 @@ CONTAINS
 
     !-----------------------------------------------------------------------
 
-    i_advect1 = State_Chm%nAdvect - 2 ! PASV_EU2
-    i_advect2 = State_Chm%nAdvect ! PASV_LA2
-
     !$OMP PARALLEL DO           &
     !$OMP DEFAULT( SHARED     ) &
     !$OMP PRIVATE( i_lev, i_lat, i_lon )
@@ -2810,15 +2900,15 @@ CONTAINS
     DO i_lat = 1, JJPAR
     DO i_lon = 1, IIPAR
 
+    ! from EU to EU2
+    State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU2) = &
+              State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU2) &
+            + Dt* Kchem*State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU)**2
 
-    State_Chm%Species(i_lon,i_lat,i_lev,i_advect1) = &
-              State_Chm%Species(i_lon,i_lat,i_lev,i_advect1) &
-            + Dt* Kchem*State_Chm%Species(i_lon,i_lat,i_lev,i_advect1-1)**2
-
-
-    State_Chm%Species(i_lon,i_lat,i_lev,i_advect2) = &
-                 State_Chm%Species(i_lon,i_lat,i_lev,i_advect2) &
-               + Dt*Kchem*State_Chm%Species(i_lon,i_lat,i_lev,i_advect2-1)**2
+    ! from LA to LA2
+    State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA2) = &
+                 State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA2) &
+               + Dt*Kchem*State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)**2
 
     ENDDO
     ENDDO
@@ -2831,14 +2921,14 @@ CONTAINS
 !    WRITE(6,*)'Time2 (finish-start) for 2D:', i_box, finish-start
 
 
-    call cpu_time(finish)
-    WRITE(6,*)'Plume time 1:', finish-start
+!    call cpu_time(finish)
+!    WRITE(6,*)'Plume time 1:', finish-start
 
     !=====================================================================
     ! For 2D plume: Run distortion & dilution HERE
     !=====================================================================
 
-    call cpu_time(start)
+!    call cpu_time(start)
 
     IF(ASSOCIATED(Plume2d_prev)) NULLIFY(Plume2d_prev)
 
@@ -2940,6 +3030,7 @@ CONTAINS
 
        !====================================================================
        ! calculate the wind shear along plume corss-section
+       ! clock-wise 90 degree from the plume length direction (box_alpha)
        ! calculate the diffusivity in horizontal and vertical direction
        !====================================================================
 
@@ -2949,7 +3040,7 @@ CONTAINS
        wind_s_shear = Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, i_lon, &
                         i_lat, i_lev,curr_lon, curr_lat, curr_pressure)
        ! *** attention *** ???
-       wind_s_shear = 0.002
+!       wind_s_shear = 0.004 ! 0.004
 
 
        ! Calculate vertical eddy diffusivity (U.Schumann, 2012) :
@@ -2976,7 +3067,9 @@ CONTAINS
 
        ! diffusivity unit: [m2/s]
        eddy_v = Cv * Omega_N**2 / N_BV
-       eddy_v = 1.0 ! ???
+!       eddy_v = 0.1 !1.0 ! 0.1 ???
+
+!       WRITE(6,*)'wind_s_shear, eddy_v: ', wind_s_shear, eddy_v
 
        ! Calculate horizontal eddy diffusivity:
 !       Ch = 0.1
@@ -3073,61 +3166,79 @@ CONTAINS
 
        V_grid_2D       = Pdx*Pdy*box_length*1.0e+6_fp
 
+
+
+
        DO i_species=1,n_species,1
 
        C2d_prev(1:n_x_max,1:n_y_max) = &
                               box_concnt_2D(1:n_x_max,1:n_y_max,i_species)
 
-       Pdt = Dt/10 ! FLOOR(Pdx/Pu(1,1)/10)*10
+       Nt = CEILING(Dt/120)
+       Pdt = Dt/Nt ! Dt=600 ! FLOOR(Pdx/Pu(1,1)/10)*10
 
        ! Find the best Pdt to meet CFL condition:
  700     CONTINUE
 
-       Pdt = Pdt-10
 
        CFL = Pdt*Pu(1,1)/Pdx
-       IF(ABS(CFL)>=0.9) GOTO 700
-       IF(ABS(2*eddy_h*Pdt/(Pdx**2))+ABS(2*eddy_v*Pdt/(Pdy**2))>=0.9) GOTO 700
+       IF(MAX( ABS(CFL), ABS(2*eddy_h*Pdt/(Pdx**2)), &
+                         ABS(2*eddy_v*Pdt/(Pdy**2)) ) > 0.8)THEN
 
-!       IF(box_label==1) WRITE(6,*)'Dt in 2D is:', Pdt, Pdx/Pu(1,1), Pdy**2/(2*eddy_v)
+          Nt = Nt+1
+          Pdt = Dt/Nt
+          GOTO 700
+
+        ENDIF
+
+!       IF(box_label==1) WRITE(6,*)'Dt in 2D is:', Pdt, Pdx/Pu(1,2)
+!       IF(box_label==1) WRITE(6,*)   Pdx/Pu(1,1), Pdy**2/(2*eddy_v)
 
        Concnt2D_bdy(:,:) = 0.0
        Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) = box_concnt_2D(:,:,i_species)
 
         
-       IF(MOD(Dt, Pdt).ne.0) WRITE(6,*) "*** ERROR: Check Pdt ***"
+       IF( abs(Dt/Pdt-Nt) > 0.00001 ) THEN
+         WRITE(6,*) "*** ERROR: Check Pdt ***"
+         WRITE(6,*) Pdt, Nt, Dt
+         WRITE(6,*) Pdx/Pu(1,1), Pdy**2/(2*eddy_v), Pdx**2/(2*eddy_h)
+       ENDIF
+       
+
+
+
        DO t1s = 1, NINT(Dt/Pdt)
 
          ! advection ----------------------------------------------
 
-         Pc_bdy(:,:) = 0.0
-         Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) = Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1)
-
-
-         ! Only calculate the vertical half 2D domain         
-
-         !$OMP PARALLEL DO           &
-         !$OMP DEFAULT( SHARED     ) &
-         !$OMP PRIVATE(i_y,i_x,CFL,Pc_middle,Pc_top,Pc_bottom,Pc_right,Pc_left)
-         DO i_y = 1, n_y_mid2, 1
-         DO i_x = 2, n_x_max2-1, 1
-
-           Pc_middle = Pc_bdy( i_x,   i_y  )
-           Pc_right  = Pc_bdy( i_x+1, i_y  )
-           Pc_left   = Pc_bdy( i_x-1, i_y  )
-
-           CFL       = Pdt*Pu(i_x,i_y)/Pdx
-
-           Concnt2D_bdy(i_x, i_y) = Pc_middle           &
-              - 0.5 * CFL    * ( Pc_right - Pc_left )   &
-              + 0.5 * CFL**2 * ( Pc_right - 2*Pc_middle + Pc_left ) 
-
-         ENDDO
-         ENDDO
-         !$OMP END PARALLEL DO
-
-         ! update the other half based on vertical symmetry 
-         Concnt2D_bdy(2:n_x_max2-1:1, n_y_mid2+1) = Concnt2D_bdy(n_x_max2-1:2:-1, n_y_mid2-1)
+!         Pc_bdy(:,:) = 0.0
+!         Pc_bdy(2:n_x_max2-1,2:n_y_max2-1) = Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1)
+!
+!
+!         ! Only calculate the vertical half 2D domain         
+!
+!         !$OMP PARALLEL DO           &
+!         !$OMP DEFAULT( SHARED     ) &
+!         !$OMP PRIVATE(i_y,i_x,CFL,Pc_middle,Pc_top,Pc_bottom,Pc_right,Pc_left)
+!         DO i_y = 1, n_y_mid2, 1
+!         DO i_x = 2, n_x_max2-1, 1
+!
+!           Pc_middle = Pc_bdy( i_x,   i_y  )
+!           Pc_right  = Pc_bdy( i_x+1, i_y  )
+!           Pc_left   = Pc_bdy( i_x-1, i_y  )
+!
+!           CFL       = Pdt*Pu(i_x,i_y)/Pdx
+!
+!           Concnt2D_bdy(i_x, i_y) = Pc_middle           &
+!              - 0.5 * CFL    * ( Pc_right - Pc_left )   &
+!              + 0.5 * CFL**2 * ( Pc_right - 2*Pc_middle + Pc_left ) 
+!
+!         ENDDO
+!         ENDDO
+!         !$OMP END PARALLEL DO
+!
+!         ! update the other half based on vertical symmetry 
+!         Concnt2D_bdy(2:n_x_max2-1:1, n_y_mid2+1) = Concnt2D_bdy(n_x_max2-1:2:-1, n_y_mid2-1)
 
 
          ! diffusion ----------------------------------------------------
@@ -3153,6 +3264,8 @@ CONTAINS
            CFL       = Pdt*Pu(i_x,i_y)/Pdx
 
            Concnt2D_bdy(i_x, i_y) = Pc_middle           &
+              - 0.5 * CFL    * ( Pc_right - Pc_left )   &
+              + 0.5 * CFL**2 * ( Pc_right - 2*Pc_middle + Pc_left )         &
               + Pdt*( eddy_h*( Pc_right -2*Pc_middle +Pc_left   ) /(Pdx**2) &
                      +eddy_v*( Pc_top   -2*Pc_middle +Pc_bottom ) /(Pdy**2) )
 
@@ -3201,7 +3314,7 @@ CONTAINS
 !
 !         ENDIF
 
-         i_advect = State_Chm%nAdvect - (n_species-i_species)
+         i_advect = id_PASV_LA +i_species -1
 
          backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
 
@@ -3211,7 +3324,7 @@ CONTAINS
          State_Chm%Species(i_lon,i_lat,i_lev,i_advect) = backgrd_concnt
 
 
-         ENDDO ! DO i_species=1,n_species,1
+       ENDDO ! DO i_species=1,n_species,1
 
 
 !         call cpu_time(finish2)
@@ -3295,7 +3408,7 @@ CONTAINS
            !!! update the background concentration:
            D_mass_plume = mass_plume_new - mass_plume
 
-           i_advect = State_Chm%nAdvect - (n_species-i_species)
+           i_advect = id_PASV_LA +i_species -1
 
            backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
 
@@ -3432,7 +3545,7 @@ CONTAINS
 
            DO i_species=1,n_species
 
-           i_advect = State_Chm%nAdvect - (n_species-i_species)
+           i_advect = id_PASV_LA +i_species -1
 
            backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
 
@@ -3505,7 +3618,7 @@ CONTAINS
 
            DO i_species=1,n_species
 
-           i_advect = State_Chm%nAdvect - (n_species-i_species)
+           i_advect = id_PASV_LA +i_species -1
 
            backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
 
@@ -3583,6 +3696,18 @@ CONTAINS
     
 
 
+! put the un-dissolved plume concentration into PASV_LA3
+
+       backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA3)
+
+       backgrd_concnt = &
+                   ( SUM( box_concnt_2D(:,:,1) )*V_grid_2D  &
+                        + backgrd_concnt*grid_volumn ) / grid_volumn
+
+       State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA3) = backgrd_concnt
+        
+
+
 !       call cpu_time(finish)
 !       WRITE(6,*)'Time (finish-start) for 2D:', i_box, finish-start
 
@@ -3591,8 +3716,8 @@ CONTAINS
     ENDDO ! DO WHILE(ASSOCIATED(Plume2d))
 
 
-    call cpu_time(finish)
-    WRITE(6,*)'Plume time 2:', finish-start
+!    call cpu_time(finish)
+!    WRITE(6,*)'Plume time 2:', finish-start
 
 
 900     CONTINUE
@@ -3603,7 +3728,7 @@ CONTAINS
        !====================================================================
        ! begin 1D slab model
        !====================================================================
-       call cpu_time(start)
+!       call cpu_time(start)
 
        IF(.NOT.ASSOCIATED(Plume1d_head)) GOTO 500 ! no plume1d, skip loop
 
@@ -3703,7 +3828,7 @@ CONTAINS
         wind_s_shear = Wind_shear_s(u, v, P_BXHEIGHT, box_alpha, i_lon, &
                          i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
         ! *** attention *** ???
-        wind_s_shear = 0.002
+!        wind_s_shear = 0.002
 
 
         ! Calculate vertical eddy diffusivity (U.Schumann, 2012) :
@@ -3730,7 +3855,7 @@ CONTAINS
 
         ! diffusivity unit: [m2/s]
         eddy_v = Cv * Omega_N**2 / N_BV
-        eddy_v = 1.0 ! ???
+!        eddy_v = 1.0 ! ???
 
        ! Calculate horizontal eddy diffusivity:
 !       Ch = 0.1
@@ -3773,13 +3898,41 @@ CONTAINS
 !       DO i_species = 1, 1
        do t1s=1,NINT(Dt/Dt2)
 
+       !--------------------------------------------------------------------
+       ! For deformation of cross-section caused by wind shear 
+       ! (A.D.Naiman et al., 2010):
+       ! This should be moved to the outer loop !!! shw
+       !--------------------------------------------------------------------
 
-       300     CONTINUE
+       V_grid_1D        = box_Ra*box_Rb*box_length*1.0e+6_fp
+
+       theta_previous   = box_theta
+       box_theta = ATAN( TAN(box_theta) + wind_s_shear*Dt2 )
+
+       ! make sure use box_theta or TAN(box_theta)  ??? 
+       box_Ra = box_Ra  * (TAN(box_theta)**2+1)**0.5 &
+                          / (TAN(theta_previous)**2+1)**0.5
+       box_Rb = box_Rb * (TAN(box_theta)**2+1)**(-0.5) &
+                         / (TAN(theta_previous)**2+1)**(-0.5)
+
+       box_Rb = V_grid_1D/(box_Ra*box_length*1.0e+6_fp) !!! shw ???
+
+       !--------------------------------------------------------------------
+       ! For the concentration change caused by eddy diffusion:
+       ! box_concnt(n_box,N_slab,N_species)
+       !--------------------------------------------------------------------
+
+       ! ignore the diffusivity in long radius direction
+       eddy_B = eddy_v * SIN(abs(box_theta))
+       eddy_B = eddy_B + eddy_h*COS(box_theta) ! b
+
 
 
        IF((2*eddy_B*Dt2/(box_Rb**2))>0.5) THEN
 
-!!! shw put this as a function
+         300     CONTINUE
+
+         !!! shw put this as a function
 
          !-------------------------------------------------------------------
          ! Decrease half of slab by combining 2 slab into 1 slab
@@ -3804,61 +3957,16 @@ CONTAINS
 
          box_Rb = box_Rb*2
 
-         !!! uodate box_extra(i_box) ???
-!         V_grid_1D       = box_Ra*box_Rb*box_length*1.0e+6_fp
-!         mass_plume      = V_grid_1D/2 *SUM(Cslab(1:n_slab_max))
-!
-!         mass_plume_new = V_grid_1D &
-!               *SUM( box_concnt_1D(1:n_slab_max) )
-!
-!         D_mass_plume = mass_plume_new - mass_plume
-
 
        ENDIF ! IF( 2*eddy_B*Dt2/(box_Rb(i_box)**2)>1 )
-    
+
        IF(2*eddy_B*Dt2/(box_Rb**2)>0.5 )THEN
           GOTO 300
        ENDIF
 
-
-       !--------------------------------------------------------------------
-       ! update the boundary grids in 2D model based on background 
-       ! contentration
-       !--------------------------------------------------------------------
-
-       V_grid_1D       = box_Ra*box_Rb*box_length*1.0e+6_fp
+       V_grid_1D        = box_Ra*box_Rb*box_length*1.0e+6_fp
 
 
-!       IF(box_label==1)THEN
-!         WRITE(6,*)'mass before:', i_box, V_grid_1D, &
-!                        V_grid_1D*SUM( box_concnt_1D(1:n_slab_max) )
-!       ENDIF
-
-       !--------------------------------------------------------------------
-       ! For deformation of cross-section caused by wind shear 
-       ! (A.D.Naiman et al., 2010):
-       ! This should be moved to the outer loop !!! shw
-       !--------------------------------------------------------------------
-
-       theta_previous   = box_theta
-       box_theta = ATAN( TAN(box_theta) + wind_s_shear*Dt2 )
-
-       ! make sure use box_theta or TAN(box_theta)  ??? 
-       box_Ra = box_Ra  * (TAN(box_theta)**2+1)**0.5 &
-                          / (TAN(theta_previous)**2+1)**0.5
-       box_Rb = box_Rb * (TAN(box_theta)**2+1)**(-0.5) &
-                         / (TAN(theta_previous)**2+1)**(-0.5)
-
-       box_Rb = V_grid_1D/(box_Ra*box_length*1.0e+6_fp) !!! shw ???
-
-       !--------------------------------------------------------------------
-       ! For the concentration change caused by eddy diffusion:
-       ! box_concnt(n_box,N_slab,N_species)
-       !--------------------------------------------------------------------
-
-       ! ignore the diffusivity in long radius direction
-       eddy_B = eddy_v * SIN(abs(box_theta))
-       eddy_B = eddy_B + eddy_h*COS(box_theta) ! b
 
 
        DO i_species=1,n_species,1
@@ -3900,7 +4008,7 @@ CONTAINS
        ! [molec]
        D_mass_plume = mass_plume_new - mass_plume
 
-       i_advect = State_Chm%nAdvect - (n_species-i_species)
+       i_advect = id_PASV_LA +i_species -1
 
        backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
 
@@ -3918,8 +4026,7 @@ CONTAINS
        ! background grid cell.                                          shw
        ! test this once big time step
        !===================================================================
-       i_advect = State_Chm%nAdvect - 1
-       backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
+       backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
 
        Rate_Mix = V_grid_1D * SUM( box_concnt_1D(1:n_slab_max,1)**2 ) &
                 + backgrd_concnt**2 * grid_volumn
@@ -3949,7 +4056,7 @@ CONTAINS
          mass_la2 = mass_la2 + SUM(box_concnt_1D(1:n_slab_max,1)) * V_grid_1D
 
          DO i_species=1,n_species,1
-         i_advect = State_Chm%nAdvect - (n_species-i_species)
+         i_advect = id_PASV_LA +i_species -1
 
          backgrd_concnt = &
                   State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
@@ -4022,7 +4129,7 @@ CONTAINS
 
 
          DO i_species=1,n_species,1
-         i_advect = State_Chm%nAdvect - (n_species-i_species)
+         i_advect = id_PASV_LA +i_species -1
 
          backgrd_concnt = &
                   State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
@@ -4090,7 +4197,7 @@ CONTAINS
 
 
          DO i_species=1,n_species,1
-         i_advect = State_Chm%nAdvect - (n_species-i_species)
+         i_advect = id_PASV_LA +i_species -1
 
          backgrd_concnt = &
                   State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
@@ -4397,8 +4504,8 @@ CONTAINS
 
     ! first interpolate horizontally (Inverse Distance Weighting)
 
-    ! identify the grid point located in the southeast of the particle or under
-    ! the particle
+    ! identify the grid point located in the southwest of the particle or under
+    ! the particle ??? 
     if(curr_lon>=X_mid(i_lon))then
       init_lon = i_lon
     else
@@ -4480,7 +4587,7 @@ CONTAINS
                        + Weight(2,2) * v(init_lon+1,init_lat+1,kk)
       endif
 
-      wind_s(k) = u_lonlat(k)*COS(plume_alpha) + v_lonlat(k)*SIN(plume_alpha)
+      wind_s(k) = u_lonlat(k)*COS(plume_alpha-0.5*PI) + v_lonlat(k)*COS(plume_alpha-PI)
 
     enddo
 
@@ -4492,22 +4599,13 @@ CONTAINS
     ! [m]
     ! Delt_height    = 0.5 * ( P_BXHEIGHT(init_lon,init_lat,init_lev) +
     ! P_BXHEIGHT(init_lon,init_lat,init_lev+1) )
-    if(init_lon==0)then
-      Delt_height = Pa2meter( P_BXHEIGHT(IIPAR,init_lat,init_lev),    &
-                            P_edge(init_lev), P_edge(init_lev+1), 1 ) &   
-                 + Pa2meter( P_BXHEIGHT(IIPAR,init_lat,init_lev+1),   &
-                            P_edge(init_lev), P_edge(init_lev+1), 0 )
-    else if(init_lon==IIPAR)then
-      Delt_height = Pa2meter( P_BXHEIGHT(1,init_lat,init_lev),        &
-                            P_edge(init_lev), P_edge(init_lev+1), 1 ) &
-                 + Pa2meter( P_BXHEIGHT(1,init_lat,init_lev+1),       &
-                            P_edge(init_lev), P_edge(init_lev+1), 0 )
-    else
-      Delt_height = Pa2meter( P_BXHEIGHT(init_lon,init_lat,init_lev), &
-                            P_edge(init_lev), P_edge(init_lev+1), 1 ) &   
-                 + Pa2meter( P_BXHEIGHT(init_lon,init_lat,init_lev+1),&
-                            P_edge(init_lev), P_edge(init_lev+1), 0 )
-    endif
+    if(init_lon==0) init_lon=IIPAR
+    if(init_lon==IIPAR+1) init_lon=1
+
+    Delt_height = Pa2meter( P_BXHEIGHT(IIPAR,init_lat,init_lev),    &
+                          P_edge(init_lev), P_edge(init_lev+1), 1 ) &   
+                + Pa2meter( P_BXHEIGHT(IIPAR,init_lat,init_lev+1),   &
+                          P_edge(init_lev), P_edge(init_lev+1), 0 )
 
 
     ! find the z height of each pressure level in GEOS-Chem
