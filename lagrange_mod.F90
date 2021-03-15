@@ -237,6 +237,12 @@
 ! add a plume_inject() module to decide whether use plume model or directly
 ! dissolve the injected plume into Eulerain model grid at the beginning.
 
+! Mar 15, 2021
+! add sink for injected aerosols
+! set all the chemical species in troposphere as 0
+
+
+! double check the P_edge, whether P_edge can change at different (lon, lat)
 
 
 ! reconsider plume dissolve criteria, which should involve extra mass
@@ -334,7 +340,7 @@ MODULE Lagrange_Mod
   integer, parameter    :: i_tracer  = 1
   integer, parameter    :: i_product = 2
 
-  real, parameter       :: Kchem = 1e-25 ! chemical reaction rate
+  real(fp), parameter       :: Kchem = 1.0e-20_fp ! chemical reaction rate
 
   integer               :: Stop_inject ! 1: stop injecting; 0: keep injecting
 
@@ -799,6 +805,12 @@ CONTAINS
       State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU2) = &
               State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU2) &
             + Dt* Kchem*State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU)**2
+
+
+      !  For all the grid cells in the troposphere, let concentration to be zero
+      IF ( State_Met%PEDGE(i_lon,i_lat,i_lev) > State_Met%TROPP(i_lon,i_lat) ) THEN
+        State_Chm%Species(i_lon,i_lat,i_lev,:) = 0.0    
+      ENDIF
 
 
       ENDDO
@@ -2926,6 +2938,12 @@ CONTAINS
                  State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA2) &
                + Dt*Kchem*State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)**2
 
+
+      !  For all the grid cells in the troposphere, let concentration to be zero
+      IF ( State_Met%PEDGE(i_lon,i_lat,i_lev)>State_Met%TROPP(i_lon,i_lat) ) THEN
+        State_Chm%Species(i_lon,i_lat,i_lev,:) = 0.0
+      ENDIF
+
     ENDDO
     ENDDO
     ENDDO
@@ -3387,11 +3405,12 @@ CONTAINS
            D_mass_plume = mass_plume_new - mass_plume
 
 
-           IF(ABS(D_mass_plume/mass_plume)>0.01)THEN
-             WRITE(6,*)'*********************************************'
-             WRITE(6,*)'    more than 1% mass lost from 2-D to 1-D'
-             WRITE(6,*)'*********************************************'
-           ENDIF
+!           IF(ABS(D_mass_plume/mass_plume)>0.01)THEN
+!             WRITE(6,*) '*********************************************'
+!             WRITE(6,*) '    more than 1% mass lost from 2-D to 1-D'
+!             WRITE(6,*) ABS(D_mass_plume/mass_plume)
+!             WRITE(6,*) '*********************************************'
+!           ENDIF
 
 
            i_advect = id_PASV_LA +i_species -1
