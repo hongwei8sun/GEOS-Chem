@@ -241,6 +241,20 @@
 ! add sink for injected aerosols
 ! set all the chemical species in troposphere as 0
 
+! Mar 27, 2021
+! let plume injection only for the 60 degree by adding:
+! Num_inject<N_total
+
+! Mar 30, 2021
+! if there is no plume left, stop using Lagrangian plume module
+! IF(Num_Plume1d+Num_Plume2d==0) use_lagrange=99
+!
+! IF(N_stop_inject<0.or.Num_inject<N_stop_inject)THEN
+!    N_stop_inject = -1, the plume will be injected in the whole simulation
+!    N_stop_inject = N_total, the plume will be injected in 60 degrees
+
+
+
 
 ! double check the P_edge, whether P_edge can change at different (lon, lat)
 
@@ -293,7 +307,7 @@ MODULE Lagrange_Mod
 
   PUBLIC :: use_lagrange
 
-  integer               :: use_lagrange = 1
+  integer               :: use_lagrange = 0
 
   integer, parameter    :: n_x_max = 198 !243  ! number of x grids in 2D, should be 9 x odd
   integer, parameter    :: n_y_max = 99  !81   ! number of y grids in 2D
@@ -333,7 +347,7 @@ MODULE Lagrange_Mod
   ! Aircraft would release 131 aerosol parcels every time step
 
   ! use for plume injection
-  integer               :: N_total
+  integer               :: N_total, N_stop_inject
   real(fp)              :: Length_lat
 
   integer, parameter    :: n_species = 2
@@ -442,6 +456,8 @@ CONTAINS
     N_total    = 60 * 1.0e+5 / Length_init
     Length_lat = Length_init / 1.0e+5
 
+
+    N_stop_inject = N_total
 
     Stop_inject = 0
 
@@ -626,8 +642,8 @@ CONTAINS
 
       ! set initial background concentration of injected aerosol as 0 in GCM
       ! output the apecies' name for double check ???
-      State_Chm%Species(:,:,:,id_PASV_EU2) = 0.0e+0_fp  ! [kg/kg]
-      State_Chm%Species(:,:,:,id_PASV_EU)  = 0.0e+0_fp  ! [kg/kg]
+!      State_Chm%Species(:,:,:,id_PASV_EU2) = 0.0e+0_fp  ! [kg/kg]
+!      State_Chm%Species(:,:,:,id_PASV_EU)  = 0.0e+0_fp  ! [kg/kg]
 
     ELSE
 
@@ -642,8 +658,13 @@ CONTAINS
       id_PASV_LA2 = State_Chm%nAdvect-1
       id_PASV_LA3 = State_Chm%nAdvect
 
-      State_Chm%Species(:,:,:,id_PASV_LA) = 0.0e+0_fp  ! [kg/kg]
-      State_Chm%Species(:,:,:,id_PASV_LA2) = 0.0e+0_fp  ! [kg/kg]
+!      State_Chm%Species(:,:,:,id_PASV_LA) = 0.0e+0_fp  ! [kg/kg]
+!      State_Chm%Species(:,:,:,id_PASV_LA2) = 0.0e+0_fp  ! [kg/kg]
+!      State_Chm%Species(:,:,:,id_PASV_LA3)  = 0.0e+0_fp  ! [kg/kg]
+
+      State_Chm%Species(:,:,:,id_PASV_LA) = &
+        State_Chm%Species(:,:,:,id_PASV_LA)+State_Chm%Species(:,:,:,id_PASV_LA3)
+
       State_Chm%Species(:,:,:,id_PASV_LA3)  = 0.0e+0_fp  ! [kg/kg]
 
     ENDIF
@@ -706,6 +727,7 @@ CONTAINS
 
     ErrMsg = ''
 
+    IF(N_stop_inject<0.or.Num_inject<N_stop_inject)THEN
     IF(use_lagrange==0)THEN 
     ! instantly dissolve injected plume into Eulerian grid 
 
@@ -718,8 +740,7 @@ CONTAINS
       ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
 
       X_edge2       = X_edge(2)
-      Y_edge2       = Y_edge(2)
- 
+      Y_edge2       = Y_edge(2) 
 
       ! -----------------------------------------------------------
       ! add new box every time step
@@ -746,10 +767,7 @@ CONTAINS
         if(i_lev>LLPAR) i_lev=LLPAR
 
         IF(i_lev==LLPAR) WRITE(6,*) 'box_lev:', box_lev, i_lev
-
-        
         IF(ABS(box_lat)>40) WRITE(6,*)'*** ERROR in box_lat:', i_box, box_lat
-
 
         ! ====================================================================
         ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in 
@@ -770,9 +788,7 @@ CONTAINS
         PASV_EU = PASV_EU + Length_init*1.0e-3_fp*30.0 &
                                     /State_Met%AD(i_lon,i_lat,i_lev)
 
-
       ENDDO ! i_box = Num_inject+1, Num_inject+N_parcel, 1
-
 
       ! use this value to set the initial latutude for injected plume
       Num_inject = Num_inject + N_parcel
@@ -830,8 +846,17 @@ CONTAINS
          RETURN
       ENDIF
 
+    ENDIF ! IF(use_lagrange==0)THEN
+    ENDIF ! IF(N_stop_inject<0.or.Num_inject<N_stop_inject)THEN
 
-    ELSE
+
+    !=======================================================================
+    !
+    ! use plume model
+    !
+    !=======================================================================
+    IF(use_lagrange==1)THEN
+
     ! call the lagrnage_run() and plume_run() to calculate injected plume
 
       State_Chm%Species(:,:,:,id_PASV_LA3) = 0.0e+0_fp  ! [kg/kg]
@@ -996,7 +1021,9 @@ CONTAINS
     ! -----------------------------------------------------------
     ! add new box every time step
     ! -----------------------------------------------------------
+    IF(N_stop_inject<0.or.Num_inject<N_stop_inject)THEN
     DO i_box = Num_inject+1, Num_inject+N_parcel, 1
+
       ALLOCATE(Plume2d_new)
 
       Plume2d_new%IsNew = 1
@@ -1039,14 +1066,14 @@ CONTAINS
       NULLIFY(Plume2d_new%next)
       Plume2d_old%next => Plume2d_new
       Plume2d_old => Plume2d_old%next
-    ENDDO ! i_box = Num_inject+1, Num_inject+N_parcel, 1
 
+    ENDDO ! i_box = Num_inject+1, Num_inject+N_parcel, 1
+    ENDIF ! IF(N_stop_inject<0.or.Num_inject<N_stop_inject)THEN
 
     Num_Plume2d = Num_Plume2d + N_parcel
 
     ! use this value to set the initial latutude for injected plume
     Num_inject = Num_inject + N_parcel
-
 
 
     !--------------------------------------------------------
@@ -2933,8 +2960,8 @@ CONTAINS
 !              State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU2) &
 !            + Dt* Kchem*State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU)**2
 
-    ! from LA to LA2
-    State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA2) = &
+      ! from LA to LA2
+      State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA2) = &
                  State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA2) &
                + Dt*Kchem*State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)**2
 
@@ -3154,7 +3181,7 @@ CONTAINS
 
 
            IF(Pdx<=0.5*Dx_init) WRITE(6,*) &
-               "ERROR 0: more combination: ", i_box, Pdx, Pdy
+               "ERROR 0: more combination: ", i_box, Plume2d%label, Pdx, Pdy
 
            IF(Pdx<=0.5*Dx_init) GOTO 600
 
@@ -3379,7 +3406,7 @@ CONTAINS
            Pc = box_concnt_2D(:,:,i_species)
 
 
-           IF(box_theta>1.56) WRITE(6,*)&
+           IF(box_theta>1.569) WRITE(6,*)&
             '*** ERROR *** i_box, box_theta:', i_box, box_theta,&
                                                      Plume2d%LIFE
 
@@ -4332,6 +4359,8 @@ CONTAINS
 
 111     CONTINUE
 
+
+
        ! update the 1d plume for current node
        Plume1d%LON = box_lon
        Plume1d%LAT = box_lat
@@ -4389,8 +4418,13 @@ CONTAINS
 
 999      CONTINUE
 
-!    WRITE(6,*) 'Num test:  ', Num_Plume1d, Num_Plume2d, Num_inject, Num_dissolve
+    WRITE(6,*) 'Num test:  ', Num_Plume1d, Num_Plume2d, Num_inject, Num_dissolve
 !    WRITE(6,*) 'Total mass:', mass_eu, mass_la, mass_la2
+
+
+    ! if there is no plume left, stop using Lagrangian plume module
+    IF(Num_Plume1d+Num_Plume2d==0) use_lagrange=99
+
 
     ! Everything is done, clean up pointers
 
