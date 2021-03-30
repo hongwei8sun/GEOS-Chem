@@ -246,13 +246,30 @@
 ! Num_inject<N_total
 
 ! Mar 30, 2021
-! if there is no plume left, stop using Lagrangian plume module
-! IF(Num_Plume1d+Num_Plume2d==0) use_lagrange=99
+! (1) If there is no plume left, stop using Lagrangian plume module
+!       IF(Num_Plume1d+Num_Plume2d==0) use_lagrange=99
 !
-! IF(N_stop_inject<0.or.Num_inject<N_stop_inject)THEN
-!    N_stop_inject = -1, the plume will be injected in the whole simulation
-!    N_stop_inject = N_total, the plume will be injected in 60 degrees
-
+! (2) 
+!       IF(N_stop_inject<0.or.Num_inject<N_stop_inject)THEN
+!       N_stop_inject = -1, the plume will be injected in the whole simulation
+!       N_stop_inject = N_total, the plume will be injected in 60 degrees
+!
+! (3) Make sure the last plume could be deleted successfully
+!           IF(.NOT.ASSOCIATED(Plume2d%next) .and. &
+!                          .NOT.ASSOCIATED(Plume2d_prev))THEN
+!
+!             WRITE(6,*)'         ***         '
+!             WRITE(6,*)'Only left the last Plume2d', Num_Plume2d
+!             WRITE(6,*)'         ***         '
+!             DEALLOCATE(Plume2d_head)
+!
+!             i_box = i_box-1
+!             Num_Plume2d = Num_Plume2d - 1
+!
+!             Stop_loop = 1
+!             GOTO 901
+!
+!           ENDIF
 
 
 
@@ -307,7 +324,7 @@ MODULE Lagrange_Mod
 
   PUBLIC :: use_lagrange
 
-  integer               :: use_lagrange = 0
+  integer               :: use_lagrange = 1
 
   integer, parameter    :: n_x_max = 198 !243  ! number of x grids in 2D, should be 9 x odd
   integer, parameter    :: n_y_max = 99  !81   ! number of y grids in 2D
@@ -449,7 +466,7 @@ CONTAINS
 
 
     Dt = GET_TS_DYN()
-    N_parcel = NINT(132 *1000/LENGTH_init /600*Dt)
+    N_parcel = NINT(132 *1000/Length_init /600*Dt)
 
 
     ! use for plume injection
@@ -457,7 +474,7 @@ CONTAINS
     Length_lat = Length_init / 1.0e+5
 
 
-    N_stop_inject = N_total
+    N_stop_inject = N_total ! -1
 
     Stop_inject = 0
 
@@ -1067,13 +1084,16 @@ CONTAINS
       Plume2d_old%next => Plume2d_new
       Plume2d_old => Plume2d_old%next
 
+
     ENDDO ! i_box = Num_inject+1, Num_inject+N_parcel, 1
+
+      Num_Plume2d = Num_Plume2d + N_parcel
+
+      ! use this value to set the initial latutude for injected plume
+      Num_inject = Num_inject + N_parcel
+
+
     ENDIF ! IF(N_stop_inject<0.or.Num_inject<N_stop_inject)THEN
-
-    Num_Plume2d = Num_Plume2d + N_parcel
-
-    ! use this value to set the initial latutude for injected plume
-    Num_inject = Num_inject + N_parcel
 
 
     !--------------------------------------------------------
@@ -1099,6 +1119,8 @@ CONTAINS
     !=======================================================================
     ! for 2D plume: Run Lagrangian trajectory-track HERE
     !=======================================================================
+
+    IF(.NOT.ASSOCIATED(Plume2d_head)) GOTO 401
 
     Plume2d => Plume2d_head
     i_box = 0
@@ -1598,6 +1620,7 @@ CONTAINS
 
     ENDDO  ! DO WHILE(ASSOCIATED(Plume2d))
 
+401 CONTINUE
 
 !    WRITE(6,*)'=== loop for 2d plume in lagrange_run: ', i_box, Num_Plume2d
 
@@ -2776,6 +2799,7 @@ CONTAINS
 
     integer :: alloc_stat
 
+    integer :: Stop_loop 
 
     real(fp) :: curr_lon, curr_lat, curr_pressure
 !    real(fp) :: next_lon, next_lat, next_pressure
@@ -2891,6 +2915,8 @@ CONTAINS
 
     IF(Stop_inject==1) GOTO 999
 
+    Stop_loop = 0
+
     YEAR        = GET_YEAR()
     MONTH       = GET_MONTH()
     DAY         = GET_DAY()
@@ -2981,6 +3007,7 @@ CONTAINS
     !=====================================================================
 
     IF(ASSOCIATED(Plume2d_prev)) NULLIFY(Plume2d_prev)
+    IF(.NOT.ASSOCIATED(Plume2d_head)) GOTO 900
 
     Plume2d => Plume2d_head
     i_box = 0
@@ -3458,7 +3485,18 @@ CONTAINS
 
            IF(.NOT.ASSOCIATED(Plume2d%next) .and. &
                           .NOT.ASSOCIATED(Plume2d_prev))THEN
-              GOTO 900
+
+             WRITE(6,*)'                '
+             WRITE(6,*)'*** Only left the last Plume2d', Num_Plume2d
+             WRITE(6,*)'                '
+             DEALLOCATE(Plume2d_head)
+
+             i_box = i_box-1
+             Num_Plume2d = Num_Plume2d - 1
+ 
+             Stop_loop = 1
+             GOTO 901
+
            ENDIF
 
 
@@ -3472,7 +3510,10 @@ CONTAINS
               DEALLOCATE(Plume2d)
               i_box = i_box-1
               Num_Plume2d = Num_Plume2d - 1
-              GOTO 900
+
+              Stop_loop = 1
+              GOTO 901
+
            ELSEIF(ASSOCIATED(Plume2d_prev))THEN ! delete node, not head/tail
               Plume2d => Plume2d_prev%next
               Plume2d_prev%next => Plume2d%next
@@ -3494,6 +3535,7 @@ CONTAINS
            ! ----------------------------------
            ! add new node for 1D plume:
            ! ----------------------------------
+901   CONTINUE
 
            IF(.NOT.ASSOCIATED(Plume1d_head))THEN ! create first node for 1d plume
 
@@ -3553,8 +3595,11 @@ CONTAINS
 
            Num_Plume1d = Num_Plume1d + 1
 
-
-           GOTO 800 ! skip this box, go to next box
+           IF(Stop_loop==1)THEN
+             GOTO 900 ! skip the whole loop, go to Plume1d
+           ELSE
+             GOTO 800 ! skip this box, go to next box
+           ENDIF
 
          ENDIF ! IF(box_theta(i_box)>98/180*3.14)
          ENDIF ! IF(Lifetime(i_box)>3*3600.0)THEN
@@ -4088,6 +4133,15 @@ CONTAINS
 
          IF(.NOT.ASSOCIATED(Plume1d%next) .and. &
                         .NOT.ASSOCIATED(Plume1d_prev))THEN
+
+            WRITE(6,*)'                 '
+            WRITE(6,*)'*** Only left the last Plume1d', Num_Plume1d
+            WRITE(6,*)'                 '
+            DEALLOCATE(Plume1d_head)
+
+            i_box = i_box-1
+            Num_Plume1d = Num_Plume1d - 1
+
             GOTO 500 ! Only 1 plume1d left, skip loop
          ENDIF
 
@@ -4230,7 +4284,17 @@ CONTAINS
 
          IF(.NOT.ASSOCIATED(Plume1d%next) .and. &
                                 .NOT.ASSOCIATED(Plume1d_prev))THEN
-            GOTO 500
+
+            WRITE(6,*)'                 '
+            WRITE(6,*)'*** Only left the last Plume1d', Num_Plume1d
+            WRITE(6,*)'                 '
+            DEALLOCATE(Plume1d_head)
+
+            i_box = i_box-1
+            Num_Plume1d = Num_Plume1d - 1
+
+            GOTO 500 ! Only 1 plume1d left, skip loop
+
          ENDIF
 
 
@@ -4423,7 +4487,7 @@ CONTAINS
 
 
     ! if there is no plume left, stop using Lagrangian plume module
-    IF(Num_Plume1d+Num_Plume2d==0) use_lagrange=99
+    IF(Num_Plume1d+Num_Plume2d==0) use_lagrange=88
 
 
     ! Everything is done, clean up pointers
