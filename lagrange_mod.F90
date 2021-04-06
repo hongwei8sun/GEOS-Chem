@@ -271,6 +271,9 @@
 !
 !           ENDIF
 
+! Apr 4, 2021
+! decide when change 2D grid to 1D grid:
+!          IF( Xscale/Yscale>25.0 ...
 
 
 ! double check the P_edge, whether P_edge can change at different (lon, lat)
@@ -326,8 +329,8 @@ MODULE Lagrange_Mod
 
   integer               :: use_lagrange = 1
 
-  integer, parameter    :: n_x_max = 198 !243  ! number of x grids in 2D, should be 9 x odd
-  integer, parameter    :: n_y_max = 99  !81   ! number of y grids in 2D
+  integer, parameter    :: n_x_max = 81 ! number of x grids in 2D, should be (9 x odd)
+  integer, parameter    :: n_y_max = 45  ! number of y grids in 2D, should be (9 x odd)
 
   ! the odd number of n_x_max can ensure a center grid
   integer, parameter    :: n_x_mid = (n_x_max+1)/2 !242
@@ -340,7 +343,7 @@ MODULE Lagrange_Mod
   integer, parameter    :: n_y_mid2 = (n_y_max2+1)/2  !83
 
   ! n_slab_max should be divided by 4, to ensure n_slab_25 is an integer.
-  integer, parameter    :: n_slab_max = 100 ! close to n_y_max, number of slabs in 1D
+  integer, parameter    :: n_slab_max = (INT(n_y_max/4)+1)*4 ! close to n_y_max, number of slabs in 1D
   integer, parameter    :: n_slab_max2 = n_slab_max+2
   ! add 2 more slab grid to containing background concentration
 
@@ -349,9 +352,13 @@ MODULE Lagrange_Mod
   integer               :: id_PASV_LA3, id_PASV_LA2, id_PASV_LA 
   integer               :: id_PASV_EU2, id_PASV_EU
 
-  real, parameter       :: Dx_init = 200
-  real, parameter       :: Dy_init = 20
+  real, parameter       :: Dx_init = 300
+  real, parameter       :: Dy_init = 30
   real, parameter       :: Length_init = 2000.0 ! 1000.0e+0_fp ! [m]
+
+  ! some parameter for sensitive test
+  integer, parameter    :: N_split = 3
+  real, parameter       :: Dissolve_critiria = 0.1
 
   real(fp), pointer     :: X_mid(:), Y_mid(:), P_mid(:)
   real(fp), pointer     :: P_edge(:)
@@ -2782,7 +2789,6 @@ CONTAINS
     REAL(fp) :: Pdt
     REAL(fp) :: Dt2
 
-    integer  :: N_split
 
     integer  :: i_box   !, i_species
     integer  :: ii_box
@@ -3425,7 +3431,7 @@ CONTAINS
 !         ENDIF
 
 
-         IF( box_theta>(87.0/180.0*PI) &
+         IF( Xscale/Yscale>25.0 &
                         .or. Plume2d%LIFE>12.0*3600.0 ) THEN !!! shw ???
 
            DO i_species=1,n_species,1
@@ -4101,7 +4107,7 @@ CONTAINS
 !       WRITE(6,*)'1d test:', i_box, Num_Plume1d
 
 
-       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.1 .OR. &
+       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<Dissolve_critiria .OR. &
                                 box_life/3600/24>30.0)THEN 
 
          Num_dissolve = Num_dissolve+1
@@ -4343,7 +4349,6 @@ CONTAINS
        ! If slab length(Ra) is bigger than 2* horizontal resolution (2*Dx),
        ! split slab into five smaller segment (Ra/5)
        !===================================================================
-       N_split = 3
        IF(N_split==1) GOTO 111
 
 
@@ -4482,7 +4487,7 @@ CONTAINS
 
 999      CONTINUE
 
-    WRITE(6,*) 'Num test:  ', Num_Plume1d, Num_Plume2d, Num_inject, Num_dissolve
+!    WRITE(6,*) 'Num test:  ', Num_Plume1d, Num_Plume2d, Num_inject, Num_dissolve
 !    WRITE(6,*) 'Total mass:', mass_eu, mass_la, mass_la2
 
 
@@ -5219,8 +5224,7 @@ CONTAINS
 
 
 
-    WRITE(261,*) YEAR, MONTH, DAY, HOUR, MINUTE, SECOND, &
-        Num_Plume1d, Num_Plume2d, Num_inject,Num_dissolve, Num_inject
+    WRITE(261,*) Num_Plume1d, Num_Plume2d, Num_dissolve, Num_inject
 
 
     ENDIF ! IF(mod(tt,1440)==0)THEN
