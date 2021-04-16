@@ -276,6 +276,26 @@
 !          IF( Xscale/Yscale>25.0 ...
 
 
+! Apr 15, 2021
+! (1) debug: Num_inject<N_stop_inject only used for inject new plumes
+!      IF(N_stop_inject<0.or.Num_inject<N_stop_inject)THEN
+!        ! N_stop_inject<0: keep injecting plume in the whole simulation;
+!        ! Num_inject<N_stop_inject: only inject N_stop_inject plumes at
+!        !                           beginning;
+!
+!      DO i_box = Num_inject+1, Num_inject+N_parcel, 1
+!
+! (2) add a new variable [TROPP_sink] to turn on/off the tropopause sink for all
+! species.
+!       IF(TROPP_sink = 1)THEN => turn on tropopause sink
+!       IF(TROPP_sink = 0)THEN => turn off tropopause sink
+!
+! (3) add new variable for initial injection location:
+!  real, parameter       :: Inject_lon = -141.0e+0_fp
+!  real, parameter       :: Inject_hPa = 52.0e+0_fp
+
+
+
 ! double check the P_edge, whether P_edge can change at different (lon, lat)
 
 
@@ -327,10 +347,11 @@ MODULE Lagrange_Mod
 
   PUBLIC :: use_lagrange
 
-  integer               :: use_lagrange = 1
+  integer               :: use_lagrange = 0
+  integer               :: TROPP_sink = 0
 
-  integer, parameter    :: n_x_max = 81 ! number of x grids in 2D, should be (9 x odd)
-  integer, parameter    :: n_y_max = 45  ! number of y grids in 2D, should be (9 x odd)
+  integer, parameter    :: n_x_max = 207 !number of x grids in 2D, should be (9 x odd)
+  integer, parameter    :: n_y_max = 81  !number of y grids in 2D, should be (9 x odd)
 
   ! the odd number of n_x_max can ensure a center grid
   integer, parameter    :: n_x_mid = (n_x_max+1)/2 !242
@@ -352,9 +373,14 @@ MODULE Lagrange_Mod
   integer               :: id_PASV_LA3, id_PASV_LA2, id_PASV_LA 
   integer               :: id_PASV_EU2, id_PASV_EU
 
-  real, parameter       :: Dx_init = 300
-  real, parameter       :: Dy_init = 30
+  real, parameter       :: Dx_init = 100
+  real, parameter       :: Dy_init = 10
   real, parameter       :: Length_init = 2000.0 ! 1000.0e+0_fp ! [m]
+
+  real, parameter       :: Inject_lon = -141.0e+0_fp
+  real, parameter       :: Inject_hPa = 52.0e+0_fp
+  ! 25.0e+0_fp ! [hPa] at about 25 km
+  ! 52.0e+0_fp       ! [hPa] at about 20 km
 
   ! some parameter for sensitive test
   integer, parameter    :: N_split = 3
@@ -379,6 +405,7 @@ MODULE Lagrange_Mod
   integer, parameter    :: i_product = 2
 
   real(fp), parameter       :: Kchem = 1.0e-20_fp ! chemical reaction rate
+  ! use Kchem = 1.0e-20_fp for >1 year simulation
 
   integer               :: Stop_inject ! 1: stop injecting; 0: keep injecting
 
@@ -518,12 +545,14 @@ CONTAINS
 
 
     WRITE(6,'(a)') '--------------------------------------------------------'
+    WRITE(6,'(a)') '--------------------------------------------------------'
     WRITE(6,'(a)') ' Initial Lagrnage Module (Using Dynamic time step)'
     WRITE(6,'(a)') '--------------------------------------------------------'
+    WRITE(6,*) 'time step=', Dt
+    WRITE(6,*) 'Injected plume every time step: ', N_parcel
+    WRITE(6,'(a)') '--------------------------------------------------------'
+    WRITE(6,'(a)') '--------------------------------------------------------'
 
-    WRITE(6,*)"  "
-    WRITE(6,*)"Injected plume in every time step:", N_parcel, Dt
-    WRITE(6,*)"  "
 
     ! -----------------------------------------------------------
     ! create first node (head) for 2d linked list:
@@ -532,9 +561,9 @@ CONTAINS
     Plume2d_old%IsNew = 1
     Plume2d_old%label = 1
 
-    Plume2d_old%LON = -141.0e+0_fp
+    Plume2d_old%LON = Inject_lon
     Plume2d_old%LAT = -29.95e+0_fp
-    Plume2d_old%LEV = 52.0e+0_fp       ! [hPa] at about 20 km
+    Plume2d_old%LEV = Inject_hPa
 
     Plume2d_old%LENGTH = Length_init ! 1000m 
     Plume2d_old%ALPHA  = 0.0e+0_fp
@@ -751,7 +780,6 @@ CONTAINS
 
     ErrMsg = ''
 
-    IF(N_stop_inject<0.or.Num_inject<N_stop_inject)THEN
     IF(use_lagrange==0)THEN 
     ! instantly dissolve injected plume into Eulerian grid 
 
@@ -769,12 +797,17 @@ CONTAINS
       ! -----------------------------------------------------------
       ! add new box every time step
       ! -----------------------------------------------------------
+      IF(N_stop_inject<0.or.Num_inject<N_stop_inject)THEN
+        ! N_stop_inject<0: keep injecting plume in the whole simulation;
+        ! Num_inject<N_stop_inject: only inject N_stop_inject plumes at
+        !                           beginning;
+
       DO i_box = Num_inject+1, Num_inject+N_parcel, 1
 
-        box_lon    = -141.0e+0_fp
+        box_lon    = Inject_lon
         box_lat    = ( -30.005e+0_fp + Length_lat * MOD(i_box,N_total) ) &
                      * (-1.0)**FLOOR(1.0*i_box/N_total) ! -29.995S:29.995N:0.01
-        box_lev    = 52.0e+0_fp       ! [hPa] at about 20 km
+        box_lev    = Inject_hPa
 
 
         ! check this grid box is the neast one or the one located in left-bottom
@@ -817,6 +850,8 @@ CONTAINS
       ! use this value to set the initial latutude for injected plume
       Num_inject = Num_inject + N_parcel
 
+      ENDIF ! IF(N_stop_inject<0.or.Num_inject<N_stop_inject)THEN
+
 
       !======================================================================
       ! Convert species to [molec/cm3] (ewl, 8/16/16)
@@ -848,8 +883,10 @@ CONTAINS
 
 
       !  For all the grid cells in the troposphere, let concentration to be zero
+      IF(TROPP_sink == 1)THEN
       IF ( State_Met%PEDGE(i_lon,i_lat,i_lev) > State_Met%TROPP(i_lon,i_lat) ) THEN
         State_Chm%Species(i_lon,i_lat,i_lev,:) = 0.0    
+      ENDIF
       ENDIF
 
 
@@ -871,7 +908,6 @@ CONTAINS
       ENDIF
 
     ENDIF ! IF(use_lagrange==0)THEN
-    ENDIF ! IF(N_stop_inject<0.or.Num_inject<N_stop_inject)THEN
 
 
     !=======================================================================
@@ -1053,14 +1089,12 @@ CONTAINS
       Plume2d_new%IsNew = 1
       Plume2d_new%label = i_box
 
-      Plume2d_new%LON = -141.0e+0_fp
-
+      Plume2d_new%LON = Inject_lon
       Plume2d_new%LAT = ( -30.005e+0_fp + Length_lat * MOD(i_box,N_total) ) &
                      * (-1.0)**FLOOR(1.0*i_box/N_total) 
 !      Plume2d_new%LAT = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) &
 !                     * (-1.0)**FLOOR(i_box/6000.0) ! -29.995S:29.995N:0.01
-
-      Plume2d_new%LEV = 52.0e+0_fp       ! [hPa] at about 20 km
+      Plume2d_new%LEV = Inject_hPa
 
       Plume2d_new%LENGTH = Length_init ! 1000m 
       Plume2d_new%ALPHA  = 0.0e+0_fp
@@ -2999,8 +3033,10 @@ CONTAINS
 
 
       !  For all the grid cells in the troposphere, let concentration to be zero
+      IF(TROPP_sink == 1)THEN
       IF ( State_Met%PEDGE(i_lon,i_lat,i_lev)>State_Met%TROPP(i_lon,i_lat) ) THEN
         State_Chm%Species(i_lon,i_lat,i_lev,:) = 0.0
+      ENDIF
       ENDIF
 
     ENDDO
