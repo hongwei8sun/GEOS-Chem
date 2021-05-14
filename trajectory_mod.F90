@@ -3,7 +3,35 @@
 !--------------------------------------------------------------------------
 
 ! New version
-
+!
+! May 13, 2021
+! (1)
+! change:         if(RK_lat<0.0)then
+! to:             if(box_lat<0.0)then
+!
+! (2)
+!    ! second interpolate vertically (Linear)
+!    IF(P_mid(init_lev+1)==P_mid(init_lev))THEN
+!      WRITE(6,*)"*** WARNING: two same pressure level happens! ***"
+!      WRITE(6,*)"init_lev, P_mid(init_lev), P_mid(init_lev+1):"
+!      WRITE(6,*)init_lev, P_mid(init_lev), P_mid(init_lev+1)
+!      wind_lonlat_lev = wind_lonlat(1)
+!    ELSE
+!      wind_lonlat_lev = wind_lonlat(1) + (wind_lonlat(2)-wind_lonlat(1)) &
+!                                 / (P_mid(init_lev+1)-P_mid(init_lev)) &
+!                                     * (curr_pressure-P_mid(init_lev))
+!    ENDIF
+!
+! (3)
+! Once the particle get out of stratosphere, pin the particle in that location
+! without moving any longer.
+!      !-----------------------------------------------------------------------
+!      ! check whether the plume is above the tropopause
+!      !-----------------------------------------------------------------------
+!      IF(box_lev>State_Met%TROPP(i_lon,i_lat))THEN
+!        box_tropp = 0
+!        GOTO 400
+!      ENDIF
 
 
 MODULE Trajectory_Mod
@@ -34,50 +62,24 @@ MODULE Trajectory_Mod
 
   ! PUBLIC VARIABLES:
 
-  PUBLIC :: n_x_max, n_y_max
-  PUBLIC :: n_x_mid, n_y_mid
 
-  PUBLIC :: n_slab_max, n_slab_25, n_slab_50, n_slab_75
 
   PUBLIC :: use_lagrange
 
   integer               :: use_lagrange = 1
 
-  integer, parameter    :: n_x_max = 243 !number of x grids in 2D, should be (9 x odd)
-  integer, parameter    :: n_y_max = 117  !number of y grids in 2D, should be (9 x odd)
 
-  ! the odd number of n_x_max can ensure a center grid
-  integer, parameter    :: n_x_mid = (n_x_max+1)/2 !242
-  integer, parameter    :: n_y_mid = (n_y_max+1)/2  !83
-
-  integer, parameter    :: n_x_max2 = n_x_max+2
-  integer, parameter    :: n_y_max2 = n_y_max+2
-
-  integer, parameter    :: n_x_mid2 = (n_x_max2+1)/2 !242
-  integer, parameter    :: n_y_mid2 = (n_y_max2+1)/2  !83
-
-  ! n_slab_max should be divided by 4, to ensure n_slab_25 is an integer.
-  integer, parameter    :: n_slab_max = (INT(n_y_max/4)+1)*4 ! close to n_y_max, number of slabs in 1D
-  integer, parameter    :: n_slab_max2 = n_slab_max+2
-  ! add 2 more slab grid to containing background concentration
-
-  integer               :: n_slab_25, n_slab_50, n_slab_75
   integer               :: IIPAR, JJPAR, LLPAR
   integer               :: id_PASV_LA3, id_PASV_LA2, id_PASV_LA 
   integer               :: id_PASV_EU2, id_PASV_EU
 
-  real, parameter       :: Dx_init = 100
-  real, parameter       :: Dy_init = 10
-  real, parameter       :: Length_init = 1000.0e+0_fp ! [m]
 
-  real, parameter       :: Inject_lon = -141.0e+0_fp
-  real, parameter       :: Inject_hPa = 50.0e+0_fp
+  real, parameter       :: Inject_lon =   5.1e+0_fp
+  real, parameter       :: Inject_lat = -30.1e+0_fp
+  real, parameter       :: Inject_lev =  50.0e+0_fp
   ! 25.0e+0_fp ! [hPa] at about 25 km
   ! 50.0e+0_fp       ! [hPa] at about 20 km
 
-  ! some parameter for sensitive test
-  integer, parameter    :: N_split = 3
-  real, parameter       :: Dissolve_critiria = 0.15
 
   real(fp), pointer     :: X_mid(:), Y_mid(:), P_mid(:)
   real(fp), pointer     :: P_edge(:)
@@ -90,10 +92,8 @@ MODULE Trajectory_Mod
   ! Aircraft would release 131 aerosol parcels every time step
 
   ! use for plume injection
-  integer               :: N_total, N_stop_inject, Total_lon, Total_lat
-  real(fp)              :: Length_lat
+  integer               :: Total_lon, Total_lat, Total_lev
 
-  integer, parameter    :: n_species = 2
   integer, parameter    :: i_tracer  = 1
   integer, parameter    :: i_product = 2
 
@@ -109,10 +109,7 @@ MODULE Trajectory_Mod
                          ! 0: the plume is below the tropopause;
 
     real(fp) :: LON, LAT, LEV
-    real(fp) :: LENGTH, ALPHA
     real(fp) :: LIFE
-
-    real(fp) :: DX, DY
 
 
     TYPE(Plume2d_list), POINTER :: next
@@ -175,33 +172,19 @@ CONTAINS
     Dt = GET_TS_DYN()
 
     ! use for plume injection
-    Total_lon = 10
-    Total_lat = 60*10
-
-    N_total    = 60 * 1.0e+5 / Length_init
-    Length_lat = Length_init / 1.0e+5
-
-    ! define how many plume segments will be injected
-    ! -1 means keep inecting in the whole simulation
-    N_stop_inject = N_total ! -1
-
+    Total_lev = 3
+    Total_lon = 36
+    Total_lat = 60*5
 
 !    N_parcel = NINT(132 *1000/Length_init /600*Dt)
     N_parcel = 1
 
-
     Stop_inject = 0
-
-
-    ! Check 2D domain grid
-    IF(MOD(n_x_max,9).ne.0) WRITE(6,*)"*** ERROR ***"
-    IF(MOD(n_y_max,9).ne.0) WRITE(6,*)"*** ERROR ***"
 
 
     IIPAR = State_Grid%NX
     JJPAR = State_Grid%NY
     LLPAR = State_Grid%NZ
-
 
 
 
@@ -223,17 +206,13 @@ CONTAINS
     Plume2d_old%label = 1
 
     Plume2d_old%LON = Inject_lon
-    Plume2d_old%LAT = -29.95e+0_fp
-    Plume2d_old%LEV = Inject_hPa
+    Plume2d_old%LAT = Inject_lat
+    Plume2d_old%LEV = Inject_lev
 
-    Plume2d_old%LENGTH = Length_init ! 1000m 
-    Plume2d_old%ALPHA  = 0.0e+0_fp
 
     Plume2d_old%LIFE = 0.0e+0_fp
     Plume2d_old%AboveTropp = 1
 
-    Plume2d_old%DX = Dx_init
-    Plume2d_old%DY = Dy_init
 
     ! Here assume the injection rate is 30 kg/km (=30 g/m) for H2SO4
     ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
@@ -251,12 +230,6 @@ CONTAINS
     Num_inject = 1
 
     Num_dissolve = 0
-
-
-
-    n_slab_25 = (n_slab_max-2)/4*1
-    n_slab_50 = (n_slab_max-2)/4*2
-    n_slab_75 = (n_slab_max-2)/4*3
 
 
     X_mid  => State_Grid%XMid(:,1) ! Grid box longitude [degrees] ! XMID(:,1,1)   ! IIPAR ! new
@@ -482,7 +455,7 @@ CONTAINS
     integer            :: nAdv        
     REAL(fp)           :: MW_g
 
-    integer :: i_box, n_lon, n_lat
+    integer :: i_box, n_lon, n_lat, n_lev
 
     ! 1:IIPAR
     integer :: i_lon, i_lat, i_lev
@@ -614,8 +587,6 @@ CONTAINS
 
 
 
-
-
     RC     =  GC_SUCCESS
     ErrMsg = ''
 
@@ -648,22 +619,16 @@ CONTAINS
     Y_edge2       = Y_edge(2)
      
     
-
-
     ! -----------------------------------------------------------
     ! add new box every time step
     ! -----------------------------------------------------------
-!    IF(N_stop_inject<0.or.Num_inject<N_stop_inject)THEN
-    WRITE(6,*)Stop_inject, Total_lon, Total_lat
 
     IF(Stop_inject==0)THEN
 
+    DO n_lev = 1, Total_lev, 1
     DO n_lon = 1, Total_lon, 1
     DO n_lat = 1, Total_lat, 1
 
-      WRITE(6,*)' '
-      WRITE(6,*) n_lon, i_box, Num_inject
-      WRITE(6,*) Inject_lon + n_lon, -30.005e+0_fp + n_lat
       i_box = Num_inject
 
       ALLOCATE(Plume2d_new)
@@ -672,21 +637,15 @@ CONTAINS
       Plume2d_new%label = i_box
       Plume2d_new%AboveTropp = 1
 
-      Plume2d_new%LON = Inject_lon + n_lon*1
-      Plume2d_new%LAT = -30.005e+0_fp + n_lat*0.1
-!      Plume2d_new%LAT = ( -30.005e+0_fp + Length_lat * MOD(i_box,N_total) ) &
-!                     * (-1.0)**FLOOR(1.0*i_box/N_total) 
+      Plume2d_new%LON = Inject_lon + (n_lon-1)*10
+      Plume2d_new%LAT = Inject_lat + (n_lat-1)*0.2
 !      Plume2d_new%LAT = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) &
 !                     * (-1.0)**FLOOR(i_box/6000.0) ! -29.995S:29.995N:0.01
-      Plume2d_new%LEV = Inject_hPa
+      Plume2d_new%LEV = Inject_lev + (n_lev-1)*20
 
-      Plume2d_new%LENGTH = Length_init ! 1000m 
-      Plume2d_new%ALPHA  = 0.0e+0_fp
 
       Plume2d_new%LIFE = 0.0e+0_fp
 
-      Plume2d_new%DX = Dx_init
-      Plume2d_new%DY = Dy_init
 
 
 
@@ -704,8 +663,9 @@ CONTAINS
       ! use this value to set the initial latutude for injected plume
       Num_inject = Num_inject + N_parcel
 
-    ENDDO ! DO n_lon = 1, Total_lon, 1
     ENDDO ! DO n_lat = 1, Total_lat, 1
+    ENDDO ! DO n_lon = 1, Total_lon, 1
+    ENDDO ! DO n_lon = 1, Total_lev, 1
 
     ENDIF ! IF(Stop_inject==0)THEN
 
@@ -727,15 +687,10 @@ CONTAINS
       box_lon    = Plume2d%LON
       box_lat    = Plume2d%LAT
       box_lev    = Plume2d%LEV
-      box_length = Plume2d%LENGTH
-      box_alpha  = Plume2d%ALPHA
 
       box_label  = Plume2d%label
       box_life   = Plume2d%LIFE
       box_tropp   = Plume2d%AboveTropp
-
-      Pdx    = Plume2d%DX
-      Pdy    = Plume2d%DY
 
 
 
@@ -782,15 +737,17 @@ CONTAINS
 
       i_lev = Find_iPLev(curr_pressure,P_edge)
       if(i_lev>LLPAR) i_lev=LLPAR
+      IF(i_lev==LLPAR) WRITE(6,*) 'box_lev1:', curr_pressure, i_lev
 
-      IF(i_lev==LLPAR) WRITE(6,*) 'box_lev:', curr_pressure, i_lev
-
+      IF(i_lev<1) i_lev=1
+      IF(i_lev==LLPAR) WRITE(6,*) 'box_lev2:', curr_pressure, i_lev
 
       !-----------------------------------------------------------------------
-      ! Just whether the plume is above the tropopause
+      ! check whether the plume is above the tropopause
       !-----------------------------------------------------------------------
       IF(box_lev>State_Met%TROPP(i_lon,i_lat))THEN
         box_tropp = 0
+        GOTO 400
       ENDIF
 
 
@@ -824,7 +781,7 @@ CONTAINS
        !------------------------------------------------------------------
        ! For the region where lat<72, use Regualr Longitude-Latitude Mesh:
        !------------------------------------------------------------------
-       if(abs(curr_lat)<=72.0)then
+       if(abs(box_lat)<=72.0)then
 
          curr_u = Interplt_wind_RLL(u, i_lon, i_lat, i_lev, curr_lon, &
                                                   curr_lat, curr_pressure)
@@ -851,7 +808,7 @@ CONTAINS
        !------------------------------------------------------------------
        ! For the polar region (lat>=72), use polar sterographic
        !------------------------------------------------------------------
-       if(abs(curr_lat)>72.0)then
+       if(abs(box_lat)>72.0)then
 
          if(abs(curr_lat)>Y_mid(JJPAR))then 
          curr_u_PS = Interplt_uv_PS_polar(1, u, v, i_lon, i_lat, i_lev, curr_lon, curr_lat, curr_pressure)
@@ -926,7 +883,7 @@ CONTAINS
            RK_lon = ATAN( RK_y_PS / RK_x_PS )*180.0/PI +180.0
          endif
 
-         if(RK_lat<0.0)then
+         if(box_lat<0.0)then
            RK_lat = -1 * ATAN( Re / SQRT(RK_x_PS**2+RK_y_PS**2) ) *180.0/PI
          else
            RK_lat = ATAN( Re / SQRT(RK_x_PS**2+RK_y_PS**2) ) *180.0/PI
@@ -955,65 +912,7 @@ CONTAINS
       box_omeg = ( RK_omeg(1) + 2.0*RK_omeg(2) &
                          + 2.0*RK_omeg(3) + RK_omeg(4) ) / 6.0
 
-
-
-
-      !--------------------------------------------------------------------
-      ! interpolate temperature for plume volumn change (PV=nRT):
-      !--------------------------------------------------------------------
-      if(abs(curr_lat)>Y_mid(JJPAR))then
-         curr_T1 = Interplt_wind_RLL_polar(T1, i_lon, i_lat, &
-                                 i_lev, curr_lon, curr_lat, curr_pressure)
-      else
-         curr_T1 = Interplt_wind_RLL(T1, i_lon, i_lat, i_lev, &
-                                        curr_lon, curr_lat, curr_pressure)
-      endif
-
-
-
-      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
-      if(i_lon>IIPAR) i_lon=i_lon-IIPAR
-      if(i_lon<1) i_lon=i_lon+IIPAR
-
-      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
-      if(i_lat>JJPAR) i_lat=JJPAR
-      if(i_lat<1) i_lat=1
-
-      i_lev = Find_iPLev(box_lev,P_edge)
-      if(i_lev>LLPAR)i_lev=LLPAR
-
-
-      if(abs(box_lat)>Y_mid(JJPAR))then
-         next_T2 = Interplt_wind_RLL_polar(T2, i_lon, i_lat, i_lev, &
-                           box_lon, box_lat, box_lev)
-      else
-         next_T2 = Interplt_wind_RLL(T2, i_lon, i_lat, i_lev, &
-                           box_lon, box_lat, box_lev)
-      endif
-
-
-      ! PV=nRT, V2 = T2/P2 : T1/P1 * V1
-      ratio = ( (next_T2/box_lev)/(curr_T1/curr_pressure) )**(1/2)
-
-      ! assume the volume change mainly apply to the cross-section, 
-      ! the box_length would not change 
-
-
-      V_prev = Pdx*Pdy*box_length*1.0e+6_fp
-
-      Pdx = Pdx *ratio
-      Pdy = Pdy *ratio
-
-      V_new = Pdx*Pdy*box_length*1.0e+6_fp
-
-
-!      call cpu_time(start)
-!      box_concnt_2D(:,:,:) = box_concnt_2D(:,:,:)*V_prev/V_new
-!      call cpu_time(finish)
-!      WRITE(6,*)'Time1 (finish-start) for 2D:', i_box, finish-start
-
-
-
+400 CONTINUE
 
       !-------------------------------------------------------------------
       ! Output box location
@@ -1044,15 +943,9 @@ CONTAINS
       Plume2d%LON     = box_lon
       Plume2d%LAT     = box_lat
       Plume2d%LEV     = box_lev
-      Plume2d%LENGTH  = box_length
-      Plume2d%ALPHA   = box_alpha
       Plume2d%label   = box_label
       Plume2d%LIFE    = box_life
       Plume2d%AboveTropp    = box_tropp
-
-
-      Plume2d%DX = Pdx
-      Plume2d%DY = Pdy
 
 
       Plume2d => Plume2d%next
@@ -1207,10 +1100,16 @@ CONTAINS
 
 
     ! second interpolate vertically (Linear)
-
-    wind_lonlat_lev = wind_lonlat(1) + (wind_lonlat(2)-wind_lonlat(1)) &
+    IF(P_mid(init_lev+1)==P_mid(init_lev))THEN
+      WRITE(6,*)"*** WARNING: two same pressure level happens! ***"
+      WRITE(6,*)"init_lev, P_mid(init_lev), P_mid(init_lev+1):"
+      WRITE(6,*)init_lev, P_mid(init_lev), P_mid(init_lev+1)
+      wind_lonlat_lev = wind_lonlat(1)
+    ELSE
+      wind_lonlat_lev = wind_lonlat(1) + (wind_lonlat(2)-wind_lonlat(1)) &
                                  / (P_mid(init_lev+1)-P_mid(init_lev)) &
                                      * (curr_pressure-P_mid(init_lev))
+    ENDIF
 
     !Line_Interplt( wind_lonlat(1), wind_lonlat(2), P_mid(i_lev), P_mid(i_lev+1), curr_pressure )
 
