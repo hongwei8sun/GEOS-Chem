@@ -347,11 +347,11 @@ MODULE Lagrange_Mod
 
   PUBLIC :: use_lagrange
 
-  integer               :: use_lagrange = 0
+  integer               :: use_lagrange = 1
   integer               :: TROPP_sink = 0
 
-  integer, parameter    :: n_x_max = 207 !number of x grids in 2D, should be (9 x odd)
-  integer, parameter    :: n_y_max = 81  !number of y grids in 2D, should be (9 x odd)
+  integer, parameter    :: n_x_max = 243 !number of x grids in 2D, should be (9 x odd)
+  integer, parameter    :: n_y_max = 117  !number of y grids in 2D, should be (9 x odd)
 
   ! the odd number of n_x_max can ensure a center grid
   integer, parameter    :: n_x_mid = (n_x_max+1)/2 !242
@@ -375,12 +375,12 @@ MODULE Lagrange_Mod
 
   real, parameter       :: Dx_init = 100
   real, parameter       :: Dy_init = 10
-  real, parameter       :: Length_init = 2000.0 ! 1000.0e+0_fp ! [m]
+  real, parameter       :: Length_init = 1000.0e+0_fp ! [m]
 
   real, parameter       :: Inject_lon = -141.0e+0_fp
-  real, parameter       :: Inject_hPa = 52.0e+0_fp
+  real, parameter       :: Inject_hPa = 50.0e+0_fp
   ! 25.0e+0_fp ! [hPa] at about 25 km
-  ! 52.0e+0_fp       ! [hPa] at about 20 km
+  ! 50.0e+0_fp       ! [hPa] at about 20 km
 
   ! some parameter for sensitive test
   integer, parameter    :: N_split = 3
@@ -507,7 +507,8 @@ CONTAINS
     N_total    = 60 * 1.0e+5 / Length_init
     Length_lat = Length_init / 1.0e+5
 
-
+    ! define how many plume segments will be injected
+    ! -1 means keep inecting in the whole simulation
     N_stop_inject = N_total ! -1
 
     Stop_inject = 0
