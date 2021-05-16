@@ -294,6 +294,21 @@
 !  real, parameter       :: Inject_lon = -141.0e+0_fp
 !  real, parameter       :: Inject_hPa = 52.0e+0_fp
 
+! May 15, 2021
+! Output the detailed plume concentration distribution in the plume model.
+!  IF(mod(tt*Dt,24*60*60)==0)THEN   ! output once every day (24 hours)
+!
+!    FileConcnt   = 'Lagrange_Concnt_Volume_' // TRIM(ADJUSTL(YEAR_C)) // '-' &
+!      //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
+!      // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
+!      // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
+!
+!    OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='REPLACE',  &
+!        FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+!
+!    CLOSE(485)
+!
+!  ENDIF ! IF(mod(tt,1440)==0)THEN
 
 
 ! double check the P_edge, whether P_edge can change at different (lon, lat)
@@ -408,6 +423,7 @@ MODULE Lagrange_Mod
   ! use Kchem = 1.0e-20_fp for >1 year simulation
 
   integer               :: Stop_inject ! 1: stop injecting; 0: keep injecting
+                           ! used for contiuing injecting scenario
 
   TYPE :: Plume2d_list
     integer :: IsNew ! 1: the plume is new injected
@@ -949,6 +965,15 @@ CONTAINS
 
     USE UnitConv_Mod,  ONLY : Convert_Spc_Units
 
+
+    USE TIME_MOD,        ONLY : GET_YEAR
+    USE TIME_MOD,        ONLY : GET_MONTH
+    USE TIME_MOD,        ONLY : GET_DAY
+    USE TIME_MOD,        ONLY : GET_HOUR
+    USE TIME_MOD,        ONLY : GET_MINUTE
+    USE TIME_MOD,        ONLY : GET_SECOND
+
+
     logical, intent(in)           :: am_I_Root
     TYPE(MetState), intent(in)    :: State_Met
     TYPE(ChmState), intent(inout) :: State_Chm
@@ -1039,6 +1064,60 @@ CONTAINS
     CHARACTER(LEN=255)     :: ErrMsg
 
 
+
+    INTEGER :: YEAR
+    INTEGER :: MONTH
+    INTEGER :: DAY
+    INTEGER :: HOUR
+    INTEGER :: MINUTE
+    INTEGER :: SECOND
+
+    CHARACTER(LEN=255)     :: FileConcnt
+
+    CHARACTER(LEN=25) :: YEAR_C
+    CHARACTER(LEN=25) :: MONTH_C
+    CHARACTER(LEN=25) :: DAY_C
+    CHARACTER(LEN=25) :: HOUR_C
+    CHARACTER(LEN=25) :: MINUTE_C
+    CHARACTER(LEN=25) :: SECOND_C
+
+
+    Dt = GET_TS_DYN()
+
+
+    YEAR        = GET_YEAR()
+    MONTH       = GET_MONTH()
+    DAY         = GET_DAY()
+    HOUR        = GET_HOUR()
+    MINUTE      = GET_MINUTE()
+    SECOND      = GET_SECOND()
+
+    WRITE(YEAR_C,*) YEAR
+    WRITE(MONTH_C,*) MONTH
+    WRITE(DAY_C,*) DAY
+    WRITE(HOUR_C,*) HOUR
+    WRITE(MINUTE_C,*) MINUTE
+    WRITE(SECOND_C,*) SECOND
+
+    IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
+
+      FileConcnt   = 'Lagrange_Concnt_Volume_' // TRIM(ADJUSTL(YEAR_C)) // '-'   &
+        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
+        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
+        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
+
+
+      OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='REPLACE',  &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+      CLOSE(485)
+
+
+    ENDIF ! IF(mod(tt,1440)==0)THEN
+
+
+
+
     IF(Stop_inject==1) GOTO 400
 
     allocate(box_concnt_2D(n_x_max, n_y_max, n_species))
@@ -1049,7 +1128,6 @@ CONTAINS
     ErrMsg = ''
 
 
-    Dt = GET_TS_DYN()
 
     RK_Dt(1) = 0.0
     RK_Dt(2) = 0.5*Dt
@@ -1641,6 +1719,26 @@ CONTAINS
       Pdy = Pdy*SQRT(length0/box_length)
 
 
+
+
+      IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
+
+        OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='OLD',  &
+          POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+        V_new = Pdx*Pdy*box_length*1.0e+6_fp
+
+        DO i_y = 1,n_y_max,1
+        DO i_x = 1,n_x_max,1
+           WRITE(485,*) box_concnt_2D(i_x,i_y,i_tracer), V_new
+        ENDDO
+        ENDDO
+
+        CLOSE(485)
+
+      ENDIF
+
+
       ! ----------------------------------------------------------------
       ! update     
       ! ----------------------------------------------------------------
@@ -2080,6 +2178,31 @@ CONTAINS
 !      IF(box_label==1)WRITE(6,*)'mass test after stretch:', i_box, &
 !                                box_Ra*box_Rb*box_length*1.0e+6_fp &
 !                                  * SUM(box_concnt_1D(1:n_slab_max))
+
+
+
+
+
+
+      IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
+
+        OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='OLD',  &
+          POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+        V_new = box_Ra*box_Rb*box_length*1.0e+6_fp
+        
+        DO i_slab = 1, n_slab_max, 1
+           WRITE(485,*) box_concnt_1D(i_slab,i_tracer), V_new
+        ENDDO
+
+        CLOSE(485)
+
+      ENDIF
+
+
+
+
+
 
 
       Plume1d%LON    = box_lon

@@ -74,8 +74,8 @@ MODULE Trajectory_Mod
   integer               :: id_PASV_EU2, id_PASV_EU
 
 
-  real, parameter       :: Inject_lon =   5.1e+0_fp
-  real, parameter       :: Inject_lat = -30.1e+0_fp
+  real, parameter       :: Inject_lon =   -170.1e+0_fp
+  real, parameter       :: Inject_lat = -29.9e+0_fp
   real, parameter       :: Inject_lev =  50.0e+0_fp
   ! 25.0e+0_fp ! [hPa] at about 25 km
   ! 50.0e+0_fp       ! [hPa] at about 20 km
@@ -173,8 +173,8 @@ CONTAINS
 
     ! use for plume injection
     Total_lev = 3
-    Total_lon = 36
-    Total_lat = 60*5
+    Total_lon = 18
+    Total_lat = 60*2
 
 !    N_parcel = NINT(132 *1000/Length_init /600*Dt)
     N_parcel = 1
@@ -637,8 +637,8 @@ CONTAINS
       Plume2d_new%label = i_box
       Plume2d_new%AboveTropp = 1
 
-      Plume2d_new%LON = Inject_lon + (n_lon-1)*10
-      Plume2d_new%LAT = Inject_lat + (n_lat-1)*0.2
+      Plume2d_new%LON = Inject_lon + (n_lon-1) * 20
+      Plume2d_new%LAT = Inject_lat + (n_lat-1) * 0.5
 !      Plume2d_new%LAT = ( -30.005e+0_fp + 0.01e+0_fp * MOD(i_box,6000) ) &
 !                     * (-1.0)**FLOOR(i_box/6000.0) ! -29.995S:29.995N:0.01
       Plume2d_new%LEV = Inject_lev + (n_lev-1)*20
@@ -919,20 +919,20 @@ CONTAINS
       !-------------------------------------------------------------------
       IF(mod(tt,24*60*60)==0)THEN   ! output once every day (24 hours)
 
-      OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD',  &
+        OPEN( 261,      FILE=TRIM( FILENAME   ), STATUS='OLD',  &
           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-      WRITE(261,*) box_lon, box_lat, box_lev
+        WRITE(261,*) box_lon, box_lat, box_lev
 
-      CLOSE(261)
+        CLOSE(261)
 
 
-      OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='OLD',  &
+        OPEN( 262,      FILE=TRIM( FILENAME2   ), STATUS='OLD',  &
           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-      WRITE(262,*) box_label, box_life, box_tropp
+        WRITE(262,*) box_label, box_life, box_tropp
 
-      CLOSE(262)
+        CLOSE(262)
 
       ENDIF
 
