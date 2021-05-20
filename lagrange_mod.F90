@@ -310,6 +310,18 @@
 !
 !  ENDIF ! IF(mod(tt,1440)==0)THEN
 
+! May 17, 2021
+!
+! (1)
+! change: 
+!    IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
+! to:
+!    IF(mod(tt*NINT(Dt),24*3600)==0)THEN   ! output once every day (24 hours)
+! Once the time step is changed, hourly output still works
+!
+! (2)
+! Move the plume concentration output from lagrange_run to plume_run
+! make sure the total mass (Plume model + GOES-Chem) is conserved
 
 ! double check the P_edge, whether P_edge can change at different (lon, lat)
 
@@ -966,14 +978,6 @@ CONTAINS
     USE UnitConv_Mod,  ONLY : Convert_Spc_Units
 
 
-    USE TIME_MOD,        ONLY : GET_YEAR
-    USE TIME_MOD,        ONLY : GET_MONTH
-    USE TIME_MOD,        ONLY : GET_DAY
-    USE TIME_MOD,        ONLY : GET_HOUR
-    USE TIME_MOD,        ONLY : GET_MINUTE
-    USE TIME_MOD,        ONLY : GET_SECOND
-
-
     logical, intent(in)           :: am_I_Root
     TYPE(MetState), intent(in)    :: State_Met
     TYPE(ChmState), intent(inout) :: State_Chm
@@ -1064,58 +1068,7 @@ CONTAINS
     CHARACTER(LEN=255)     :: ErrMsg
 
 
-
-    INTEGER :: YEAR
-    INTEGER :: MONTH
-    INTEGER :: DAY
-    INTEGER :: HOUR
-    INTEGER :: MINUTE
-    INTEGER :: SECOND
-
-    CHARACTER(LEN=255)     :: FileConcnt
-
-    CHARACTER(LEN=25) :: YEAR_C
-    CHARACTER(LEN=25) :: MONTH_C
-    CHARACTER(LEN=25) :: DAY_C
-    CHARACTER(LEN=25) :: HOUR_C
-    CHARACTER(LEN=25) :: MINUTE_C
-    CHARACTER(LEN=25) :: SECOND_C
-
-
     Dt = GET_TS_DYN()
-
-
-    YEAR        = GET_YEAR()
-    MONTH       = GET_MONTH()
-    DAY         = GET_DAY()
-    HOUR        = GET_HOUR()
-    MINUTE      = GET_MINUTE()
-    SECOND      = GET_SECOND()
-
-    WRITE(YEAR_C,*) YEAR
-    WRITE(MONTH_C,*) MONTH
-    WRITE(DAY_C,*) DAY
-    WRITE(HOUR_C,*) HOUR
-    WRITE(MINUTE_C,*) MINUTE
-    WRITE(SECOND_C,*) SECOND
-
-    IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
-
-      FileConcnt   = 'Lagrange_Concnt_Volume_' // TRIM(ADJUSTL(YEAR_C)) // '-'   &
-        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
-        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
-        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
-
-
-      OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='REPLACE',  &
-          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-      CLOSE(485)
-
-
-    ENDIF ! IF(mod(tt,1440)==0)THEN
-
-
 
 
     IF(Stop_inject==1) GOTO 400
@@ -1720,25 +1673,6 @@ CONTAINS
 
 
 
-
-      IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
-
-        OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='OLD',  &
-          POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-        V_new = Pdx*Pdy*box_length*1.0e+6_fp
-
-        DO i_y = 1,n_y_max,1
-        DO i_x = 1,n_x_max,1
-           WRITE(485,*) box_concnt_2D(i_x,i_y,i_tracer), V_new
-        ENDDO
-        ENDDO
-
-        CLOSE(485)
-
-      ENDIF
-
-
       ! ----------------------------------------------------------------
       ! update     
       ! ----------------------------------------------------------------
@@ -2178,30 +2112,6 @@ CONTAINS
 !      IF(box_label==1)WRITE(6,*)'mass test after stretch:', i_box, &
 !                                box_Ra*box_Rb*box_length*1.0e+6_fp &
 !                                  * SUM(box_concnt_1D(1:n_slab_max))
-
-
-
-
-
-
-      IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
-
-        OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='OLD',  &
-          POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-        V_new = box_Ra*box_Rb*box_length*1.0e+6_fp
-        
-        DO i_slab = 1, n_slab_max, 1
-           WRITE(485,*) box_concnt_1D(i_slab,i_tracer), V_new
-        ENDDO
-
-        CLOSE(485)
-
-      ENDIF
-
-
-
-
 
 
 
@@ -3049,7 +2959,6 @@ CONTAINS
     real(fp)  :: start2, finish2
 
 
-
     real(fp) :: box_lon, box_lat, box_lev
     real(fp) :: box_length, box_alpha, box_theta
     real(fp) :: Pdx, Pdy
@@ -3064,28 +2973,67 @@ CONTAINS
     TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
 
 
-
     CHARACTER(LEN=255)     :: FILENAME2
     CHARACTER(LEN=63)      :: OrigUnit
     CHARACTER(LEN=255)     :: ErrMsg
-
 
     INTEGER :: YEAR
     INTEGER :: MONTH
     INTEGER :: DAY
     INTEGER :: HOUR
     INTEGER :: MINUTE
+    INTEGER :: SECOND
+
+    CHARACTER(LEN=255)     :: FileConcnt
+
+    CHARACTER(LEN=25) :: YEAR_C
+    CHARACTER(LEN=25) :: MONTH_C
+    CHARACTER(LEN=25) :: DAY_C
+    CHARACTER(LEN=25) :: HOUR_C
+    CHARACTER(LEN=25) :: MINUTE_C
+    CHARACTER(LEN=25) :: SECOND_C
 
 
-    IF(Stop_inject==1) GOTO 999
+    Dt = GET_TS_DYN()
 
-    Stop_loop = 0
 
     YEAR        = GET_YEAR()
     MONTH       = GET_MONTH()
     DAY         = GET_DAY()
     HOUR        = GET_HOUR()
     MINUTE      = GET_MINUTE()
+    SECOND      = GET_SECOND()
+
+    WRITE(YEAR_C,*) YEAR
+    WRITE(MONTH_C,*) MONTH
+    WRITE(DAY_C,*) DAY
+    WRITE(HOUR_C,*) HOUR
+    WRITE(MINUTE_C,*) MINUTE
+    WRITE(SECOND_C,*) SECOND
+
+    IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
+
+      FileConcnt   = 'Lagrange_Concnt_Volume_' // TRIM(ADJUSTL(YEAR_C)) // '-'
+&
+        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
+        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
+        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
+
+
+      OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='REPLACE',  &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+      CLOSE(485)
+
+
+    ENDIF ! IF(mod(tt,1440)==0)THEN
+
+
+
+
+    IF(Stop_inject==1) GOTO 999
+
+    Stop_loop = 0
 
 
     RC        =  GC_SUCCESS
@@ -3919,7 +3867,22 @@ CONTAINS
 
 
 
-!       ENDDO ! DO t1s = 1, NINT(Dt/Pdt)
+
+       IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
+
+         OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='OLD',  &
+           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+         DO i_y = 1,n_y_max,1
+         DO i_x = 1,n_x_max,1
+            WRITE(485,*) box_concnt_2D(i_x,i_y,i_tracer), &
+                                        Pdx*Pdy*box_length*1.0e+6_fp
+         ENDDO
+         ENDDO
+
+         CLOSE(485)
+
+       ENDIF
 
 
        Plume2d%LON = box_lon
@@ -4588,6 +4551,23 @@ CONTAINS
 
 111     CONTINUE
 
+
+
+
+
+       IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
+ 
+         OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='OLD',  &
+           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+         DO i_slab = 1, n_slab_max, 1
+            WRITE(485,*) box_concnt_1D(i_slab,i_tracer), &
+                                        box_Ra*box_Rb*box_length*1.0e+6_fp
+         ENDDO
+ 
+         CLOSE(485)
+
+       ENDIF
 
 
        ! update the 1d plume for current node
@@ -5315,6 +5295,8 @@ CONTAINS
 
     USE Input_Opt_Mod, ONLY : OptInput
 
+    USE TIME_MOD,        ONLY : GET_TS_DYN
+
     USE TIME_MOD,        ONLY : GET_YEAR
     USE TIME_MOD,        ONLY : GET_MONTH
     USE TIME_MOD,        ONLY : GET_DAY
@@ -5351,6 +5333,10 @@ CONTAINS
     TYPE(Plume2d_list), POINTER :: Plume2d_new, PLume2d, Plume2d_prev
     TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
 
+    REAL(fp) :: Dt
+
+
+    Dt = GET_TS_DYN()
 
     YEAR        = GET_YEAR()
     MONTH       = GET_MONTH()
@@ -5369,13 +5355,7 @@ CONTAINS
     !-------------------------------------------------------------------
     ! Output box location
     !-------------------------------------------------------------------
-
-    IF(mod(tt,144)==0)THEN   ! output once every day (24 hours)
-
-!    FILENAME   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) // '-'   &
-!        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
-!        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
-!        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
+    IF(mod(tt*NINT(Dt),24*3600)==0)THEN   ! output once every day (24 hours)
 
     FILENAME3 = 'Plume_number.txt'
 
