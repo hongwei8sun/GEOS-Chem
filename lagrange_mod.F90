@@ -323,6 +323,32 @@
 ! Move the plume concentration output from lagrange_run to plume_run
 ! make sure the total mass (Plume model + GOES-Chem) is conserved
 
+! May 25, 2021
+! add plume location (i_lon,i_lat,i_lev) to the output txt.
+
+! May 26, 2021
+!
+! (1)
+! change:         if(RK_lat<0.0)then
+! to:             if(box_lat<0.0)then
+!
+! (2)
+!    ! second interpolate vertically (Linear)
+!    IF(P_mid(init_lev+1)==P_mid(init_lev))THEN
+!      WRITE(6,*)"*** WARNING: two same pressure level happens! ***"
+!      WRITE(6,*)"init_lev, P_mid(init_lev), P_mid(init_lev+1):"
+!      WRITE(6,*)init_lev, P_mid(init_lev), P_mid(init_lev+1)
+!      wind_lonlat_lev = wind_lonlat(1)
+!    ELSE
+!      wind_lonlat_lev = wind_lonlat(1) + (wind_lonlat(2)-wind_lonlat(1)) &
+!                                 / (P_mid(init_lev+1)-P_mid(init_lev)) &
+!                                     * (curr_pressure-P_mid(init_lev))
+!    ENDIF
+
+
+
+
+
 ! double check the P_edge, whether P_edge can change at different (lon, lat)
 
 
@@ -1468,7 +1494,7 @@ CONTAINS
            RK_lon = ATAN( RK_y_PS / RK_x_PS )*180.0/PI +180.0
          endif
 
-         if(RK_lat<0.0)then
+         if(box_lat<0.0)then
            RK_lat = -1 * ATAN( Re / SQRT(RK_x_PS**2+RK_y_PS**2) ) *180.0/PI
          else
            RK_lat = ATAN( Re / SQRT(RK_x_PS**2+RK_y_PS**2) ) *180.0/PI
@@ -1905,7 +1931,7 @@ CONTAINS
            RK_lon = ATAN( RK_y_PS / RK_x_PS )*180.0/PI +180.0
          endif
 
-         if(RK_lat<0.0)then
+         if(box_lat<0.0)then
            RK_lat = -1 * ATAN( Re / SQRT(RK_x_PS**2+RK_y_PS**2) ) *180.0/PI
          else
            RK_lat = ATAN( Re / SQRT(RK_x_PS**2+RK_y_PS**2) ) *180.0/PI
@@ -2285,10 +2311,16 @@ CONTAINS
 
 
     ! second interpolate vertically (Linear)
-
-    wind_lonlat_lev = wind_lonlat(1) + (wind_lonlat(2)-wind_lonlat(1)) &
+    IF(P_mid(init_lev+1)==P_mid(init_lev))THEN
+      WRITE(6,*)"*** WARNING: two same pressure level happens! ***"
+      WRITE(6,*)"init_lev, P_mid(init_lev), P_mid(init_lev+1):"
+      WRITE(6,*)init_lev, P_mid(init_lev), P_mid(init_lev+1)
+      wind_lonlat_lev = wind_lonlat(1)
+    ELSE
+      wind_lonlat_lev = wind_lonlat(1) + (wind_lonlat(2)-wind_lonlat(1)) &
                                  / (P_mid(init_lev+1)-P_mid(init_lev)) &
                                      * (curr_pressure-P_mid(init_lev))
+    ENDIF
 
     !Line_Interplt( wind_lonlat(1), wind_lonlat(2), P_mid(i_lev), P_mid(i_lev+1), curr_pressure )
 
@@ -2406,10 +2438,17 @@ CONTAINS
    ENDIF
 
     ! second interpolate vertically (Linear)
-    wind_lonlat_lev =   wind_lonlat(1) &
+    IF(P_mid(init_lev+1)==P_mid(init_lev))THEN
+      WRITE(6,*)"*** WARNING: two same pressure level happens! ***"
+      WRITE(6,*)"init_lev, P_mid(init_lev), P_mid(init_lev+1):"
+      WRITE(6,*)init_lev, P_mid(init_lev), P_mid(init_lev+1)
+      wind_lonlat_lev = wind_lonlat(1)
+    ELSE
+      wind_lonlat_lev =   wind_lonlat(1) &
                       + (wind_lonlat(2)-wind_lonlat(1)) &
                       / (P_mid(init_lev+1)-P_mid(init_lev)) &
                       * (curr_pressure-P_mid(init_lev))
+    ENDIF
 
     !Line_Interplt( wind_lonlat(1), wind_lonlat(2), P_mid(i_lev),
     !P_mid(i_lev+1), curr_pressure )
@@ -3013,8 +3052,7 @@ CONTAINS
 
     IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
 
-      FileConcnt   = 'Lagrange_Concnt_Volume_' // TRIM(ADJUSTL(YEAR_C)) // '-'
-&
+      FileConcnt   = 'Lagrange_Concnt_Volume_' // TRIM(ADJUSTL(YEAR_C)) // '-' &
         //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
         // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
         // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
@@ -3875,8 +3913,9 @@ CONTAINS
 
          DO i_y = 1,n_y_max,1
          DO i_x = 1,n_x_max,1
-            WRITE(485,*) box_concnt_2D(i_x,i_y,i_tracer), &
-                                        Pdx*Pdy*box_length*1.0e+6_fp
+            WRITE(485,'(I4,xI4,x,I4,x,E20.12,x,E20.12)') &
+                        i_lon,i_lat,i_lev,box_concnt_2D(i_x,i_y,i_tracer), &
+                                                 Pdx*Pdy*box_length*1.0e+6_fp
          ENDDO
          ENDDO
 
@@ -4561,8 +4600,9 @@ CONTAINS
            POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
          DO i_slab = 1, n_slab_max, 1
-            WRITE(485,*) box_concnt_1D(i_slab,i_tracer), &
-                                        box_Ra*box_Rb*box_length*1.0e+6_fp
+            WRITE(485,'(I4,xI4,x,I4,x,E20.12,x,E20.12)') &
+                          i_lon,i_lat,i_lev,box_concnt_1D(i_slab,i_tracer), &
+                                           box_Ra*box_Rb*box_length*1.0e+6_fp
          ENDDO
  
          CLOSE(485)
