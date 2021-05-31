@@ -345,7 +345,16 @@
 !                                     * (curr_pressure-P_mid(init_lev))
 !    ENDIF
 
-
+! May 31, 2021
+! Put three product/time/location criterion for transferring in the sam place
+!       ! ------------------------------------------------------------------
+!       ! 1. Product criterion
+!       ! 2. Time criterion
+!       ! 3. Location critetion
+!       ! ------------------------------------------------------------------
+!       IF( ABS(Rate_Mix-Rate_Eul)/Rate_Eul<Dissolve_critiria &
+!           .OR. box_life/3600/24>30.0 &
+!           .OR. box_lev>State_Met%TROPP(i_lon,i_lat) )THEN
 
 
 
@@ -3023,7 +3032,7 @@ CONTAINS
     INTEGER :: MINUTE
     INTEGER :: SECOND
 
-    CHARACTER(LEN=255)     :: FileConcnt
+    CHARACTER(LEN=255)     :: FileConcnt, FileXYZ
 
     CHARACTER(LEN=25) :: YEAR_C
     CHARACTER(LEN=25) :: MONTH_C
@@ -3063,6 +3072,17 @@ CONTAINS
 
       CLOSE(485)
 
+
+      FileXYZ   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) // '-' &
+        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
+        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
+        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
+
+
+      OPEN( 486,      FILE=TRIM( FileXYZ   ), STATUS='REPLACE',  &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+      CLOSE(486)
 
     ENDIF ! IF(mod(tt,1440)==0)THEN
 
@@ -3908,18 +3928,30 @@ CONTAINS
 
        IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
 
+
          OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='OLD',  &
            POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
          DO i_y = 1,n_y_max,1
          DO i_x = 1,n_x_max,1
-            WRITE(485,'(I4,xI4,x,I4,x,E20.12,x,E20.12)') &
-                        i_lon,i_lat,i_lev,box_concnt_2D(i_x,i_y,i_tracer), &
-                                                 Pdx*Pdy*box_length*1.0e+6_fp
+            WRITE(485,*) box_concnt_2D(i_x,i_y,i_tracer), V_grid_2D
          ENDDO
          ENDDO
 
          CLOSE(485)
+
+
+
+         OPEN( 486,      FILE=TRIM( FileXYZ   ), STATUS='OLD',  &
+           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+         DO i_y = 1,n_y_max,1
+         DO i_x = 1,n_x_max,1
+            WRITE(486,*) i_lon,i_lat,i_lev
+         ENDDO
+         ENDDO
+
+         CLOSE(486)
 
        ENDIF
 
@@ -4268,9 +4300,14 @@ CONTAINS
 
 !       WRITE(6,*)'1d test:', i_box, Num_Plume1d
 
-
-       IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<Dissolve_critiria .OR. &
-                                box_life/3600/24>30.0)THEN 
+       ! ------------------------------------------------------------------
+       ! 1. Product criterion
+       ! 2. Time criterion
+       ! 3. Location critetion
+       ! ------------------------------------------------------------------
+       IF( ABS(Rate_Mix-Rate_Eul)/Rate_Eul<Dissolve_critiria &
+           .OR. box_life/3600/24>30.0 &
+           .OR. box_lev>State_Met%TROPP(i_lon,i_lat) )THEN 
 
          Num_dissolve = Num_dissolve+1
 
@@ -4424,81 +4461,81 @@ CONTAINS
        ! Fourth judge:
        ! If the plume touch the tropopause, dissolve the plume
        !===================================================================
-       IF ( box_lev>State_Met%TROPP(i_lon,i_lat) ) THEN
-
-
-         Num_dissolve = Num_dissolve+1
-
-         WRITE(6,*)'DISSOLVE 4:', i_box
-
-
-         DO i_species=1,n_species,1
-         i_advect = id_PASV_LA +i_species -1
-
-         backgrd_concnt = &
-                  State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
-
-         backgrd_concnt = &
-           ( SUM(box_concnt_1D(1:n_slab_max,i_species)) * V_grid_1D   &
-                + backgrd_concnt*grid_volumn ) / grid_volumn
-
-         State_Chm%Species(i_lon,i_lat,i_lev,i_advect) = backgrd_concnt
-         ENDDO
-
-
-         WRITE(6,*) '*** Dissolved in 4th Judge ***', i_box
-
-
-
-         IF(.NOT.ASSOCIATED(Plume1d%next) .and. &
-                                .NOT.ASSOCIATED(Plume1d_prev))THEN
-
-            WRITE(6,*)'                 '
-            WRITE(6,*)'*** Only left the last Plume1d', Num_Plume1d
-            WRITE(6,*)'                 '
-            DEALLOCATE(Plume1d_head)
-
-            i_box = i_box-1
-            Num_Plume1d = Num_Plume1d - 1
-
-            GOTO 500 ! Only 1 plume1d left, skip loop
-
-         ENDIF
-
-
-         IF(.NOT.ASSOCIATED(Plume1d%next))THEN ! delete last node
-            Plume1d_old%next => Plume1d_prev
-            Plume1d_old => Plume1d_old%next
-
-!            Plume1d => Plume1d_prev%next !!! ???
-            IF(ASSOCIATED(Plume1d_prev%next)) NULLIFY(Plume1d_prev%next)
-            DEALLOCATE(Plume1d%CONCNT1d)
-            DEALLOCATE(Plume1d)
-            i_box = i_box-1
-            Num_Plume1d = Num_Plume1d - 1
-            GOTO 500
-         ELSEIF(ASSOCIATED(Plume1d_prev))THEN ! delete node, not head/tail
-            Plume1d => Plume1d_prev%next
-            Plume1d_prev%next => Plume1d%next
-            DEALLOCATE(Plume1d%CONCNT1d)
-            DEALLOCATE(Plume1d)
-            Plume1d => Plume1d_prev%next
-         ELSE ! delete head node
-            Plume1d => Plume1d_head
-            Plume1d_head => Plume1d%next
-            DEALLOCATE(Plume1d%CONCNT1d)
-            DEALLOCATE(Plume1d)
-            Plume1d => Plume1d_head
-         ENDIF
-
-         i_box = i_box-1
-         Num_Plume1d = Num_Plume1d - 1
-
-
-
-         GOTO 200 ! skip this box, go to next box
-
-       ENDIF ! IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.01)THEN
+!       IF ( box_lev>State_Met%TROPP(i_lon,i_lat) ) THEN
+!
+!
+!         Num_dissolve = Num_dissolve+1
+!
+!         WRITE(6,*)'DISSOLVE 4:', i_box
+!
+!
+!         DO i_species=1,n_species,1
+!         i_advect = id_PASV_LA +i_species -1
+!
+!         backgrd_concnt = &
+!                  State_Chm%Species(i_lon,i_lat,i_lev,i_advect)
+!
+!         backgrd_concnt = &
+!           ( SUM(box_concnt_1D(1:n_slab_max,i_species)) * V_grid_1D   &
+!                + backgrd_concnt*grid_volumn ) / grid_volumn
+!
+!         State_Chm%Species(i_lon,i_lat,i_lev,i_advect) = backgrd_concnt
+!         ENDDO
+!
+!
+!         WRITE(6,*) '*** Dissolved in 4th Judge ***', i_box
+!
+!
+!
+!         IF(.NOT.ASSOCIATED(Plume1d%next) .and. &
+!                                .NOT.ASSOCIATED(Plume1d_prev))THEN
+!
+!            WRITE(6,*)'                 '
+!            WRITE(6,*)'*** Only left the last Plume1d', Num_Plume1d
+!            WRITE(6,*)'                 '
+!            DEALLOCATE(Plume1d_head)
+!
+!            i_box = i_box-1
+!            Num_Plume1d = Num_Plume1d - 1
+!
+!            GOTO 500 ! Only 1 plume1d left, skip loop
+!
+!         ENDIF
+!
+!
+!         IF(.NOT.ASSOCIATED(Plume1d%next))THEN ! delete last node
+!            Plume1d_old%next => Plume1d_prev
+!            Plume1d_old => Plume1d_old%next
+!
+!!            Plume1d => Plume1d_prev%next !!! ???
+!            IF(ASSOCIATED(Plume1d_prev%next)) NULLIFY(Plume1d_prev%next)
+!            DEALLOCATE(Plume1d%CONCNT1d)
+!            DEALLOCATE(Plume1d)
+!            i_box = i_box-1
+!            Num_Plume1d = Num_Plume1d - 1
+!            GOTO 500
+!         ELSEIF(ASSOCIATED(Plume1d_prev))THEN ! delete node, not head/tail
+!            Plume1d => Plume1d_prev%next
+!            Plume1d_prev%next => Plume1d%next
+!            DEALLOCATE(Plume1d%CONCNT1d)
+!            DEALLOCATE(Plume1d)
+!            Plume1d => Plume1d_prev%next
+!         ELSE ! delete head node
+!            Plume1d => Plume1d_head
+!            Plume1d_head => Plume1d%next
+!            DEALLOCATE(Plume1d%CONCNT1d)
+!            DEALLOCATE(Plume1d)
+!            Plume1d => Plume1d_head
+!         ENDIF
+!
+!         i_box = i_box-1
+!         Num_Plume1d = Num_Plume1d - 1
+!
+!
+!
+!         GOTO 200 ! skip this box, go to next box
+!
+!       ENDIF ! IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.01)THEN
 
 
        enddo ! do t1s=1,NINT(Dt/Dt2)
@@ -4600,12 +4637,21 @@ CONTAINS
            POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
          DO i_slab = 1, n_slab_max, 1
-            WRITE(485,'(I4,xI4,x,I4,x,E20.12,x,E20.12)') &
-                          i_lon,i_lat,i_lev,box_concnt_1D(i_slab,i_tracer), &
-                                           box_Ra*box_Rb*box_length*1.0e+6_fp
+            WRITE(485,*) box_concnt_1D(i_slab,i_tracer), V_grid_1D
          ENDDO
- 
+
          CLOSE(485)
+
+
+
+         OPEN( 486,      FILE=TRIM( FileXYZ   ), STATUS='OLD',  &
+           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+         DO i_slab = 1, n_slab_max, 1
+            WRITE(486,*) i_lon,i_lat,i_lev
+         ENDDO
+
+         CLOSE(486)
 
        ENDIF
 
