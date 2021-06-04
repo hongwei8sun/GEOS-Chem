@@ -412,7 +412,7 @@ MODULE Lagrange_Mod
   integer               :: use_lagrange = 1
   integer               :: TROPP_sink = 0
 
-  integer, parameter    :: n_x_max = 243 !number of x grids in 2D, should be (9 x odd)
+  integer, parameter    :: n_x_max = 243  !number of x grids in 2D, should be (9 x odd)
   integer, parameter    :: n_y_max = 117  !number of y grids in 2D, should be (9 x odd)
 
   ! the odd number of n_x_max can ensure a center grid
@@ -3934,7 +3934,8 @@ CONTAINS
 
          DO i_y = 1,n_y_max,1
          DO i_x = 1,n_x_max,1
-            WRITE(485,*) box_concnt_2D(i_x,i_y,i_tracer), V_grid_2D
+            WRITE(485,*) box_concnt_2D(i_x,i_y,i_tracer), &
+                                V_grid_2D, State_Met%AIRDEN(i_lon,i_lat,i_lev)
          ENDDO
          ENDDO
 
@@ -4637,7 +4638,8 @@ CONTAINS
            POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
          DO i_slab = 1, n_slab_max, 1
-            WRITE(485,*) box_concnt_1D(i_slab,i_tracer), V_grid_1D
+            WRITE(485,*) box_concnt_1D(i_slab,i_tracer), &
+                                  V_grid_1D, State_Met%AIRDEN(i_lon,i_lat,i_lev)
          ENDDO
 
          CLOSE(485)
