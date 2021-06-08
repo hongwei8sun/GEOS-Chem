@@ -356,6 +356,17 @@
 !           .OR. box_life/3600/24>30.0 &
 !           .OR. box_lev>State_Met%TROPP(i_lon,i_lat) )THEN
 
+! June 3, 2021
+! Count total plume volume for each Eulerian grid cell
+!    ! cumulative volume of all plume in a Eulerian grid cell
+!    real(fp), dimension(:), allocatable  :: SumV_Plume
+
+! June 8, 2021
+! add a new variable PASV_LA4
+! which is a temporary variable containing tracer concentration that is
+! transferred from the plume grid cell with a low concentration.
+
+
 
 
 ! double check the P_edge, whether P_edge can change at different (lon, lat)
@@ -409,7 +420,7 @@ MODULE Lagrange_Mod
 
   PUBLIC :: use_lagrange
 
-  integer               :: use_lagrange = 1
+  integer               :: use_lagrange = 0
   integer               :: TROPP_sink = 0
 
   integer, parameter    :: n_x_max = 243  !number of x grids in 2D, should be (9 x odd)
@@ -432,7 +443,7 @@ MODULE Lagrange_Mod
 
   integer               :: n_slab_25, n_slab_50, n_slab_75
   integer               :: IIPAR, JJPAR, LLPAR
-  integer               :: id_PASV_LA3, id_PASV_LA2, id_PASV_LA 
+  integer               :: id_PASV_LA4, id_PASV_LA3, id_PASV_LA2, id_PASV_LA 
   integer               :: id_PASV_EU2, id_PASV_EU
 
   real, parameter       :: Dx_init = 100
@@ -447,6 +458,7 @@ MODULE Lagrange_Mod
   ! some parameter for sensitive test
   integer, parameter    :: N_split = 3
   real, parameter       :: Dissolve_critiria = 0.1
+
 
   real(fp), pointer     :: X_mid(:), Y_mid(:), P_mid(:)
   real(fp), pointer     :: P_edge(:)
@@ -572,7 +584,7 @@ CONTAINS
 
     ! define how many plume segments will be injected
     ! -1 means keep inecting in the whole simulation
-    N_stop_inject = N_total ! -1
+    N_stop_inject = -1 ! N_total ! -1
 
     Stop_inject = 0
 
@@ -751,6 +763,8 @@ CONTAINS
       WRITE(6,'(a)') '********************************************************'
       WRITE(6,'(a)') ' You are not using lagrange_mod now'
       WRITE(6,'(a)') ' set variable use_lagrange = 1 to turn on lagrnage_mod  '
+      WRITE(6,'(a)') ' '
+      WRITE(6,'(a)') ' WARNING: all the initial concentration is set as 0 now'
       WRITE(6,'(a)') '********************************************************'
       WRITE(6,'(a)') ' '
 
@@ -759,8 +773,8 @@ CONTAINS
 
       ! set initial background concentration of injected aerosol as 0 in GCM
       ! output the apecies' name for double check ???
-!      State_Chm%Species(:,:,:,id_PASV_EU2) = 0.0e+0_fp  ! [kg/kg]
-!      State_Chm%Species(:,:,:,id_PASV_EU)  = 0.0e+0_fp  ! [kg/kg]
+      State_Chm%Species(:,:,:,id_PASV_EU2) = 0.0e+0_fp  ! [kg/kg]
+      State_Chm%Species(:,:,:,id_PASV_EU)  = 0.0e+0_fp  ! [kg/kg]
 
     ELSE
 
@@ -768,21 +782,25 @@ CONTAINS
       WRITE(6,'(a)') '********************************************************'
       WRITE(6,'(a)') ' You are using lagrange_mod now'
       WRITE(6,'(a)') ' set variable use_lagrange = 0 to turn off lagrnage_mod '
+      WRITE(6,'(a)') ' '
+      WRITE(6,'(a)') ' WARNING: all the initial concentration is set as 0 now'
       WRITE(6,'(a)') '********************************************************'
       WRITE(6,'(a)') ' '
 
-      id_PASV_LA  = State_Chm%nAdvect-2
-      id_PASV_LA2 = State_Chm%nAdvect-1
-      id_PASV_LA3 = State_Chm%nAdvect
+      id_PASV_LA  = State_Chm%nAdvect-3
+      id_PASV_LA2 = State_Chm%nAdvect-2
+      id_PASV_LA3 = State_Chm%nAdvect-1
+      id_PASV_LA4 = State_Chm%nAdvect
 
-!      State_Chm%Species(:,:,:,id_PASV_LA) = 0.0e+0_fp  ! [kg/kg]
-!      State_Chm%Species(:,:,:,id_PASV_LA2) = 0.0e+0_fp  ! [kg/kg]
-!      State_Chm%Species(:,:,:,id_PASV_LA3)  = 0.0e+0_fp  ! [kg/kg]
-
-      State_Chm%Species(:,:,:,id_PASV_LA) = &
-        State_Chm%Species(:,:,:,id_PASV_LA)+State_Chm%Species(:,:,:,id_PASV_LA3)
-
+      State_Chm%Species(:,:,:,id_PASV_LA)   = 0.0e+0_fp  ! [kg/kg]
+      State_Chm%Species(:,:,:,id_PASV_LA2)  = 0.0e+0_fp  ! [kg/kg]
       State_Chm%Species(:,:,:,id_PASV_LA3)  = 0.0e+0_fp  ! [kg/kg]
+      State_Chm%Species(:,:,:,id_PASV_LA4)  = 0.0e+0_fp  ! [kg/kg]
+
+!      State_Chm%Species(:,:,:,id_PASV_LA) = &
+!        State_Chm%Species(:,:,:,id_PASV_LA)+State_Chm%Species(:,:,:,id_PASV_LA3)
+!
+!      State_Chm%Species(:,:,:,id_PASV_LA3)  = 0.0e+0_fp  ! [kg/kg]
 
     ENDIF
 
@@ -984,6 +1002,7 @@ CONTAINS
     ! call the lagrnage_run() and plume_run() to calculate injected plume
 
       State_Chm%Species(:,:,:,id_PASV_LA3) = 0.0e+0_fp  ! [kg/kg]
+      State_Chm%Species(:,:,:,id_PASV_LA4) = 0.0e+0_fp  ! [kg/kg]
 
       CALL lagrange_run(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
       CALL plume_run(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
@@ -2910,6 +2929,7 @@ CONTAINS
     integer  :: ii_box
     integer  :: i_x, i_y, i, j
     integer  :: i_slab
+    integer  :: i_cell
 
     integer  :: i_lon, i_lat, i_lev
     integer  :: i_species, i_advect
@@ -2934,6 +2954,8 @@ CONTAINS
     real(fp), pointer :: Ptemp(:,:,:)
     real(fp), pointer :: P_BXHEIGHT(:,:,:)
 
+    ! cumulative volume of all plume in a Eulerian grid cell
+    real(fp), dimension(:), allocatable  :: SumV_Plume
 !    real(fp)          :: curr_u, curr_v, curr_omeg
 
 
@@ -3117,6 +3139,11 @@ CONTAINS
 
     Dx = State_Grid%DX
     Dy = State_Grid%DY
+
+
+    allocate(SumV_Plume(LLPAR*JJPAR*IIPAR))
+    SumV_Plume = 0.0
+
 
     X_edge => State_Grid%XEdge(:,1) !XEDGE(:,1,1)   ! IIPAR+1 ! new
     Y_edge => State_Grid%YEdge(1,:) !YEDGE(1,:,1) 
@@ -3928,33 +3955,51 @@ CONTAINS
 
        IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
 
-
          OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='OLD',  &
            POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-         DO i_y = 1,n_y_max,1
-         DO i_x = 1,n_x_max,1
-            WRITE(485,*) box_concnt_2D(i_x,i_y,i_tracer), &
-                                V_grid_2D, State_Met%AIRDEN(i_lon,i_lat,i_lev)
-         ENDDO
-         ENDDO
-
-         CLOSE(485)
-
-
 
          OPEN( 486,      FILE=TRIM( FileXYZ   ), STATUS='OLD',  &
            POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
+
          DO i_y = 1,n_y_max,1
          DO i_x = 1,n_x_max,1
-            WRITE(486,*) i_lon,i_lat,i_lev
+
+           ! Only keep the plume grid cell that has a larger concentration 
+           ! than the background concentration
+           IF(box_concnt_2D(i_x,i_y,i_tracer) > &
+                        State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA))THEN
+
+              WRITE(485,*) box_concnt_2D(i_x,i_y,i_tracer), &
+                              V_grid_2D, State_Met%AIRDEN(i_lon,i_lat,i_lev)
+
+              WRITE(486,*) i_lon,i_lat,i_lev
+
+           ELSE
+
+              backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA4)
+
+              backgrd_concnt = &
+                   ( box_concnt_2D(i_x,i_y,i_tracer)*V_grid_2D  &
+                        + backgrd_concnt*grid_volumn ) / grid_volumn
+
+              State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA4) = backgrd_concnt
+
+           ENDIF
          ENDDO
          ENDDO
 
+         CLOSE(485)
          CLOSE(486)
 
        ENDIF
+
+
+
+       ! add plume volume to SumV_Plume
+       i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
+       SumV_Plume(i_cell) = SumV_Plume(i_cell) + V_grid_2D*n_x_max*n_y_max
+       
 
 
        Plume2d%LON = box_lon
@@ -3992,6 +4037,91 @@ CONTAINS
 900     CONTINUE
 
 !    WRITE(6,*)'=== loop for 2d plume in plume_run: ', i_box, Num_Plume2d
+
+
+
+
+
+
+       !====================================================================
+       ! begin 1D slab model only for sum volume of plume
+       !====================================================================
+
+       IF(.NOT.ASSOCIATED(Plume1d_head)) GOTO 500 ! no plume1d, skip loop
+
+
+       IF(ASSOCIATED(Plume1d_prev)) NULLIFY(Plume1d_prev)
+       Plume1d => Plume1d_head
+       i_box = 0
+
+       DO WHILE(ASSOCIATED(Plume1d)) ! how to delete last plume???
+
+         i_box = i_box+1
+
+
+         box_lat    = Plume1d%LAT
+         box_lon    = Plume1d%LON
+         box_lev    = Plume1d%LEV
+         box_length = Plume1d%LENGTH
+         box_alpha  = Plume1d%ALPHA
+
+         box_label  = Plume1d%label
+         box_life  = Plume1d%LIFE
+
+         box_Ra    = Plume1d%RA
+         box_Rb    = Plume1d%RB
+
+
+         ! make sure the location is not out of range
+         do while (box_lat > Y_edge(JJPAR+1))
+            box_lat = Y_edge(JJPAR+1) &
+                           - ( box_lat-Y_edge(JJPAR+1) )
+         end do
+
+         do while (box_lat < Y_edge(1))
+            box_lat = Y_edge(1) + ( box_lat-Y_edge(1) )
+         end do
+
+         do while (box_lon > X_edge(IIPAR+1))
+            box_lon = box_lon - 360.0
+         end do
+
+         do while (box_lon < X_edge(1))
+            box_lon = box_lon + 360.0
+         end do
+
+
+         curr_lon      = box_lon
+         curr_lat      = box_lat
+         curr_pressure = box_lev      ! hPa
+
+
+
+         i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+         if(i_lon>IIPAR) i_lon=i_lon-IIPAR
+         if(i_lon<1) i_lon=i_lon+IIPAR
+
+         i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+         if(i_lat>JJPAR) i_lat=JJPAR
+         if(i_lat<1) i_lat=1
+
+         i_lev = Find_iPLev(curr_pressure,P_edge)
+         if(i_lev>LLPAR) i_lev=LLPAR
+
+
+         V_grid_1D        = box_Ra*box_Rb*box_length*1.0e+6_fp
+
+         ! add plume volume to SumV_Plume
+         i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
+         SumV_Plume(i_cell) = SumV_Plume(i_cell) + V_grid_1D*n_slab_max
+
+
+         Plume1d_prev => Plume1d
+         Plume1d      => Plume1d%next
+
+
+     ENDDO ! DO WHILE(ASSOCIATED(Plume1d))
+
 
 
        !====================================================================
@@ -4630,32 +4760,45 @@ CONTAINS
 
 
 
-
-
        IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
- 
+
          OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='OLD',  &
            POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-         DO i_slab = 1, n_slab_max, 1
-            WRITE(485,*) box_concnt_1D(i_slab,i_tracer), &
-                                  V_grid_1D, State_Met%AIRDEN(i_lon,i_lat,i_lev)
-         ENDDO
-
-         CLOSE(485)
-
-
 
          OPEN( 486,      FILE=TRIM( FileXYZ   ), STATUS='OLD',  &
            POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
+
          DO i_slab = 1, n_slab_max, 1
-            WRITE(486,*) i_lon,i_lat,i_lev
+
+           ! Only keep the plume grid cell that has a larger concentration 
+           ! than the background concentration
+           IF( box_concnt_1D(i_slab,i_tracer) > &
+                        State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA))THEN
+
+              WRITE(485,*) box_concnt_1D(i_slab,i_tracer), &
+                              V_grid_1D, State_Met%AIRDEN(i_lon,i_lat,i_lev)
+
+              WRITE(486,*) i_lon,i_lat,i_lev
+
+           ELSE
+
+              backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA4)
+
+              backgrd_concnt = &
+                   ( box_concnt_1D(i_slab,i_tracer)*V_grid_1D  &
+                        + backgrd_concnt*grid_volumn ) / grid_volumn
+
+              State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA4) = backgrd_concnt
+
+           ENDIF
          ENDDO
 
+         CLOSE(485)
          CLOSE(486)
 
        ENDIF
+
 
 
        ! update the 1d plume for current node
