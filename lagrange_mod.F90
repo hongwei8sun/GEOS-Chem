@@ -373,6 +373,12 @@
 ! (2) 
 ! add Entropy calculation in the code
 
+! June 10, 2020
+! add new function SortList(), which could sort the linked list based on volume
+! criterion.
+
+
+
 
 ! double check the P_edge, whether P_edge can change at different (lon, lat)
 
@@ -388,9 +394,50 @@
 ! check: delete or release all the comment code
 
 
+MODULE Plume_list
+
+  USE precision_mod
+
+  TYPE :: Plume2d_list
+    integer :: IsNew ! 1: the plume is new injected
+    integer :: label ! injected rank
+
+    real(fp) :: LON, LAT, LEV
+    real(fp) :: LENGTH, ALPHA
+    real(fp) :: LIFE
+
+    real(fp) :: DX, DY
+    real(fp), DIMENSION(:,:,:), POINTER :: CONCNT2d 
+    ! [n_x_max, n_y_max, n_species]
+    !!! Don't assign dimension value first ???
+
+
+    TYPE(Plume2d_list), POINTER :: next
+  END TYPE
+
+
+  TYPE :: Plume1d_list
+    integer :: label ! injected rank
+    integer :: Is_transfer ! if =1, transfer to the host Euletian model
+
+    real(fp) :: LON, LAT, LEV
+    real(fp) :: LENGTH, ALPHA
+    real(fp) :: LIFE
+
+    real(fp) :: RA, RB, THETA
+    real(fp), DIMENSION(:,:), POINTER :: CONCNT1d ! [n_slab_max,n_species]
+
+
+    TYPE(Plume1d_list), POINTER :: next
+  END TYPE
+
+END MODULE Plume_list
+
 
 
 MODULE Lagrange_Mod
+
+  USE Plume_list
 
   USE precision_mod
   USE ERROR_MOD
@@ -489,38 +536,38 @@ MODULE Lagrange_Mod
   integer               :: Stop_inject ! 1: stop injecting; 0: keep injecting
                            ! used for contiuing injecting scenario
 
-  TYPE :: Plume2d_list
-    integer :: IsNew ! 1: the plume is new injected
-    integer :: label ! injected rank
-
-    real(fp) :: LON, LAT, LEV
-    real(fp) :: LENGTH, ALPHA
-    real(fp) :: LIFE
-
-    real(fp) :: DX, DY
-    real(fp), DIMENSION(:,:,:), POINTER :: CONCNT2d ! [n_x_max, n_y_max, n_species]
-    !!! Don't assign dimension value first ???
-
-
-    TYPE(Plume2d_list), POINTER :: next
-  END TYPE
-
-
-  TYPE :: Plume1d_list
-    integer :: label ! injected rank
-    integer :: Is_transfer ! if =1, transfer to the host Euletian model
-
-    real(fp) :: LON, LAT, LEV
-    real(fp) :: LENGTH, ALPHA
-    real(fp) :: LIFE
-
-    real(fp) :: RA, RB, THETA
-    real(fp), DIMENSION(:,:), POINTER :: CONCNT1d ! [n_slab_max,n_species]
-
-
-    TYPE(Plume1d_list), POINTER :: next 
-  END TYPE
-
+!  TYPE :: Plume2d_list
+!    integer :: IsNew ! 1: the plume is new injected
+!    integer :: label ! injected rank
+!
+!    real(fp) :: LON, LAT, LEV
+!    real(fp) :: LENGTH, ALPHA
+!    real(fp) :: LIFE
+!
+!    real(fp) :: DX, DY
+!    real(fp), DIMENSION(:,:,:), POINTER :: CONCNT2d ! [n_x_max, n_y_max, n_species]
+!    !!! Don't assign dimension value first ???
+!
+!
+!    TYPE(Plume2d_list), POINTER :: next
+!  END TYPE
+!
+!
+!  TYPE :: Plume1d_list
+!    integer :: label ! injected rank
+!    integer :: Is_transfer ! if =1, transfer to the host Euletian model
+!
+!    real(fp) :: LON, LAT, LEV
+!    real(fp) :: LENGTH, ALPHA
+!    real(fp) :: LIFE
+!
+!    real(fp) :: RA, RB, THETA
+!    real(fp), DIMENSION(:,:), POINTER :: CONCNT1d ! [n_slab_max,n_species]
+!
+!
+!    TYPE(Plume1d_list), POINTER :: next 
+!  END TYPE
+!
 
   TYPE(Plume2d_list), POINTER :: Plume2d_old, Plume2d_head
   TYPE(Plume1d_list), POINTER :: Plume1d_old, Plume1d_head
@@ -532,6 +579,8 @@ CONTAINS
 !-----------------------------------------------------------------
 
   SUBROUTINE lagrange_init(am_I_root, Input_Opt, State_Chm, State_Grid, State_Met, RC)
+
+    USE Plume_list
 
     USE Input_Opt_Mod, ONLY : OptInput
     USE State_Met_Mod, ONLY : MetState
@@ -562,7 +611,7 @@ CONTAINS
 
     INTEGER                       :: i_box, i_slab
     INTEGER                       :: ii, jj, kk
-    CHARACTER(LEN=255)            :: FILENAME
+    CHARACTER(LEN=255)            :: FILENAME, FileEntropy
     CHARACTER(LEN=255)            :: FILENAME2, FILENAME3
 
     integer :: i_lon, i_lat, i_lev            !1:IIPAR
@@ -620,6 +669,17 @@ CONTAINS
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
     CLOSE(261)
+
+
+
+    FileEntropy   = 'Plume_entropy.txt'
+
+    OPEN( 487,      FILE=TRIM( FileEntropy   ), STATUS='REPLACE',  &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+    CLOSE(487)
+
+
 
 
     allocate(box_concnt_2D(n_x_max, n_y_max, n_species))
@@ -827,6 +887,8 @@ CONTAINS
 !=================================================================
 
   SUBROUTINE plume_inject(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
+
+    USE Plume_list
 
     USE Input_Opt_Mod,   ONLY : OptInput
     USE State_Met_Mod,   ONLY : MetState
@@ -1053,6 +1115,8 @@ CONTAINS
 !=================================================================
 
   SUBROUTINE lagrange_run(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
+
+    USE Plume_list
 
     USE Input_Opt_Mod, ONLY : OptInput
 
@@ -2925,6 +2989,8 @@ CONTAINS
 
   SUBROUTINE plume_run(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
 
+    USE Plume_list
+
     USE Input_Opt_Mod,   ONLY : OptInput
 
     USE State_Chm_Mod,   ONLY : ChmState
@@ -2947,6 +3013,15 @@ CONTAINS
     ! XEDGE( IM+1, JM,   L ), YEDGE( IM,   JM+1, L ), IM=IIPAR, JM=JJPAR
 
     USE UnitConv_Mod,    ONLY : Convert_Spc_Units
+
+
+    INTERFACE
+      RECURSIVE FUNCTION SortList(head0) RESULT (new_head)
+        USE Plume_list
+        TYPE(Plume1d_list), POINTER :: head0, new_head
+      END FUNCTION
+    END INTERFACE
+
 
 
     logical, intent(in)           :: am_I_Root
@@ -3146,18 +3221,6 @@ CONTAINS
           FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
       CLOSE(486)
-
-
-      FileEntropy   = 'Lagrange_entropy_' // TRIM(ADJUSTL(YEAR_C)) // '-' &
-        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
-        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
-        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
-
-
-      OPEN( 487,      FILE=TRIM( FileEntropy   ), STATUS='REPLACE',  &
-          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-      CLOSE(487)
 
 
 
@@ -4232,6 +4295,16 @@ CONTAINS
 !     ENDDO
 !     ENDDO
 
+
+
+
+! sort the Plume1D linked list based on the grid volume
+! which will be used for the volume criterion
+       Plume1d_head => SortList(Plume1d_head)
+
+
+
+
        !====================================================================
        ! begin 1D slab model
        !====================================================================
@@ -4547,7 +4620,8 @@ CONTAINS
        ! determine the Eulerian grid cell containing too much plume segment
 
 
-       ! [cm3] always delete the oldest plume first
+       ! After sorting the plume from largest to smallest by SortList()
+       ! [cm3] always delete the largest plume first
        IF(SumV_Plume(i_cell) - &
                 0.5*State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp >=0)THEN
 
@@ -4572,7 +4646,7 @@ CONTAINS
          Num_dissolve = Num_dissolve+1
 
 
-         WRITE(484,*) box_label, box_life
+         WRITE(484,*) MONTH, box_label, box_life
 
 !         WRITE(6,*)'DISSOLVE1:', i_box, box_label, box_life/3600/24,&
 !                              SUM(box_concnt_1D(1:n_slab_max)) * V_grid_1D
@@ -5011,12 +5085,12 @@ CONTAINS
     ENDDO
 
 
-
+    FileEntropy   = 'Plume_entropy.txt'
     OPEN( 487,      FILE=TRIM( FileEntropy   ), STATUS='OLD',  &
            POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
     WRITE(*,*) "Entropy:", Entropy
-    WRITE(487,*) Entropy
+    WRITE(487,*) MONTH, DAY, Entropy
 
     CLOSE(487)
 
@@ -5692,7 +5766,9 @@ CONTAINS
 
 
   SUBROUTINE lagrange_write_std( am_I_Root, RC )
-        
+     
+    USE Plume_list
+   
     USE m_netCDF_io_define
     USE m_netcdf_io_read
     USE m_netcdf_io_open
@@ -5875,3 +5951,100 @@ CONTAINS
 
 
 END MODULE Lagrange_Mod
+
+
+
+RECURSIVE FUNCTION SortList(head0) RESULT (new_head)
+
+  USE Plume_list
+
+  INTERFACE
+      FUNCTION MergeSort(head1, head2)
+       USE Plume_list
+       TYPE(Plume1d_list), POINTER :: head1, head2
+       TYPE(Plume1d_list), POINTER :: MergeSort
+      END FUNCTION
+  END INTERFACE
+
+
+    TYPE(Plume1d_list), POINTER :: head0, new_head
+    TYPE(Plume1d_list), POINTER :: fast, slow
+    TYPE(Plume1d_list), POINTER :: tt
+
+
+    IF(.NOT.ASSOCIATED(head0) .OR. .NOT.ASSOCIATED(head0%next))THEN
+        new_head => head0
+    ELSE
+
+        ! use fast/slow search for the middle point
+        fast => head0
+        slow => head0
+
+        DO WHILE(ASSOCIATED(fast%next).AND.ASSOCIATED(fast%next%next))
+          fast => fast%next%next
+          slow => slow%next
+        ENDDO
+
+        ! cut the whole list into two parts:
+        ! fast: left half
+        ! slow: right half
+        fast => slow
+        slow => slow%next
+        NULLIFY(fast%next)
+
+        ! recursion
+        fast => SortList(head0)
+        slow => SortList(slow)
+
+        new_head => MergeSort( fast, slow )
+    ENDIF
+
+END FUNCTION
+
+
+
+
+FUNCTION MergeSort(head1, head2)
+   USE Plume_list
+
+   TYPE(Plume1d_list), POINTER :: head1, head2, head3
+   TYPE(Plume1d_list), POINTER :: p1, p2, p
+   TYPE(Plume1d_list), POINTER :: MergeSort
+
+   p1 => head1
+   p2 => head2
+
+   ! First determine the new head
+   IF( head1%RA*head1%RA*head1%LENGTH &
+                > head2%RA*head2%RA*head2%LENGTH )THEN
+        head3 =>head1
+        p1 => p1%next
+   ELSE
+        head3 => head2
+        p2 => p2%next
+   ENDIF
+
+
+   ! Second, sort between two half lists
+   p => head3
+   DO WHILE(ASSOCIATED(p1).AND.ASSOCIATED(p2))
+   IF( p1%RA*p1%RA*p1%LENGTH &
+                > p2%RA*p2%RA*p2%LENGTH )THEN
+        p%next => p1
+        p1 => p1%next
+        p => p%next
+     ELSE
+        p%next => p2
+        p2 => p2%next
+        p => p%next
+     ENDIF
+   ENDDO
+
+   IF(ASSOCIATED(p1)) p%next => p1
+   IF(ASSOCIATED(p2)) p%next => p2
+
+   MergeSort => head3
+
+   RETURN
+
+END FUNCTION
