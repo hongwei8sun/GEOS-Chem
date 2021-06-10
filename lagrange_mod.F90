@@ -366,7 +366,12 @@
 ! which is a temporary variable containing tracer concentration that is
 ! transferred from the plume grid cell with a low concentration.
 
-
+! June 9, 2020
+! (1)
+! Volume criterion: first delete the oldest plume segment
+!
+! (2) 
+! add Entropy calculation in the code
 
 
 ! double check the P_edge, whether P_edge can change at different (lon, lat)
@@ -390,7 +395,7 @@ MODULE Lagrange_Mod
   USE precision_mod
   USE ERROR_MOD
   USE ErrCode_Mod
-  USE PhysConstants,   ONLY : PI, Re, g0, AIRMW, AVO
+  USE PhysConstants,   ONLY : PI, Re, g0, AIRMW, AVO, BOLTZ
 !  USE CMN_SIZE_Mod,    ONLY : IIPAR, JJPAR, LLPAR
 
   USE TIME_MOD,        ONLY : GET_YEAR
@@ -420,7 +425,7 @@ MODULE Lagrange_Mod
 
   PUBLIC :: use_lagrange
 
-  integer               :: use_lagrange = 0
+  integer               :: use_lagrange = 1
   integer               :: TROPP_sink = 0
 
   integer, parameter    :: n_x_max = 243  !number of x grids in 2D, should be (9 x odd)
@@ -503,6 +508,7 @@ MODULE Lagrange_Mod
 
   TYPE :: Plume1d_list
     integer :: label ! injected rank
+    integer :: Is_transfer ! if =1, transfer to the host Euletian model
 
     real(fp) :: LON, LAT, LEV
     real(fp) :: LENGTH, ALPHA
@@ -743,16 +749,16 @@ CONTAINS
     !-----------------------------------------------------------------
     ! Output State_Met%AD(i_lon,i_lat,i_lev) into State_Met_AD.txt
     !-----------------------------------------------------------------
-    OPEN( 314,      FILE='State_Met_AD.txt', STATUS='REPLACE', &
-          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-    !!! change xyz order ???
-    Do i_lon = 1, IIPAR
-    Do i_lat = 1, JJPAR
-    Do i_lev = 1, LLPAR
-       WRITE(314,'(x,E12.5)') State_Met%AD(i_lon,i_lat,i_lev) ![kg]
-    End Do
-    End Do
-    End Do
+!    OPEN( 314,      FILE='State_Met_AD.txt', STATUS='REPLACE', &
+!          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+!    !!! change xyz order ???
+!    Do i_lon = 1, IIPAR
+!    Do i_lat = 1, JJPAR
+!    Do i_lev = 1, LLPAR
+!       WRITE(314,'(x,E12.5)') State_Met%AD(i_lon,i_lat,i_lev) ![kg]
+!    End Do
+!    End Do
+!    End Do
 
 
 
@@ -856,6 +862,9 @@ CONTAINS
     integer  :: i_advect1
 
     REAL(fp) :: Dt
+
+    real(fp) :: Entropy2_Concnt, Entropy2_V, Entropy2
+    real(fp) :: tracer2_mol, air2_mol, mix2_ratio
 
     CHARACTER(LEN=63)      :: OrigUnit
     CHARACTER(LEN=255)     :: ErrMsg
@@ -977,6 +986,33 @@ CONTAINS
       ENDDO
       !$OMP END PARALLEL DO
 
+
+
+
+    IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
+
+    DO i_lon = 1, IIPAR
+    DO i_lat = 1, JJPAR
+    DO i_lev = 1, LLPAR
+
+       Entropy2_Concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU)
+       Entropy2_V = State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp
+
+       tracer2_mol = Entropy2_Concnt*Entropy2_V/AVO
+       air2_mol    = Entropy2_V/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
+       mix2_ratio  = tracer2_mol/air2_mol
+
+       IF(mix2_ratio>0) Entropy2 = Entropy2 + BOLTZ*tracer2_mol*log(mix2_ratio)
+
+    ENDDO
+    ENDDO
+    ENDDO
+
+    WRITE(6,*) "Entropy:", Entropy2
+
+    ENDIF
+
+
       !=======================================================================
       ! Convert species back to original units (ewl, 8/16/16)
       !=======================================================================
@@ -1010,6 +1046,7 @@ CONTAINS
 
     ENDIF
 
+    tt = tt + 1
 
   END SUBROUTINE
 
@@ -2955,7 +2992,7 @@ CONTAINS
     real(fp), pointer :: P_BXHEIGHT(:,:,:)
 
     ! cumulative volume of all plume in a Eulerian grid cell
-    real(fp), dimension(:), allocatable  :: SumV_Plume
+    real(fp), dimension(:), allocatable  :: SumV_Plume, Entropy_V
 !    real(fp)          :: curr_u, curr_v, curr_omeg
 
 
@@ -3038,6 +3075,10 @@ CONTAINS
     real(fp) :: box_concnt_2D(n_x_max, n_y_max, n_species)
     real(fp) :: box_concnt_1D(n_slab_max, n_species)
 
+    real(fp) :: Max_Concnt_Grid
+    real(fp) :: Entropy_Concnt, Entropy
+    real(fp) :: tracer_mol, air_mol, mix_ratio
+
 
     TYPE(Plume2d_list), POINTER :: Plume2d_new, PLume2d, Plume2d_prev
     TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
@@ -3054,7 +3095,7 @@ CONTAINS
     INTEGER :: MINUTE
     INTEGER :: SECOND
 
-    CHARACTER(LEN=255)     :: FileConcnt, FileXYZ
+    CHARACTER(LEN=255)     :: FileConcnt, FileXYZ, FileEntropy
 
     CHARACTER(LEN=25) :: YEAR_C
     CHARACTER(LEN=25) :: MONTH_C
@@ -3106,6 +3147,20 @@ CONTAINS
 
       CLOSE(486)
 
+
+      FileEntropy   = 'Lagrange_entropy_' // TRIM(ADJUSTL(YEAR_C)) // '-' &
+        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
+        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
+        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
+
+
+      OPEN( 487,      FILE=TRIM( FileEntropy   ), STATUS='REPLACE',  &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+      CLOSE(487)
+
+
+
     ENDIF ! IF(mod(tt,1440)==0)THEN
 
 
@@ -3142,7 +3197,10 @@ CONTAINS
 
 
     allocate(SumV_Plume(LLPAR*JJPAR*IIPAR))
+    allocate(Entropy_V(LLPAR*JJPAR*IIPAR))
     SumV_Plume = 0.0
+    Entropy_V  = 0.0
+
 
 
     X_edge => State_Grid%XEdge(:,1) !XEDGE(:,1,1)   ! IIPAR+1 ! new
@@ -3173,10 +3231,15 @@ CONTAINS
 
     !$OMP PARALLEL DO           &
     !$OMP DEFAULT( SHARED     ) &
-    !$OMP PRIVATE( i_lev, i_lat, i_lon )
+    !$OMP PRIVATE( i_lev, i_lat, i_lon, i_cell )
     DO i_lev = 1, LLPAR
     DO i_lat = 1, JJPAR
     DO i_lon = 1, IIPAR
+
+      ! set initial value for Entropy_V
+      i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
+      Entropy_V(i_cell) = State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp
+
 
     ! from EU to EU2
 !    State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU2) = &
@@ -3746,6 +3809,8 @@ CONTAINS
              Plume1d_old%LENGTH = box_length
              Plume1d_old%ALPHA  = box_alpha
 
+             Plume1d_old%Is_transfer = 0
+
              Plume1d_old%label = box_label
              Plume1d_old%LIFE = box_life
 
@@ -3774,6 +3839,8 @@ CONTAINS
 
              Plume1d_new%LENGTH = box_length
              Plume1d_new%ALPHA = box_alpha
+
+             Plume1d_new%Is_transfer = 0
 
              Plume1d_new%label  = box_label
              Plume1d_new%LIFE = box_life
@@ -3961,31 +4028,47 @@ CONTAINS
          OPEN( 486,      FILE=TRIM( FileXYZ   ), STATUS='OLD',  &
            POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
+         Max_Concnt_Grid = MAXVAL(State_Chm%Species(:,:,:,id_PASV_LA))
 
          DO i_y = 1,n_y_max,1
          DO i_x = 1,n_x_max,1
 
+           Entropy_Concnt = box_concnt_2D(i_x,i_y,i_tracer) + &
+                        State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
+
+           tracer_mol = Entropy_Concnt * V_grid_2D / AVO
+           air_mol    = V_grid_2D/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
+           mix_ratio  = tracer_mol/air_mol
+
+           IF(mix_ratio>0) Entropy = Entropy + BOLTZ*tracer_mol*log(mix_ratio)
+
+           i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
+           Entropy_V(i_cell) = Entropy_V(i_cell) - V_grid_2D
+
+
+
+
            ! Only keep the plume grid cell that has a larger concentration 
            ! than the background concentration
-           IF(box_concnt_2D(i_x,i_y,i_tracer) > &
-                        State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA))THEN
+!           IF( box_concnt_2D(i_x,i_y,i_tracer) > 100.0*Max_Concnt_Grid )THEN
+!
+!              WRITE(485,*) box_concnt_2D(i_x,i_y,i_tracer), &
+!                              V_grid_2D, State_Met%AIRDEN(i_lon,i_lat,i_lev)
+!
+!              WRITE(486,*) i_lon,i_lat,i_lev
+!
+!           ELSE
+!
+!              backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA4)
+!
+!              backgrd_concnt = &
+!                   ( box_concnt_2D(i_x,i_y,i_tracer)*V_grid_2D  &
+!                        + backgrd_concnt*grid_volumn ) / grid_volumn
+!
+!              State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA4) = backgrd_concnt
+!
+!           ENDIF
 
-              WRITE(485,*) box_concnt_2D(i_x,i_y,i_tracer), &
-                              V_grid_2D, State_Met%AIRDEN(i_lon,i_lat,i_lev)
-
-              WRITE(486,*) i_lon,i_lat,i_lev
-
-           ELSE
-
-              backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA4)
-
-              backgrd_concnt = &
-                   ( box_concnt_2D(i_x,i_y,i_tracer)*V_grid_2D  &
-                        + backgrd_concnt*grid_volumn ) / grid_volumn
-
-              State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA4) = backgrd_concnt
-
-           ENDIF
          ENDDO
          ENDDO
 
@@ -4123,6 +4206,31 @@ CONTAINS
      ENDDO ! DO WHILE(ASSOCIATED(Plume1d))
 
 
+!     ! Compare SumV_Plume with Eulerian grid cell volume
+!     ! determine the Eulerian grid cell containing too much plume segment
+!     DO i_lev = 1, LLPAR
+!     DO i_lat = 1, JJPAR
+!     DO i_lon = 1, IIPAR
+!
+!        i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
+!
+!        ! [cm3]
+!        SumV_Plume(i_cell) = SumV_Plume(i_cell) - &
+!                                   State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp
+!
+!        ! Now SumV_Plume>0 means too many plume segments in one Eulerian 
+!        ! grid cell: accumalative plume volume exceed the volume of the host 
+!        ! Eulerian grid cell.
+!        ! We need to transfer the plume segment to the host Eulerian grid
+!        ! cell to ensure SumV_Plume<0
+!
+!        ! First, select all the 1-D plume segment located in this host Eulerian
+!        ! grid cell, label selected plume segment as Is_transfer=1
+!        
+!
+!     ENDDO
+!     ENDDO
+!     ENDDO
 
        !====================================================================
        ! begin 1D slab model
@@ -4426,19 +4534,40 @@ CONTAINS
        Rate_Eul = Eul_concnt**2*grid_volumn
 
 
-
-
-
 !       WRITE(6,*)'1d test:', i_box, Num_Plume1d
+
+
+       ! ------------------------------------------------------------------
+       ! Volume criterion
+       ! ------------------------------------------------------------------
+       i_cell = (i_lev-1)*IIPAR*JJPAR +(i_lat-1)*IIPAR +i_lon
+
+
+       ! Compare SumV_Plume with Eulerian grid cell volume
+       ! determine the Eulerian grid cell containing too much plume segment
+
+
+       ! [cm3] always delete the oldest plume first
+       IF(SumV_Plume(i_cell) - &
+                0.5*State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp >=0)THEN
+
+         Plume1d%Is_transfer = 1
+
+         SumV_Plume(i_cell) = SumV_Plume(i_cell) - V_grid_1D*n_slab_max
+
+       ENDIF
+
 
        ! ------------------------------------------------------------------
        ! 1. Product criterion
        ! 2. Time criterion
        ! 3. Location critetion
+       ! 4. Volume criterion
        ! ------------------------------------------------------------------
-       IF( ABS(Rate_Mix-Rate_Eul)/Rate_Eul<Dissolve_critiria &
+       IF(      ABS(Rate_Mix-Rate_Eul)/Rate_Eul<Dissolve_critiria &
            .OR. box_life/3600/24>30.0 &
-           .OR. box_lev>State_Met%TROPP(i_lon,i_lat) )THEN 
+           .OR. box_lev>State_Met%TROPP(i_lon,i_lat) &
+           .OR. Plume1d%Is_transfer==1 )THEN 
 
          Num_dissolve = Num_dissolve+1
 
@@ -4769,29 +4898,45 @@ CONTAINS
            POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
 
+         Max_Concnt_Grid = MAXVAL(State_Chm%Species(:,:,:,id_PASV_LA))
+
          DO i_slab = 1, n_slab_max, 1
 
-           ! Only keep the plume grid cell that has a larger concentration 
-           ! than the background concentration
-           IF( box_concnt_1D(i_slab,i_tracer) > &
-                        State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA))THEN
+           Entropy_Concnt = box_concnt_1D(i_slab,i_tracer) + &
+                        State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
 
-              WRITE(485,*) box_concnt_1D(i_slab,i_tracer), &
-                              V_grid_1D, State_Met%AIRDEN(i_lon,i_lat,i_lev)
+           tracer_mol = Entropy_Concnt * V_grid_1D / AVO
+           air_mol    = V_grid_1D/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
+           mix_ratio  = tracer_mol/air_mol
+              
+           IF(mix_ratio>0) Entropy = Entropy + BOLTZ*tracer_mol*log(mix_ratio)
 
-              WRITE(486,*) i_lon,i_lat,i_lev
+           i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
+           Entropy_V(i_cell) = Entropy_V(i_cell) - V_grid_1D
 
-           ELSE
 
-              backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA4)
+!
+!           ! Only keep the plume grid cell that has a larger concentration 
+!           ! than the background concentration
+!           IF( box_concnt_1D(i_slab,i_tracer) > 100.0*Max_Concnt_Grid )THEN
+!
+!              WRITE(485,*) box_concnt_1D(i_slab,i_tracer), &
+!                              V_grid_1D, State_Met%AIRDEN(i_lon,i_lat,i_lev)
+!
+!              WRITE(486,*) i_lon,i_lat,i_lev
+!
+!           ELSE
+!
+!              backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA4)
+!
+!              backgrd_concnt = &
+!                   ( box_concnt_1D(i_slab,i_tracer)*V_grid_1D  &
+!                        + backgrd_concnt*grid_volumn ) / grid_volumn
+!
+!              State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA4) = backgrd_concnt
+!
+!           ENDIF
 
-              backgrd_concnt = &
-                   ( box_concnt_1D(i_slab,i_tracer)*V_grid_1D  &
-                        + backgrd_concnt*grid_volumn ) / grid_volumn
-
-              State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA4) = backgrd_concnt
-
-           ENDIF
          ENDDO
 
          CLOSE(485)
@@ -4840,6 +4985,44 @@ CONTAINS
 500     CONTINUE
 
 !     WRITE(6,*)'=== loop for 1d plume in plume_run: ', i_box, Num_Plume1d
+
+
+
+
+    IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
+
+
+    DO i_lon = 1, IIPAR
+    DO i_lat = 1, JJPAR
+    DO i_lev = 1, LLPAR
+
+       i_cell = (i_lev-1)*IIPAR*JJPAR +(i_lat-1)*IIPAR +i_lon
+
+       Entropy_Concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
+
+       tracer_mol = Entropy_Concnt*Entropy_V(i_cell)/AVO
+       air_mol    = Entropy_V(i_cell)/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
+       mix_ratio  = tracer_mol/air_mol
+              
+       IF(mix_ratio>0) Entropy = Entropy + BOLTZ*tracer_mol*log(mix_ratio)
+
+    ENDDO
+    ENDDO
+    ENDDO
+
+
+
+    OPEN( 487,      FILE=TRIM( FileEntropy   ), STATUS='OLD',  &
+           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+    WRITE(*,*) "Entropy:", Entropy
+    WRITE(487,*) Entropy
+
+    CLOSE(487)
+
+
+
+    ENDIF
 
     !=======================================================================
     ! Convert species back to original units (ewl, 8/16/16)
@@ -5652,7 +5835,6 @@ CONTAINS
 !    ENDIF ! IF(mod(tt,144)==0)THEN
 !!    ENDIF
 !
-    tt = tt + 1
 !
 
     CLOSE(261)
