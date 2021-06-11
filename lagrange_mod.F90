@@ -377,6 +377,10 @@
 ! add new function SortList(), which could sort the linked list based on volume
 ! criterion.
 
+! June 11, 2020
+! Put all the Entropy calculation in the final end
+! make sure that all the interaction between plume model and GEOS-Chem are
+! finished when the entropy calculation begins
 
 
 
@@ -1050,7 +1054,7 @@ CONTAINS
 
 
 
-
+    ! Calculate Entropy for Eulerian model
     IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
 
     DO i_lon = 1, IIPAR
@@ -3197,34 +3201,34 @@ CONTAINS
     WRITE(MINUTE_C,*) MINUTE
     WRITE(SECOND_C,*) SECOND
 
-    IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
-
-      FileConcnt   = 'Lagrange_Concnt_Volume_' // TRIM(ADJUSTL(YEAR_C)) // '-' &
-        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
-        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
-        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
-
-
-      OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='REPLACE',  &
-          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-      CLOSE(485)
-
-
-      FileXYZ   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) // '-' &
-        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
-        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
-        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
-
-
-      OPEN( 486,      FILE=TRIM( FileXYZ   ), STATUS='REPLACE',  &
-          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-      CLOSE(486)
-
-
-
-    ENDIF ! IF(mod(tt,1440)==0)THEN
+!    IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
+!
+!      FileConcnt   = 'Lagrange_Concnt_Volume_' // TRIM(ADJUSTL(YEAR_C)) // '-' &
+!        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
+!        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
+!        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
+!
+!
+!      OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='REPLACE',  &
+!          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+!
+!      CLOSE(485)
+!
+!
+!      FileXYZ   = 'Lagrange_xyz_' // TRIM(ADJUSTL(YEAR_C)) // '-' &
+!        //TRIM(ADJUSTL(MONTH_C)) // '-' // TRIM(ADJUSTL(DAY_C)) // '-' &
+!        // TRIM(ADJUSTL(HOUR_C)) // ':' // TRIM(ADJUSTL(MINUTE_C)) &
+!        // ':' // TRIM(ADJUSTL(SECOND_C)) // '.txt'
+!
+!
+!      OPEN( 486,      FILE=TRIM( FileXYZ   ), STATUS='REPLACE',  &
+!          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+!
+!      CLOSE(486)
+!
+!
+!
+!    ENDIF ! IF(mod(tt,1440)==0)THEN
 
 
 
@@ -4083,36 +4087,36 @@ CONTAINS
 
 
 
-       IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
-
-         OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='OLD',  &
-           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-         OPEN( 486,      FILE=TRIM( FileXYZ   ), STATUS='OLD',  &
-           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-         Max_Concnt_Grid = MAXVAL(State_Chm%Species(:,:,:,id_PASV_LA))
-
-         DO i_y = 1,n_y_max,1
-         DO i_x = 1,n_x_max,1
-
-           Entropy_Concnt = box_concnt_2D(i_x,i_y,i_tracer) + &
-                        State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
-
-           tracer_mol = Entropy_Concnt * V_grid_2D / AVO
-           air_mol    = V_grid_2D/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
-           mix_ratio  = tracer_mol/air_mol
-
-           IF(mix_ratio>0) Entropy = Entropy + BOLTZ*tracer_mol*log(mix_ratio)
-
-           i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
-           Entropy_V(i_cell) = Entropy_V(i_cell) - V_grid_2D
-
-
-
-
-           ! Only keep the plume grid cell that has a larger concentration 
-           ! than the background concentration
+!       IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
+!
+!         OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='OLD',  &
+!           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+!
+!         OPEN( 486,      FILE=TRIM( FileXYZ   ), STATUS='OLD',  &
+!           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+!
+!         Max_Concnt_Grid = MAXVAL(State_Chm%Species(:,:,:,id_PASV_LA))
+!
+!         DO i_y = 1,n_y_max,1
+!         DO i_x = 1,n_x_max,1
+!
+!           Entropy_Concnt = box_concnt_2D(i_x,i_y,i_tracer) + &
+!                        State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
+!
+!           tracer_mol = Entropy_Concnt * V_grid_2D / AVO
+!           air_mol    = V_grid_2D/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
+!           mix_ratio  = tracer_mol/air_mol
+!
+!           IF(mix_ratio>0) Entropy = Entropy + BOLTZ*tracer_mol*log(mix_ratio)
+!
+!           i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
+!           Entropy_V(i_cell) = Entropy_V(i_cell) - V_grid_2D
+!
+!
+!
+!
+!           ! Only keep the plume grid cell that has a larger concentration 
+!           ! than the background concentration
 !           IF( box_concnt_2D(i_x,i_y,i_tracer) > 100.0*Max_Concnt_Grid )THEN
 !
 !              WRITE(485,*) box_concnt_2D(i_x,i_y,i_tracer), &
@@ -4131,14 +4135,16 @@ CONTAINS
 !              State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA4) = backgrd_concnt
 !
 !           ENDIF
-
-         ENDDO
-         ENDDO
-
-         CLOSE(485)
-         CLOSE(486)
-
-       ENDIF
+!
+!         ENDDO
+!         ENDDO
+!
+!
+!
+!         CLOSE(485)
+!         CLOSE(486)
+!
+!       ENDIF
 
 
 
@@ -4185,9 +4191,10 @@ CONTAINS
 !    WRITE(6,*)'=== loop for 2d plume in plume_run: ', i_box, Num_Plume2d
 
 
-
-
-
+!       IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
+!         WRITE(6,*)' '
+!         WRITE(6,*)'Entropy1:', Entropy
+!       ENDIF
 
        !====================================================================
        ! begin 1D slab model only for sum volume of plume
@@ -4300,7 +4307,8 @@ CONTAINS
 
 ! sort the Plume1D linked list based on the grid volume
 ! which will be used for the volume criterion
-       Plume1d_head => SortList(Plume1d_head)
+
+!       Plume1d_head => SortList(Plume1d_head)
 
 
 
@@ -4623,7 +4631,7 @@ CONTAINS
        ! After sorting the plume from largest to smallest by SortList()
        ! [cm3] always delete the largest plume first
        IF(SumV_Plume(i_cell) - &
-                0.5*State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp >=0)THEN
+                0.9*State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp >=0)THEN
 
          Plume1d%Is_transfer = 1
 
@@ -4963,32 +4971,32 @@ CONTAINS
 
 
 
-       IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
-
-         OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='OLD',  &
-           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-         OPEN( 486,      FILE=TRIM( FileXYZ   ), STATUS='OLD',  &
-           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-
-         Max_Concnt_Grid = MAXVAL(State_Chm%Species(:,:,:,id_PASV_LA))
-
-         DO i_slab = 1, n_slab_max, 1
-
-           Entropy_Concnt = box_concnt_1D(i_slab,i_tracer) + &
-                        State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
-
-           tracer_mol = Entropy_Concnt * V_grid_1D / AVO
-           air_mol    = V_grid_1D/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
-           mix_ratio  = tracer_mol/air_mol
-              
-           IF(mix_ratio>0) Entropy = Entropy + BOLTZ*tracer_mol*log(mix_ratio)
-
-           i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
-           Entropy_V(i_cell) = Entropy_V(i_cell) - V_grid_1D
-
-
+!       IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
+!
+!         OPEN( 485,      FILE=TRIM( FileConcnt   ), STATUS='OLD',  &
+!           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+!
+!         OPEN( 486,      FILE=TRIM( FileXYZ   ), STATUS='OLD',  &
+!           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+!
+!
+!         Max_Concnt_Grid = MAXVAL(State_Chm%Species(:,:,:,id_PASV_LA))
+!
+!         DO i_slab = 1, n_slab_max, 1
+!
+!           Entropy_Concnt = box_concnt_1D(i_slab,i_tracer) + &
+!                        State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
+!
+!           tracer_mol = Entropy_Concnt * V_grid_1D / AVO
+!           air_mol    = V_grid_1D/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
+!           mix_ratio  = tracer_mol/air_mol
+!              
+!           IF(mix_ratio>0) Entropy = Entropy + BOLTZ*tracer_mol*log(mix_ratio)
+!
+!           i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
+!           Entropy_V(i_cell) = Entropy_V(i_cell) - V_grid_1D
+!
+!
 !
 !           ! Only keep the plume grid cell that has a larger concentration 
 !           ! than the background concentration
@@ -5010,13 +5018,14 @@ CONTAINS
 !              State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA4) = backgrd_concnt
 !
 !           ENDIF
-
-         ENDDO
-
-         CLOSE(485)
-         CLOSE(486)
-
-       ENDIF
+!
+!         ENDDO
+!
+!
+!         CLOSE(485)
+!         CLOSE(486)
+!
+!       ENDIF
 
 
 
@@ -5063,9 +5072,209 @@ CONTAINS
 
 
 
+    !===============================================================================
+    ! The interaction between plume model and GEOS-Chem has finished
+    ! Begin to calculate the entropy here
+    !===============================================================================
+
     IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
 
 
+    ! ------------------------------------------------------------------------------
+    ! First, for 2-D plume model
+
+    IF(ASSOCIATED(Plume2d_prev)) NULLIFY(Plume2d_prev)
+
+    IF(ASSOCIATED(Plume2d_head))THEN
+
+    Plume2d => Plume2d_head
+    i_box = 0
+
+    DO WHILE(ASSOCIATED(Plume2d))
+
+      i_box = i_box+1
+
+      box_lon    = Plume2d%LON
+      box_lat    = Plume2d%LAT
+      box_lev    = Plume2d%LEV
+      box_length = Plume2d%LENGTH
+      box_alpha  = Plume2d%ALPHA
+
+      box_label  = Plume2d%label
+      box_life   = Plume2d%LIFE
+
+      Pdx    = Plume2d%DX
+      Pdy    = Plume2d%DY
+
+      box_concnt_2D = Plume2d%CONCNT2d
+
+      ! make sure the location is not out of range
+      do while (box_lat > Y_edge(JJPAR+1))
+         box_lat = Y_edge(JJPAR+1) &
+                        - ( box_lat-Y_edge(JJPAR+1) )
+      end do
+
+      do while (box_lat < Y_edge(1))
+         box_lat = Y_edge(1) + ( box_lat-Y_edge(1) )
+      end do
+
+      do while (box_lon > X_edge(IIPAR+1))
+         box_lon = box_lon - 360.0
+      end do
+
+      do while (box_lon < X_edge(1))
+         box_lon = box_lon + 360.0
+      end do
+
+
+      curr_lon      = box_lon
+      curr_lat      = box_lat
+      curr_pressure = box_lev      ! hPa
+
+
+
+      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+      if(i_lon>IIPAR) i_lon=i_lon-IIPAR
+      if(i_lon<1) i_lon=i_lon+IIPAR
+
+      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+      if(i_lat>JJPAR) i_lat=JJPAR
+      if(i_lat<1) i_lat=1
+
+      i_lev = Find_iPLev(curr_pressure,P_edge)
+
+      V_grid_2D       = Pdx*Pdy*box_length*1.0e+6_fp
+
+
+      DO i_y = 1,n_y_max,1
+      DO i_x = 1,n_x_max,1
+
+        Entropy_Concnt = box_concnt_2D(i_x,i_y,i_tracer) + &
+                        State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
+
+        tracer_mol = Entropy_Concnt * V_grid_2D / AVO
+        air_mol    = V_grid_2D/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
+        mix_ratio  = tracer_mol/air_mol
+
+        IF(mix_ratio>0) Entropy = Entropy + BOLTZ*tracer_mol*log(mix_ratio)
+
+        i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
+        Entropy_V(i_cell) = Entropy_V(i_cell) - V_grid_2D
+
+      ENDDO
+      ENDDO
+
+
+       Plume2d_prev => Plume2d
+       Plume2d => Plume2d%next
+
+
+    ENDDO ! DO WHILE(ASSOCIATED(Plume2d))
+
+    ENDIF ! IF(ASSOCIATED(Plume2d_head))THEN
+
+
+    WRITE(6,*)'Entropy1:', Entropy
+
+
+    ! ------------------------------------------------------------------------------
+    ! Second, for 1-D plume model
+    IF(ASSOCIATED(Plume1d_head))THEN
+
+
+    IF(ASSOCIATED(Plume1d_prev)) NULLIFY(Plume1d_prev)
+    Plume1d => Plume1d_head
+    i_box = 0
+
+    DO WHILE(ASSOCIATED(Plume1d)) ! how to delete last plume???
+
+      i_box = i_box+1
+
+
+      box_lat    = Plume1d%LAT
+      box_lon    = Plume1d%LON
+      box_lev    = Plume1d%LEV
+      box_length = Plume1d%LENGTH
+      box_alpha  = Plume1d%ALPHA
+
+      box_label  = Plume1d%label
+      box_life  = Plume1d%LIFE
+
+      box_Ra    = Plume1d%RA
+      box_Rb    = Plume1d%RB
+
+
+      ! make sure the location is not out of range
+      do while (box_lat > Y_edge(JJPAR+1))
+        box_lat = Y_edge(JJPAR+1) &
+                      - ( box_lat-Y_edge(JJPAR+1) )
+      end do
+
+      do while (box_lat < Y_edge(1))
+        box_lat = Y_edge(1) + ( box_lat-Y_edge(1) )
+      end do
+
+      do while (box_lon > X_edge(IIPAR+1))
+        box_lon = box_lon - 360.0
+      end do
+
+      do while (box_lon < X_edge(1))
+        box_lon = box_lon + 360.0
+      end do
+
+
+      curr_lon      = box_lon
+      curr_lat      = box_lat
+      curr_pressure = box_lev      ! hPa
+
+
+
+      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+      if(i_lon>IIPAR) i_lon=i_lon-IIPAR
+      if(i_lon<1) i_lon=i_lon+IIPAR
+
+      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+      if(i_lat>JJPAR) i_lat=JJPAR
+      if(i_lat<1) i_lat=1
+
+      i_lev = Find_iPLev(curr_pressure,P_edge)
+      if(i_lev>LLPAR) i_lev=LLPAR
+
+
+      ! Entropy
+      V_grid_1D        = box_Ra*box_Rb*box_length*1.0e+6_fp
+
+      DO i_slab = 1, n_slab_max, 1
+
+        Entropy_Concnt = box_concnt_1D(i_slab,i_tracer) + &
+                        State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
+
+        tracer_mol = Entropy_Concnt * V_grid_1D / AVO
+        air_mol    = V_grid_1D/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
+        mix_ratio  = tracer_mol/air_mol
+
+        IF(mix_ratio>0) Entropy = Entropy + BOLTZ*tracer_mol*log(mix_ratio)
+
+        i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
+        Entropy_V(i_cell) = Entropy_V(i_cell) - V_grid_1D
+
+      ENDDO
+
+
+      Plume1d_prev => Plume1d
+      Plume1d      => Plume1d%next
+
+
+    ENDDO ! DO WHILE(ASSOCIATED(Plume1d))
+
+    ENDIF ! IF(ASSOCIATED(Plume1d_head))THEN
+
+    WRITE(6,*)'Entropy2:', Entropy
+
+
+
+    ! ------------------------------------------------------------------------------
+    ! Third, for modified GEOS-Chem grid
     DO i_lon = 1, IIPAR
     DO i_lat = 1, JJPAR
     DO i_lev = 1, LLPAR
@@ -5084,6 +5293,7 @@ CONTAINS
     ENDDO
     ENDDO
 
+    WRITE(6,*)'Entropy3:', Entropy
 
     FileEntropy   = 'Plume_entropy.txt'
     OPEN( 487,      FILE=TRIM( FileEntropy   ), STATUS='OLD',  &
@@ -6015,8 +6225,8 @@ FUNCTION MergeSort(head1, head2)
    p2 => head2
 
    ! First determine the new head
-   IF( head1%RA*head1%RA*head1%LENGTH &
-                > head2%RA*head2%RA*head2%LENGTH )THEN
+   IF( head1%RA*head1%RB*head1%LENGTH &
+                > head2%RA*head2%RB*head2%LENGTH )THEN
         head3 =>head1
         p1 => p1%next
    ELSE
@@ -6028,8 +6238,8 @@ FUNCTION MergeSort(head1, head2)
    ! Second, sort between two half lists
    p => head3
    DO WHILE(ASSOCIATED(p1).AND.ASSOCIATED(p2))
-   IF( p1%RA*p1%RA*p1%LENGTH &
-                > p2%RA*p2%RA*p2%LENGTH )THEN
+   IF( p1%RA*p1%RB*p1%LENGTH &
+                > p2%RA*p2%RB*p2%LENGTH )THEN
         p%next => p1
         p1 => p1%next
         p => p%next
