@@ -378,9 +378,24 @@
 ! criterion.
 
 ! June 11, 2020
-! Put all the Entropy calculation in the final end
+!
+! (1) 
+!Put all the Entropy calculation in the final end
 ! make sure that all the interaction between plume model and GEOS-Chem are
 ! finished when the entropy calculation begins
+!
+! (2)
+! Debug: use SortList() to sort Plume1d list would change both Plume1d_head and
+! Plume1d_tail node, make sure update both instead of just Plume1d_head !
+!
+!     !====================================================================
+!     ! Always make sure the Plume1d_tail refer to the last node of the list!
+!     !
+!     ! WARNING: the sort list after SortList() will change both Plume1d_head
+!     ! and Plume1d_tail, make sure the Plume1d_tail is also updated !!! 
+!     !==================================================================== 
+!     Plume1d_tail => Plume1d_prev
+
 
 
 
@@ -573,8 +588,8 @@ MODULE Lagrange_Mod
 !  END TYPE
 !
 
-  TYPE(Plume2d_list), POINTER :: Plume2d_old, Plume2d_head
-  TYPE(Plume1d_list), POINTER :: Plume1d_old, Plume1d_head
+  TYPE(Plume2d_list), POINTER :: Plume2d_tail, Plume2d_head
+  TYPE(Plume1d_list), POINTER :: Plume1d_tail, Plume1d_head
 
 
 CONTAINS
@@ -643,7 +658,7 @@ CONTAINS
 
     ! define how many plume segments will be injected
     ! -1 means keep inecting in the whole simulation
-    N_stop_inject = -1 ! N_total ! -1
+    N_stop_inject = N_total ! -1
 
     Stop_inject = 0
 
@@ -702,41 +717,44 @@ CONTAINS
 
     ! -----------------------------------------------------------
     ! create first node (head) for 2d linked list:
+    ! 
+    ! At the beginning, there are only one node in the 2d list, 
+    ! so Plume2d_tail and Plume2d_head refer to the same node
     ! -----------------------------------------------------------
-    ALLOCATE(Plume2d_old)
-    Plume2d_old%IsNew = 1
-    Plume2d_old%label = 1
+    ALLOCATE(Plume2d_tail)
+    Plume2d_tail%IsNew = 1
+    Plume2d_tail%label = 1
 
-    Plume2d_old%LON = Inject_lon
-    Plume2d_old%LAT = -29.95e+0_fp
-    Plume2d_old%LEV = Inject_hPa
+    Plume2d_tail%LON = Inject_lon
+    Plume2d_tail%LAT = -29.95e+0_fp
+    Plume2d_tail%LEV = Inject_hPa
 
-    Plume2d_old%LENGTH = Length_init ! 1000m 
-    Plume2d_old%ALPHA  = 0.0e+0_fp
+    Plume2d_tail%LENGTH = Length_init ! 1000m 
+    Plume2d_tail%ALPHA  = 0.0e+0_fp
 
-    Plume2d_old%LIFE = 0.0e+0_fp
+    Plume2d_tail%LIFE = 0.0e+0_fp
 
-    Plume2d_old%DX = Dx_init
-    Plume2d_old%DY = Dy_init
+    Plume2d_tail%DX = Dx_init
+    Plume2d_tail%DY = Dy_init
 
     ! Here assume the injection rate is 30 kg/km (=30 g/m) for H2SO4
-    ALLOCATE(Plume2d_old%CONCNT2d(n_x_max, n_y_max, n_species))
-    Plume2d_old%CONCNT2d = 0.0e+0_fp
-    Plume2d_old%CONCNT2d(n_x_mid,n_y_mid,i_tracer) = Plume2d_old%LENGTH*30.0 &
-                  /(Plume2d_old%DX*Plume2d_old%DY*Plume2d_old%LENGTH)
+    ALLOCATE(Plume2d_tail%CONCNT2d(n_x_max, n_y_max, n_species))
+    Plume2d_tail%CONCNT2d = 0.0e+0_fp
+    Plume2d_tail%CONCNT2d(n_x_mid,n_y_mid,i_tracer) = Plume2d_tail%LENGTH*30.0 &
+                  /(Plume2d_tail%DX*Plume2d_tail%DY*Plume2d_tail%LENGTH)
     ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
-    Plume2d_old%CONCNT2d(n_x_mid,n_y_mid,i_tracer) = &
-                              Plume2d_old%CONCNT2d(n_x_mid,n_y_mid,i_tracer) &
+    Plume2d_tail%CONCNT2d(n_x_mid,n_y_mid,i_tracer) = &
+                              Plume2d_tail%CONCNT2d(n_x_mid,n_y_mid,i_tracer) &
                                                       / 1.0e+6_fp / 98.0 * AVO
 
 
-    mass_la  = Plume2d_old%CONCNT2d(n_x_mid,n_y_mid,i_tracer)* &
-             (Plume2d_old%DX*Plume2d_old%DY*Plume2d_old%LENGTH*1.0e+6_fp)
+    mass_la  = Plume2d_tail%CONCNT2d(n_x_mid,n_y_mid,i_tracer)* &
+             (Plume2d_tail%DX*Plume2d_tail%DY*Plume2d_tail%LENGTH*1.0e+6_fp)
     mass_la2 = 0.0
     mass_eu  = 0.0
 
-    NULLIFY(Plume2d_old%next)
-    Plume2d_head => Plume2d_old
+    NULLIFY(Plume2d_tail%next)
+    Plume2d_head => Plume2d_tail
 
 
 
@@ -1313,8 +1331,8 @@ CONTAINS
 !             (Plume2d_new%DX*Plume2d_new%DY*Plume2d_new%LENGTH*1.0e+6_fp)
 
       NULLIFY(Plume2d_new%next)
-      Plume2d_old%next => Plume2d_new
-      Plume2d_old => Plume2d_old%next
+      Plume2d_tail%next => Plume2d_new
+      Plume2d_tail => Plume2d_tail%next
 
 
     ENDDO ! i_box = Num_inject+1, Num_inject+N_parcel, 1
@@ -3338,6 +3356,8 @@ CONTAINS
     IF(ASSOCIATED(Plume2d_prev)) NULLIFY(Plume2d_prev)
     IF(.NOT.ASSOCIATED(Plume2d_head)) GOTO 900
 
+
+
     Plume2d => Plume2d_head
     i_box = 0
 
@@ -3830,8 +3850,8 @@ CONTAINS
 
 
            IF(.NOT.ASSOCIATED(Plume2d%next))THEN ! delete last node
-              Plume2d_old%next => Plume2d_prev
-              Plume2d_old => Plume2d_old%next
+              Plume2d_tail%next => Plume2d_prev
+              Plume2d_tail => Plume2d_tail%next
 
 !            Plume2d => Plume2d_prev%next !!! ???
               IF(ASSOCIATED(Plume2d_prev%next)) NULLIFY(Plume2d_prev%next)
@@ -3868,27 +3888,27 @@ CONTAINS
 
            IF(.NOT.ASSOCIATED(Plume1d_head))THEN ! create first node for 1d plume
 
-             ALLOCATE(Plume1d_old)
-             Plume1d_old%LON = box_lon
-             Plume1d_old%LAT = box_lat
-             Plume1d_old%LEV = box_lev
+             ALLOCATE(Plume1d_tail)
+             Plume1d_tail%LON = box_lon
+             Plume1d_tail%LAT = box_lat
+             Plume1d_tail%LEV = box_lev
 
-             Plume1d_old%LENGTH = box_length
-             Plume1d_old%ALPHA  = box_alpha
+             Plume1d_tail%LENGTH = box_length
+             Plume1d_tail%ALPHA  = box_alpha
 
-             Plume1d_old%Is_transfer = 0
+             Plume1d_tail%Is_transfer = 0
 
-             Plume1d_old%label = box_label
-             Plume1d_old%LIFE = box_life
+             Plume1d_tail%label = box_label
+             Plume1d_tail%LIFE = box_life
 
-             Plume1d_old%RA = box_Ra
-             Plume1d_old%RB = box_Rb
+             Plume1d_tail%RA = box_Ra
+             Plume1d_tail%RB = box_Rb
 
-             ALLOCATE(Plume1d_old%CONCNT1d(n_slab_max,n_species))
-             Plume1d_old%CONCNT1d = box_concnt_1D
+             ALLOCATE(Plume1d_tail%CONCNT1d(n_slab_max,n_species))
+             Plume1d_tail%CONCNT1d = box_concnt_1D
 
-             NULLIFY(Plume1d_old%next)
-             Plume1d_head => Plume1d_old
+             NULLIFY(Plume1d_tail%next)
+             Plume1d_head => Plume1d_tail
 
 
              WRITE(6,*) '*** CREATE first Plume1d node ***'
@@ -3919,8 +3939,8 @@ CONTAINS
              Plume1d_new%CONCNT1d = box_concnt_1D
 
              NULLIFY(Plume1d_new%next)
-             Plume1d_old%next => Plume1d_new
-             Plume1d_old => Plume1d_old%next
+             Plume1d_tail%next => Plume1d_new
+             Plume1d_tail => Plume1d_tail%next
 
 !             WRITE(6,*) '*** CREATE other Plume1d nodes ***', i_box
 
@@ -3985,8 +4005,8 @@ CONTAINS
 !              ! the tail node is also the head node, skip the loop
 !              IF(.NOT.ASSOCIATED(Plume1d_prev)) GOTO 900
 !
-!              Plume2d_old%next => Plume2d_prev
-!              Plume2d_old => Plume2d_old%next
+!              Plume2d_tail%next => Plume2d_prev
+!              Plume2d_tail => Plume2d_tail%next
 !!            Plume2d => Plume2d_prev%next !!! ???
 !              IF(ASSOCIATED(Plume2d_prev%next)) NULLIFY(Plume2d_prev%next)
 !              DEALLOCATE(Plume2d%CONCNT2d)
@@ -4050,8 +4070,8 @@ CONTAINS
 
 
            IF(.NOT.ASSOCIATED(Plume2d%next))THEN ! delete last node
-              Plume2d_old%next => Plume2d_prev
-              Plume2d_old => Plume2d_old%next
+              Plume2d_tail%next => Plume2d_prev
+              Plume2d_tail => Plume2d_tail%next
 
 !            Plume2d => Plume2d_prev%next !!! ???
               IF(ASSOCIATED(Plume2d_prev%next)) NULLIFY(Plume2d_prev%next)
@@ -4191,10 +4211,15 @@ CONTAINS
 !    WRITE(6,*)'=== loop for 2d plume in plume_run: ', i_box, Num_Plume2d
 
 
-!       IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
-!         WRITE(6,*)' '
-!         WRITE(6,*)'Entropy1:', Entropy
-!       ENDIF
+
+       !====================================================================
+       ! sort the Plume1D linked list based on the grid volume, which will be
+       ! used for the volume criterion.
+       ! WARNING: the sort list after SortList() will change both Plume1d_head
+       ! and Plume1d_tail, make sure the Plume1d_tail is also updated !!! 
+       !====================================================================
+       Plume1d_head => SortList(Plume1d_head)
+
 
        !====================================================================
        ! begin 1D slab model only for sum volume of plume
@@ -4273,7 +4298,18 @@ CONTAINS
          Plume1d      => Plume1d%next
 
 
+
      ENDDO ! DO WHILE(ASSOCIATED(Plume1d))
+
+     
+     !====================================================================
+     ! Always make sure the Plume1d_tail refer to the last node of the list!
+     !
+     ! WARNING: the sort list after SortList() will change both Plume1d_head
+     ! and Plume1d_tail, make sure the Plume1d_tail is also updated !!! 
+     !==================================================================== 
+     Plume1d_tail => Plume1d_prev
+    
 
 
 !     ! Compare SumV_Plume with Eulerian grid cell volume
@@ -4301,16 +4337,6 @@ CONTAINS
 !     ENDDO
 !     ENDDO
 !     ENDDO
-
-
-
-
-! sort the Plume1D linked list based on the grid volume
-! which will be used for the volume criterion
-
-       Plume1d_head => SortList(Plume1d_head)
-
-
 
 
        !====================================================================
@@ -4635,6 +4661,8 @@ CONTAINS
 
          Plume1d%Is_transfer = 1
 
+         WRITE(6,*)"WARNING: Volume Criterion triggered !!!"
+
          SumV_Plume(i_cell) = SumV_Plume(i_cell) - V_grid_1D*n_slab_max
 
        ENDIF
@@ -4653,7 +4681,7 @@ CONTAINS
 
          Num_dissolve = Num_dissolve+1
 
-
+         WRITE(6,*)"Dissolve happens!", i_box, box_label, Num_Plume1d
          WRITE(484,*) MONTH, box_label, box_life
 
 !         WRITE(6,*)'DISSOLVE1:', i_box, box_label, box_life/3600/24,&
@@ -4682,7 +4710,7 @@ CONTAINS
                         .NOT.ASSOCIATED(Plume1d_prev))THEN
 
             WRITE(6,*)'                 '
-            WRITE(6,*)'*** Only left the last Plume1d', Num_Plume1d
+            WRITE(6,*)'*** Only left the last Plume1d', i_box, box_label, Num_Plume1d
             WRITE(6,*)'                 '
             DEALLOCATE(Plume1d_head)
 
@@ -4693,8 +4721,8 @@ CONTAINS
          ENDIF
 
          IF(.NOT.ASSOCIATED(Plume1d%next))THEN ! delete last node
-            Plume1d_old%next => Plume1d_prev
-            Plume1d_old => Plume1d_old%next
+            Plume1d_tail%next => Plume1d_prev
+            Plume1d_tail => Plume1d_tail%next
 
 !            Plume1d => Plume1d_prev%next !!! ???
             IF(ASSOCIATED(Plume1d_prev%next)) NULLIFY(Plume1d_prev%next)
@@ -4767,8 +4795,8 @@ CONTAINS
 !
 !
 !         IF(.NOT.ASSOCIATED(Plume1d%next))THEN ! delete the tail node
-!            Plume1d_old%next => Plume1d_prev
-!            Plume1d_old => Plume1d_old%next
+!            Plume1d_tail%next => Plume1d_prev
+!            Plume1d_tail => Plume1d_tail%next
 !
 !!            Plume1d => Plume1d_prev%next !!! ???
 !            IF(ASSOCIATED(Plume1d_prev%next)) NULLIFY(Plume1d_prev%next)
@@ -4846,8 +4874,8 @@ CONTAINS
 !
 !
 !         IF(.NOT.ASSOCIATED(Plume1d%next))THEN ! delete last node
-!            Plume1d_old%next => Plume1d_prev
-!            Plume1d_old => Plume1d_old%next
+!            Plume1d_tail%next => Plume1d_prev
+!            Plume1d_tail => Plume1d_tail%next
 !
 !!            Plume1d => Plume1d_prev%next !!! ???
 !            IF(ASSOCIATED(Plume1d_prev%next)) NULLIFY(Plume1d_prev%next)
@@ -4902,7 +4930,7 @@ CONTAINS
 
 !!! shw 
        IF( box_Ra > 2 * Dx*1.0e+5 ) THEN
-!         WRITE(6,*)"SPLIT:", i_box
+         WRITE(6,*)"SPLIT:", i_box, box_label
 
          !-----------------------------------------------------------------------
          ! set initial location for new added boxes from splitting
@@ -4955,8 +4983,8 @@ CONTAINS
 
            ! add new splitting plume into the end of linked list
            NULLIFY(Plume1d_new%next)
-           Plume1d_old%next => Plume1d_new
-           Plume1d_old => Plume1d_old%next
+           Plume1d_tail%next => Plume1d_new
+           Plume1d_tail => Plume1d_tail%next
 
 
            Num_Plume1d = Num_Plume1d + 1
@@ -5043,6 +5071,8 @@ CONTAINS
 
        Plume1d%CONCNT1d = box_concnt_1D
 
+
+       !WRITE(6,*)"Plume run for 1D: assign Plume1d_prev"
        Plume1d_prev => Plume1d
        Plume1d      => Plume1d%next
 
@@ -5067,7 +5097,7 @@ CONTAINS
 
 500     CONTINUE
 
-!     WRITE(6,*)'=== loop for 1d plume in plume_run: ', i_box, Num_Plume1d
+!    WRITE(6,*)'=== loop for 1d plume in plume_run: ', i_box, Num_Plume1d
 
 
 
@@ -5088,11 +5118,9 @@ CONTAINS
     IF(ASSOCIATED(Plume2d_head))THEN
 
     Plume2d => Plume2d_head
-    i_box = 0
 
     DO WHILE(ASSOCIATED(Plume2d))
 
-      i_box = i_box+1
 
       box_lon    = Plume2d%LON
       box_lat    = Plume2d%LAT
@@ -5184,11 +5212,8 @@ CONTAINS
 
     IF(ASSOCIATED(Plume1d_prev)) NULLIFY(Plume1d_prev)
     Plume1d => Plume1d_head
-    i_box = 0
 
     DO WHILE(ASSOCIATED(Plume1d)) ! how to delete last plume???
-
-      i_box = i_box+1
 
 
       box_lat    = Plume1d%LAT
@@ -6179,7 +6204,6 @@ RECURSIVE FUNCTION SortList(head0) RESULT (new_head)
 
     TYPE(Plume1d_list), POINTER :: head0, new_head
     TYPE(Plume1d_list), POINTER :: fast, slow
-    TYPE(Plume1d_list), POINTER :: tt
 
 
     IF(.NOT.ASSOCIATED(head0) .OR. .NOT.ASSOCIATED(head0%next))THEN
@@ -6238,7 +6262,7 @@ FUNCTION MergeSort(head1, head2)
    ! Second, sort between two half lists
    p => head3
    DO WHILE(ASSOCIATED(p1).AND.ASSOCIATED(p2))
-   IF( p1%RA*p1%RB*p1%LENGTH &
+     IF( p1%RA*p1%RB*p1%LENGTH &
                 > p2%RA*p2%RB*p2%LENGTH )THEN
         p%next => p1
         p1 => p1%next
