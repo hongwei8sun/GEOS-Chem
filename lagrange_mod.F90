@@ -4308,7 +4308,7 @@ CONTAINS
 ! sort the Plume1D linked list based on the grid volume
 ! which will be used for the volume criterion
 
-!       Plume1d_head => SortList(Plume1d_head)
+       Plume1d_head => SortList(Plume1d_head)
 
 
 
@@ -4630,8 +4630,8 @@ CONTAINS
 
        ! After sorting the plume from largest to smallest by SortList()
        ! [cm3] always delete the largest plume first
-       IF(SumV_Plume(i_cell) - &
-                0.9*State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp >=0)THEN
+       IF(SumV_Plume(i_cell) &
+                >= 0.9*State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp)THEN
 
          Plume1d%Is_transfer = 1
 
