@@ -396,6 +396,25 @@
 !     !==================================================================== 
 !     Plume1d_tail => Plume1d_prev
 
+! June 14, 2021
+! 
+! (1) delete PASV_LA4
+!
+! (2) decide to use Dx or 2*Dx to triger the plume split
+!
+!       integer, parameter    :: Split_length = 2 ! how many times of Dx
+!         IF( box_Ra > Split_length * Dx*1.0e+5 ) THEN
+!
+! (3) add variable Type_transfer to record the number of transferred plume
+! segments by 4 different transferring criterion
+!
+!       integer :: Type_transfer
+!         IF( ABS(Rate_Mix-Rate_Eul)/Rate_Eul<Dissolve_critiria ) &
+!                                                      Type_transfer = 11
+!         IF( Plume1d%Is_transfer==1 )                 Type_transfer = 22
+!         IF( box_lev>State_Met%TROPP(i_lon,i_lat) )   Type_transfer = 33
+!         IF( box_life/3600/24>30.0 )                  Type_transfer = 44
+
 
 
 
@@ -438,6 +457,7 @@ MODULE Plume_list
   TYPE :: Plume1d_list
     integer :: label ! injected rank
     integer :: Is_transfer ! if =1, transfer to the host Euletian model
+
 
     real(fp) :: LON, LAT, LEV
     real(fp) :: LENGTH, ALPHA
@@ -493,6 +513,7 @@ MODULE Lagrange_Mod
 
   integer               :: use_lagrange = 1
   integer               :: TROPP_sink = 0
+  integer               :: Volume_Sort = 1 ! 1 = use SortList() function
 
   integer, parameter    :: n_x_max = 243  !number of x grids in 2D, should be (9 x odd)
   integer, parameter    :: n_y_max = 117  !number of y grids in 2D, should be (9 x odd)
@@ -514,7 +535,7 @@ MODULE Lagrange_Mod
 
   integer               :: n_slab_25, n_slab_50, n_slab_75
   integer               :: IIPAR, JJPAR, LLPAR
-  integer               :: id_PASV_LA4, id_PASV_LA3, id_PASV_LA2, id_PASV_LA 
+  integer               :: id_PASV_LA3, id_PASV_LA2, id_PASV_LA 
   integer               :: id_PASV_EU2, id_PASV_EU
 
   real, parameter       :: Dx_init = 100
@@ -528,6 +549,7 @@ MODULE Lagrange_Mod
 
   ! some parameter for sensitive test
   integer, parameter    :: N_split = 3
+  integer, parameter    :: Split_length = 2 ! how many times of Dx
   real, parameter       :: Dissolve_critiria = 0.1
 
 
@@ -658,7 +680,7 @@ CONTAINS
 
     ! define how many plume segments will be injected
     ! -1 means keep inecting in the whole simulation
-    N_stop_inject = N_total ! -1
+    N_stop_inject = -1 ! N_total ! -1
 
     Stop_inject = 0
 
@@ -875,15 +897,13 @@ CONTAINS
       WRITE(6,'(a)') '********************************************************'
       WRITE(6,'(a)') ' '
 
-      id_PASV_LA  = State_Chm%nAdvect-3
-      id_PASV_LA2 = State_Chm%nAdvect-2
-      id_PASV_LA3 = State_Chm%nAdvect-1
-      id_PASV_LA4 = State_Chm%nAdvect
+      id_PASV_LA  = State_Chm%nAdvect-2
+      id_PASV_LA2 = State_Chm%nAdvect-1
+      id_PASV_LA3 = State_Chm%nAdvect
 
       State_Chm%Species(:,:,:,id_PASV_LA)   = 0.0e+0_fp  ! [kg/kg]
       State_Chm%Species(:,:,:,id_PASV_LA2)  = 0.0e+0_fp  ! [kg/kg]
       State_Chm%Species(:,:,:,id_PASV_LA3)  = 0.0e+0_fp  ! [kg/kg]
-      State_Chm%Species(:,:,:,id_PASV_LA4)  = 0.0e+0_fp  ! [kg/kg]
 
 !      State_Chm%Species(:,:,:,id_PASV_LA) = &
 !        State_Chm%Species(:,:,:,id_PASV_LA)+State_Chm%Species(:,:,:,id_PASV_LA3)
@@ -1086,13 +1106,15 @@ CONTAINS
        air2_mol    = Entropy2_V/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
        mix2_ratio  = tracer2_mol/air2_mol
 
-       IF(mix2_ratio>0) Entropy2 = Entropy2 + BOLTZ*tracer2_mol*log(mix2_ratio)
+       IF(mix2_ratio>0) Entropy2 = Entropy2 - BOLTZ*tracer2_mol*log(mix2_ratio)
 
     ENDDO
     ENDDO
     ENDDO
 
-    WRITE(6,*) "Entropy:", Entropy2
+!    WRITE(6,*) "Entropy:", Entropy2
+!    WRITE(6,*) "Total Mass:", SUM( State_Chm%Species(:,:,:,id_PASV_EU) &
+!                                           * State_Met%AIRVOL(:,:,:)*1e+6_fp )
 
     ENDIF
 
@@ -1122,7 +1144,6 @@ CONTAINS
     ! call the lagrnage_run() and plume_run() to calculate injected plume
 
       State_Chm%Species(:,:,:,id_PASV_LA3) = 0.0e+0_fp  ! [kg/kg]
-      State_Chm%Species(:,:,:,id_PASV_LA4) = 0.0e+0_fp  ! [kg/kg]
 
       CALL lagrange_run(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
       CALL plume_run(am_I_Root, State_Chm, State_Grid, State_Met, Input_Opt, RC)
@@ -3077,6 +3098,8 @@ CONTAINS
 
     integer :: Stop_loop 
 
+    integer :: Type_transfer
+
     real(fp) :: curr_lon, curr_lat, curr_pressure
 !    real(fp) :: next_lon, next_lat, next_pressure
 
@@ -3896,7 +3919,7 @@ CONTAINS
              Plume1d_tail%LENGTH = box_length
              Plume1d_tail%ALPHA  = box_alpha
 
-             Plume1d_tail%Is_transfer = 0
+             Plume1d_tail%Is_transfer    = 0
 
              Plume1d_tail%label = box_label
              Plume1d_tail%LIFE = box_life
@@ -3911,7 +3934,7 @@ CONTAINS
              Plume1d_head => Plume1d_tail
 
 
-             WRITE(6,*) '*** CREATE first Plume1d node ***'
+             WRITE(6,*) '*** CREATE first Plume1d node ***', box_label
 
            ELSE
 
@@ -4127,7 +4150,7 @@ CONTAINS
 !           air_mol    = V_grid_2D/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
 !           mix_ratio  = tracer_mol/air_mol
 !
-!           IF(mix_ratio>0) Entropy = Entropy + BOLTZ*tracer_mol*log(mix_ratio)
+!           IF(mix_ratio>0) Entropy = Entropy - BOLTZ*tracer_mol*log(mix_ratio)
 !
 !           i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
 !           Entropy_V(i_cell) = Entropy_V(i_cell) - V_grid_2D
@@ -4218,7 +4241,7 @@ CONTAINS
        ! WARNING: the sort list after SortList() will change both Plume1d_head
        ! and Plume1d_tail, make sure the Plume1d_tail is also updated !!! 
        !====================================================================
-       Plume1d_head => SortList(Plume1d_head)
+       IF(Volume_Sort==1) Plume1d_head => SortList(Plume1d_head)
 
 
        !====================================================================
@@ -4496,6 +4519,17 @@ CONTAINS
        ENDIF
 
 
+
+
+
+!       V_grid_1D        = box_Ra*box_Rb*box_length*1.0e+6_fp
+!       IF(box_label==1)  WRITE(6,*) "Max mass cell 0:", &
+!                MAXVAL(box_concnt_1D(:,i_tracer))*V_grid_1D/AVO
+
+
+
+
+
        !--------------------------------------------------------------------
        ! Begin the loop to calculate the advection & diffusion in slab model
        !--------------------------------------------------------------------
@@ -4573,6 +4607,9 @@ CONTAINS
 
 
 
+!       IF(box_label==1) WRITE(6,*) "Max mass cell 1:", &
+!                MAXVAL(box_concnt_1D(:,i_tracer))*V_grid_1D/AVO
+
 
        DO i_species=1,n_species,1
 
@@ -4624,6 +4661,18 @@ CONTAINS
 
        ENDDO ! DO i_species=1,n_species,1
 
+
+
+
+
+!       IF(box_label==1) WRITE(6,*)  "Max mass cell 2:", &
+!                MAXVAL(box_concnt_1D(:,i_tracer))*V_grid_1D/AVO
+
+
+
+
+
+
        !===================================================================
        ! Second judge:
        ! According to a 2-order process rate, if there is no big difference
@@ -4657,11 +4706,10 @@ CONTAINS
        ! After sorting the plume from largest to smallest by SortList()
        ! [cm3] always delete the largest plume first
        IF(SumV_Plume(i_cell) &
-                >= 0.9*State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp)THEN
+                >= 0.5*State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp)THEN
 
          Plume1d%Is_transfer = 1
 
-         WRITE(6,*)"WARNING: Volume Criterion triggered !!!"
 
          SumV_Plume(i_cell) = SumV_Plume(i_cell) - V_grid_1D*n_slab_max
 
@@ -4675,14 +4723,22 @@ CONTAINS
        ! 4. Volume criterion
        ! ------------------------------------------------------------------
        IF(      ABS(Rate_Mix-Rate_Eul)/Rate_Eul<Dissolve_critiria &
-           .OR. box_life/3600/24>30.0 &
+           .OR. Plume1d%Is_transfer==1 &
            .OR. box_lev>State_Met%TROPP(i_lon,i_lat) &
-           .OR. Plume1d%Is_transfer==1 )THEN 
+           .OR. box_life/3600/24>30.0  )THEN 
+
+
+         IF( ABS(Rate_Mix-Rate_Eul)/Rate_Eul<Dissolve_critiria ) &
+                                                      Type_transfer = 11
+         IF( Plume1d%Is_transfer==1 )                 Type_transfer = 22
+         IF( box_lev>State_Met%TROPP(i_lon,i_lat) )   Type_transfer = 33
+         IF( box_life/3600/24>30.0 )                  Type_transfer = 44
+
+
 
          Num_dissolve = Num_dissolve+1
 
-         WRITE(6,*)"Dissolve happens!", i_box, box_label, Num_Plume1d
-         WRITE(484,*) MONTH, box_label, box_life
+         WRITE(484,*) DAY, Type_transfer, box_life
 
 !         WRITE(6,*)'DISSOLVE1:', i_box, box_label, box_life/3600/24,&
 !                              SUM(box_concnt_1D(1:n_slab_max)) * V_grid_1D
@@ -4929,8 +4985,8 @@ CONTAINS
 
 
 !!! shw 
-       IF( box_Ra > 2 * Dx*1.0e+5 ) THEN
-         WRITE(6,*)"SPLIT:", i_box, box_label
+       IF( box_Ra > Split_length* Dx*1.0e+5 ) THEN
+!         WRITE(6,*)"SPLIT:", i_box, box_label
 
          !-----------------------------------------------------------------------
          ! set initial location for new added boxes from splitting
@@ -5019,7 +5075,7 @@ CONTAINS
 !           air_mol    = V_grid_1D/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
 !           mix_ratio  = tracer_mol/air_mol
 !              
-!           IF(mix_ratio>0) Entropy = Entropy + BOLTZ*tracer_mol*log(mix_ratio)
+!           IF(mix_ratio>0) Entropy = Entropy - BOLTZ*tracer_mol*log(mix_ratio)
 !
 !           i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
 !           Entropy_V(i_cell) = Entropy_V(i_cell) - V_grid_1D
@@ -5184,7 +5240,7 @@ CONTAINS
         air_mol    = V_grid_2D/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
         mix_ratio  = tracer_mol/air_mol
 
-        IF(mix_ratio>0) Entropy = Entropy + BOLTZ*tracer_mol*log(mix_ratio)
+        IF(mix_ratio>0) Entropy = Entropy - BOLTZ*tracer_mol*log(mix_ratio)
 
         i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
         Entropy_V(i_cell) = Entropy_V(i_cell) - V_grid_2D
@@ -5202,7 +5258,7 @@ CONTAINS
     ENDIF ! IF(ASSOCIATED(Plume2d_head))THEN
 
 
-    WRITE(6,*)'Entropy1:', Entropy
+!    WRITE(6,*)'Entropy1:', Entropy
 
 
     ! ------------------------------------------------------------------------------
@@ -5228,6 +5284,7 @@ CONTAINS
       box_Ra    = Plume1d%RA
       box_Rb    = Plume1d%RB
 
+      box_concnt_1D = Plume1d%CONCNT1d
 
       ! make sure the location is not out of range
       do while (box_lat > Y_edge(JJPAR+1))
@@ -5267,7 +5324,7 @@ CONTAINS
 
 
       ! Entropy
-      V_grid_1D        = box_Ra*box_Rb*box_length*1.0e+6_fp
+      V_grid_1D     = box_Ra*box_Rb*box_length*1.0e+6_fp
 
       DO i_slab = 1, n_slab_max, 1
 
@@ -5278,12 +5335,31 @@ CONTAINS
         air_mol    = V_grid_1D/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
         mix_ratio  = tracer_mol/air_mol
 
-        IF(mix_ratio>0) Entropy = Entropy + BOLTZ*tracer_mol*log(mix_ratio)
+        IF(mix_ratio>0) Entropy = Entropy - BOLTZ*tracer_mol*log(mix_ratio)
+
+
+!        IF(box_label==1)THEN
+!          WRITE(6,*)"For box_label==1:"
+!          WRITE(6,*) i_slab, box_concnt_1D(i_slab,i_tracer), tracer_mol, mix_ratio
+!        ENDIF
+
+!        IF(-BOLTZ*tracer_mol*log(mix_ratio)>1.0e+16)THEN
+!          WRITE(6,*)"WARNING: super large Entropy happens!!!"
+!          WRITE(6,*)air_mol, tracer_mol, mix_ratio
+!        ENDIF
+
 
         i_cell = (i_lev-1)*IIPAR*JJPAR+(i_lat-1)*IIPAR+i_lon
         Entropy_V(i_cell) = Entropy_V(i_cell) - V_grid_1D
 
       ENDDO
+
+
+!      IF(box_label==1)THEN
+!         WRITE(6,*)"Total mass (molec) for box_label==1:", MAXVAL(box_concnt_1D(:,i_tracer))*V_grid_1D/AVO
+!         WRITE(6,*) V_grid_1D, SUM(box_concnt_1D(:,i_tracer) )*V_grid_1D, &
+!             State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)*V_grid_1D*n_slab_max
+!      ENDIF
 
 
       Plume1d_prev => Plume1d
@@ -5294,7 +5370,7 @@ CONTAINS
 
     ENDIF ! IF(ASSOCIATED(Plume1d_head))THEN
 
-    WRITE(6,*)'Entropy2:', Entropy
+!    WRITE(6,*)'Entropy2:', Entropy
 
 
 
@@ -5312,13 +5388,13 @@ CONTAINS
        air_mol    = Entropy_V(i_cell)/1e+6_fp*State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW
        mix_ratio  = tracer_mol/air_mol
               
-       IF(mix_ratio>0) Entropy = Entropy + BOLTZ*tracer_mol*log(mix_ratio)
+       IF(mix_ratio>0) Entropy = Entropy - BOLTZ*tracer_mol*log(mix_ratio)
 
     ENDDO
     ENDDO
     ENDDO
 
-    WRITE(6,*)'Entropy3:', Entropy
+!    WRITE(6,*)'Entropy3:', Entropy
 
     FileEntropy   = 'Plume_entropy.txt'
     OPEN( 487,      FILE=TRIM( FileEntropy   ), STATUS='OLD',  &
