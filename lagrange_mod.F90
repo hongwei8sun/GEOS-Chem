@@ -513,10 +513,11 @@ MODULE Lagrange_Mod
 
   integer               :: use_lagrange = 1
   integer               :: TROPP_sink = 0
-  integer               :: Volume_Sort = 1 ! 1 = use SortList() function
+  integer               :: Volume_Sort  = 1 ! 1 = use SortList() function
+  integer               :: Calc_entropy = 1 ! 1 = turn on entropy calculation
 
-  integer, parameter    :: n_x_max = 243  !number of x grids in 2D, should be (9 x odd)
-  integer, parameter    :: n_y_max = 117  !number of y grids in 2D, should be (9 x odd)
+  integer, parameter    :: n_x_max = 207 ! 243  !number of x grids in 2D, should be (9 x odd)
+  integer, parameter    :: n_y_max = 81  ! 117  !number of y grids in 2D, should be (9 x odd)
 
   ! the odd number of n_x_max can ensure a center grid
   integer, parameter    :: n_x_mid = (n_x_max+1)/2 !242
@@ -549,9 +550,9 @@ MODULE Lagrange_Mod
 
   ! some parameter for sensitive test
   integer, parameter    :: N_split = 3
-  integer, parameter    :: Split_length = 2 ! how many times of Dx
+  integer, parameter    :: Split_length = 1 ! how many times of Dx
   real, parameter       :: Dissolve_critiria = 0.1
-
+  real, parameter       :: Volume_percent = 0.5
 
   real(fp), pointer     :: X_mid(:), Y_mid(:), P_mid(:)
   real(fp), pointer     :: P_edge(:)
@@ -4706,7 +4707,7 @@ CONTAINS
        ! After sorting the plume from largest to smallest by SortList()
        ! [cm3] always delete the largest plume first
        IF(SumV_Plume(i_cell) &
-                >= 0.5*State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp)THEN
+           >= Volume_percent*State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp)THEN
 
          Plume1d%Is_transfer = 1
 
@@ -5163,7 +5164,8 @@ CONTAINS
     ! Begin to calculate the entropy here
     !===============================================================================
 
-    IF(mod(tt*NINT(Dt),24*60*60)==0)THEN   ! output once every day (24 hours)
+    ! output once every day (24 hours)
+    IF(mod(tt*NINT(Dt),24*60*60)==0 .AND. Calc_entropy==1)THEN 
 
 
     ! ------------------------------------------------------------------------------
@@ -5407,7 +5409,7 @@ CONTAINS
 
 
 
-    ENDIF
+    ENDIF ! IF(mod(tt*NINT(Dt),24*60*60)==0 .AND. Calc_entropy==1)THEN
 
     !=======================================================================
     ! Convert species back to original units (ewl, 8/16/16)
