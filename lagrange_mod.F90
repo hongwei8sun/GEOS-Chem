@@ -352,7 +352,7 @@
 !       ! 2. Time criterion
 !       ! 3. Location critetion
 !       ! ------------------------------------------------------------------
-!       IF( ABS(Rate_Mix-Rate_Eul)/Rate_Eul<Dissolve_critiria &
+!       IF( ABS(Prod_before-Prod_after)/Prod_after<Dissolve_critiria &
 !           .OR. box_life/3600/24>30.0 &
 !           .OR. box_lev>State_Met%TROPP(i_lon,i_lat) )THEN
 
@@ -400,20 +400,58 @@
 ! 
 ! (1) delete PASV_LA4
 !
-! (2) decide to use Dx or 2*Dx to triger the plume split
+! (2) decide to use DX or 2*DX to triger the plume split
 !
-!       integer, parameter    :: Split_length = 2 ! how many times of Dx
-!         IF( box_Ra > Split_length * Dx*1.0e+5 ) THEN
+!       integer, parameter    :: Split_length = 2 ! how many times of DX
+!         IF( box_Ra > Split_length * DX*1.0e+5 ) THEN
 !
 ! (3) add variable Type_transfer to record the number of transferred plume
 ! segments by 4 different transferring criterion
 !
 !       integer :: Type_transfer
-!         IF( ABS(Rate_Mix-Rate_Eul)/Rate_Eul<Dissolve_critiria ) &
+!         IF( ABS(Prod_before-Prod_after)/Prod_after<Dissolve_critiria ) &
 !                                                      Type_transfer = 11
 !         IF( Plume1d%Is_transfer==1 )                 Type_transfer = 22
 !         IF( box_lev>State_Met%TROPP(i_lon,i_lat) )   Type_transfer = 33
 !         IF( box_life/3600/24>30.0 )                  Type_transfer = 44
+
+! June 17, 2021
+! revise the product criterion, make the criterion less depend on the plume
+! segment size
+!       ! (1) Only consider the product producted by the tracer in Plume model
+!       ! (2) Consider the interaction between Plume model and Eulerian model
+!       ! Reference: Karamchandani et al., (2000)
+!       !            Korsakissok and Mallet, (2010)
+!       backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
+!
+!       Prod_before = SUM( ( box_concnt_1D(1:n_slab_max,1)+backgrd_concnt )**2 &
+!                                               - backgrd_concnt**2 ) *V_grid_1D
+!
+!       Eul_concnt = ( SUM(box_concnt_1D(1:n_slab_max,1)) *V_grid_1D &
+!                    + backgrd_concnt*grid_volumn ) / grid_volumn
+!
+!       Prod_after = (Eul_concnt**2 - backgrd_concnt**2) *grid_volumn
+
+
+! June 18, 2021
+! change initial plume segment length from 1km to more than 10km
+! consider the host Eulerian grid resolution (2degree, 200km)
+
+! June 21, 2021
+!
+! (1)
+! Add plume segment length splitting
+!       ! -------------------------------------
+!       ! 2. Splitting for plume segment length
+!       ! -------------------------------------
+!
+! (2)
+! 2.1 put Lyaponov calculation into a function Calc_Ly()
+!
+! 2.2 update lyaponov calculation by Introducing the location comparison between 
+! plume segment and its host Eulerian grid cell
+!       box_lon>=X_mid(i_lon)
+!       box_lat>=Y_mid(i_lat)
 
 
 
@@ -444,7 +482,7 @@ MODULE Plume_list
     real(fp) :: LENGTH, ALPHA
     real(fp) :: LIFE
 
-    real(fp) :: DX, DY
+    real(fp) :: PDX, PDY
     real(fp), DIMENSION(:,:,:), POINTER :: CONCNT2d 
     ! [n_x_max, n_y_max, n_species]
     !!! Don't assign dimension value first ???
@@ -513,7 +551,9 @@ MODULE Lagrange_Mod
 
   integer               :: use_lagrange = 1
   integer               :: TROPP_sink = 0
-  integer               :: Volume_Sort  = 1 ! 1 = use SortList() function
+  integer               :: Volume_Sort  = 1 
+  ! 1 = use SortList() function, transfer largest (not oldest) plume segment for
+  ! volume criterion
   integer               :: Calc_entropy = 1 ! 1 = turn on entropy calculation
 
   integer, parameter    :: n_x_max = 207 ! 243  !number of x grids in 2D, should be (9 x odd)
@@ -534,14 +574,15 @@ MODULE Lagrange_Mod
   integer, parameter    :: n_slab_max2 = n_slab_max+2
   ! add 2 more slab grid to containing background concentration
 
-  integer               :: n_slab_25, n_slab_50, n_slab_75
   integer               :: IIPAR, JJPAR, LLPAR
+
+  integer               :: n_slab_25, n_slab_50, n_slab_75
   integer               :: id_PASV_LA3, id_PASV_LA2, id_PASV_LA 
   integer               :: id_PASV_EU2, id_PASV_EU
 
   real, parameter       :: Dx_init = 100
   real, parameter       :: Dy_init = 10
-  real, parameter       :: Length_init = 1000.0e+0_fp ! [m]
+  real, parameter       :: Length_init = 20.0*1000.0 ! [m], 20km
 
   real, parameter       :: Inject_lon = -141.0e+0_fp
   real, parameter       :: Inject_hPa = 50.0e+0_fp
@@ -550,12 +591,15 @@ MODULE Lagrange_Mod
 
   ! some parameter for sensitive test
   integer, parameter    :: N_split = 3
-  integer, parameter    :: Split_length = 1 ! how many times of Dx
-  real, parameter       :: Dissolve_critiria = 0.1
-  real, parameter       :: Volume_percent = 0.5
+  integer, parameter    :: Split_length = 1 ! how many times of DX
+  real, parameter       :: Dissolve_critiria = 5*0.01
+  real, parameter       :: Volume_percent = 50*0.01
+  real, parameter       :: Critical_day = 28.0 ! [day]
 
   real(fp), pointer     :: X_mid(:), Y_mid(:), P_mid(:)
   real(fp), pointer     :: P_edge(:)
+
+  real(fp)              :: DX, DY
 
   real(fp) :: mass_eu, mass_la, mass_la2
 
@@ -586,7 +630,7 @@ MODULE Lagrange_Mod
 !    real(fp) :: LENGTH, ALPHA
 !    real(fp) :: LIFE
 !
-!    real(fp) :: DX, DY
+!    real(fp) :: PDX, PDY
 !    real(fp), DIMENSION(:,:,:), POINTER :: CONCNT2d ! [n_x_max, n_y_max, n_species]
 !    !!! Don't assign dimension value first ???
 !
@@ -695,6 +739,9 @@ CONTAINS
     JJPAR = State_Grid%NY
     LLPAR = State_Grid%NZ
 
+    DX = State_Grid%DX
+    DY = State_Grid%DY
+
 
     FILENAME2   = 'Plume_lifetime_seconds.txt'
 
@@ -757,14 +804,14 @@ CONTAINS
 
     Plume2d_tail%LIFE = 0.0e+0_fp
 
-    Plume2d_tail%DX = Dx_init
-    Plume2d_tail%DY = Dy_init
+    Plume2d_tail%PDX = Dx_init
+    Plume2d_tail%PDY = Dy_init
 
     ! Here assume the injection rate is 30 kg/km (=30 g/m) for H2SO4
     ALLOCATE(Plume2d_tail%CONCNT2d(n_x_max, n_y_max, n_species))
     Plume2d_tail%CONCNT2d = 0.0e+0_fp
     Plume2d_tail%CONCNT2d(n_x_mid,n_y_mid,i_tracer) = Plume2d_tail%LENGTH*30.0 &
-                  /(Plume2d_tail%DX*Plume2d_tail%DY*Plume2d_tail%LENGTH)
+                  /(Plume2d_tail%PDX*Plume2d_tail%PDY*Plume2d_tail%LENGTH)
     ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
     Plume2d_tail%CONCNT2d(n_x_mid,n_y_mid,i_tracer) = &
                               Plume2d_tail%CONCNT2d(n_x_mid,n_y_mid,i_tracer) &
@@ -772,7 +819,7 @@ CONTAINS
 
 
     mass_la  = Plume2d_tail%CONCNT2d(n_x_mid,n_y_mid,i_tracer)* &
-             (Plume2d_tail%DX*Plume2d_tail%DY*Plume2d_tail%LENGTH*1.0e+6_fp)
+             (Plume2d_tail%PDX*Plume2d_tail%PDY*Plume2d_tail%LENGTH*1.0e+6_fp)
     mass_la2 = 0.0
     mass_eu  = 0.0
 
@@ -952,7 +999,6 @@ CONTAINS
 
     real(fp), pointer :: X_edge(:), Y_edge(:)
     real(fp)          :: X_edge2, Y_edge2
-    real(fp)          :: Dx, Dy
 
 
     integer  :: i_box
@@ -981,8 +1027,6 @@ CONTAINS
 
       Dt = GET_TS_DYN()
 
-      Dx = State_Grid%DX
-      Dy = State_Grid%DY
       X_edge => State_Grid%XEdge(:,1) !XEDGE(:,1,1)   ! IIPAR+1 ! new
       Y_edge => State_Grid%YEdge(1,:) !YEDGE(1,:,1)  
       ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
@@ -1008,11 +1052,11 @@ CONTAINS
 
         ! check this grid box is the neast one or the one located in left-bottom
         ! ???
-        i_lon = Find_iLonLat(box_lon, Dx, X_edge2)
+        i_lon = Find_iLonLat(box_lon, DX, X_edge2)
         if(i_lon>IIPAR) i_lon=i_lon-IIPAR
         if(i_lon<1) i_lon=i_lon+IIPAR
 
-        i_lat = Find_iLonLat(box_lat, Dy, Y_edge2)
+        i_lat = Find_iLonLat(box_lat, DY, Y_edge2)
         if(i_lat>JJPAR) i_lat=JJPAR
         if(i_lat<1) i_lat=1
 
@@ -1234,7 +1278,6 @@ CONTAINS
 
     real(fp), pointer :: X_edge(:), Y_edge(:)
 
-    real(fp) :: Dx, Dy
 
     real(fp) :: length0
     real(fp) :: lon1, lon2, lat1, lat2
@@ -1297,8 +1340,6 @@ CONTAINS
     T2    => State_Met%TMPU2     ! Temperature at end of
                                  !  timestep [K]
 
-    Dx = State_Grid%DX
-    Dy = State_Grid%DY 
     X_edge => State_Grid%XEdge(:,1) !XEDGE(:,1,1)   ! IIPAR+1 ! new
     Y_edge => State_Grid%YEdge(1,:) !YEDGE(1,:,1)  
     ! Use second YEDGE, because sometimes YMID(2)-YMID(1) is not DLAT
@@ -1332,25 +1373,25 @@ CONTAINS
 
       Plume2d_new%LIFE = 0.0e+0_fp
 
-      Plume2d_new%DX = Dx_init
-      Plume2d_new%DY = Dy_init
+      Plume2d_new%PDX = Dx_init
+      Plume2d_new%PDY = Dy_init
 
 
       ALLOCATE(Plume2d_new%CONCNT2d(n_x_max, n_y_max, n_species))
       Plume2d_new%CONCNT2d = 0.0e+0_fp
       Plume2d_new%CONCNT2d(n_x_mid,n_y_mid,i_tracer) = Plume2d_new%LENGTH*30.0 &
-                   / (Plume2d_new%DX*Plume2d_new%DY*Plume2d_new%LENGTH)
+                   / (Plume2d_new%PDX*Plume2d_new%Pdy*Plume2d_new%LENGTH)
       ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
       Plume2d_new%CONCNT2d(n_x_mid,n_y_mid,i_tracer) = &
                 Plume2d_new%CONCNT2d(n_x_mid,n_y_mid,i_tracer)/1.0e+6_fp/98.0*AVO
 
 
       mass_la = mass_la + Plume2d_new%CONCNT2d(n_x_mid,n_y_mid,i_tracer)* &
-             (Plume2d_new%DX*Plume2d_new%DY*Plume2d_new%LENGTH*1.0e+6_fp)
+             (Plume2d_new%PDX*Plume2d_new%Pdy*Plume2d_new%LENGTH*1.0e+6_fp)
 
 
 !      WRITE(6,*) 'mass_la: ', Plume2d_new%CONCNT2d(n_x_mid,n_y_mid)* &
-!             (Plume2d_new%DX*Plume2d_new%DY*Plume2d_new%LENGTH*1.0e+6_fp)
+!             (Plume2d_new%PDX*Plume2d_new%Pdy*Plume2d_new%LENGTH*1.0e+6_fp)
 
       NULLIFY(Plume2d_new%next)
       Plume2d_tail%next => Plume2d_new
@@ -1410,8 +1451,8 @@ CONTAINS
       box_label  = Plume2d%label
       box_life   = Plume2d%LIFE
 
-      Pdx    = Plume2d%DX
-      Pdy    = Plume2d%DY
+      Pdx    = Plume2d%PDX
+      Pdy    = Plume2d%PDY
 
       box_concnt_2D = Plume2d%CONCNT2d
 
@@ -1448,11 +1489,11 @@ CONTAINS
 
       ! check this grid box is the neast one or the one located in left-bottom
       ! ???
-      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+      i_lon = Find_iLonLat(curr_lon, DX, X_edge2)
       if(i_lon>IIPAR) i_lon=i_lon-IIPAR
       if(i_lon<1) i_lon=i_lon+IIPAR
 
-      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+      i_lat = Find_iLonLat(curr_lat, DY, Y_edge2)
       if(i_lat>JJPAR) i_lat=JJPAR
       if(i_lat<1) i_lat=1
 
@@ -1712,11 +1753,11 @@ CONTAINS
 
 
 
-      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+      i_lon = Find_iLonLat(curr_lon, DX, X_edge2)
       if(i_lon>IIPAR) i_lon=i_lon-IIPAR
       if(i_lon<1) i_lon=i_lon+IIPAR
 
-      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+      i_lat = Find_iLonLat(curr_lat, DY, Y_edge2)
       if(i_lat>JJPAR) i_lat=JJPAR
       if(i_lat<1) i_lat=1
 
@@ -1770,7 +1811,7 @@ CONTAINS
 
       !------------------------------------------------------------------
       ! calcualte the box_alpha [0,2*PI)
-      ! angle between plume length and westward
+      ! angle between plume length and eastward (from west to east)
       !------------------------------------------------------------------
       if((box_u**2+box_v**2)==0)then
           box_alpha = 0.0
@@ -1785,78 +1826,80 @@ CONTAINS
       !------------------------------------------------------------------
       ! calcualte the Lyaponov exponent (Ly), unit: s-1
       !------------------------------------------------------------------
-      IF(box_alpha>=1.75*PI)THEN
-        next_i_lon = i_lon + 1
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
+      Ly = Calc_Ly(u, v, i_lon, i_lat, i_lev, box_alpha, box_lon, box_lat)
 
-        next_i_lat = i_lat
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1) next_i_lat=1
-
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_x    = Dx/360.0 * 2*PI *Re*COS(box_lat/180*PI)
-        Ly     = D_wind/D_x
-
-      ELSEIF(box_alpha>=1.25*PI)THEN
-        next_i_lon = i_lon
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
-
-        next_i_lat = i_lat - 1
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1) next_i_lat=1
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_y    = Dy/360.0 * 2*PI*Re
-        Ly     = D_wind/D_y
-
-      ELSEIF(box_alpha>=0.75*PI)THEN
-        next_i_lon = i_lon - 1
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
-
-        next_i_lat = i_lat
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1) next_i_lat=1
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_x    = Dx/360.0 * 2*PI *Re*COS(box_lat/180*PI) 
-        Ly     = D_wind/D_x
-
-      ELSEIF(box_alpha>=0.25*PI)THEN
-        next_i_lon = i_lon
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
-
-        next_i_lat = i_lat + 1
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1) next_i_lat=1
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_y    = Dy/360.0 * 2*PI*Re
-        Ly     = D_wind/D_y
-
-      ELSE
-        next_i_lon = i_lon + 1 
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
-
-        next_i_lat = i_lat
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1) next_i_lat=1
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_x    = Dx/360.0 * 2*PI *Re*COS(box_lat/180*PI)
-        Ly     = D_wind/D_x
-
-      ENDIF
+!      IF(box_alpha>=1.75*PI)THEN
+!        next_i_lon = i_lon + 1
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
+!
+!        next_i_lat = i_lat
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1) next_i_lat=1
+!
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+!        Ly     = D_wind/D_x
+!
+!      ELSEIF(box_alpha>=1.25*PI)THEN
+!        next_i_lon = i_lon
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
+!
+!        next_i_lat = i_lat - 1
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1) next_i_lat=1
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_y    = DY/360.0 * 2*PI*Re
+!        Ly     = D_wind/D_y
+!
+!      ELSEIF(box_alpha>=0.75*PI)THEN
+!        next_i_lon = i_lon - 1
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
+!
+!        next_i_lat = i_lat
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1) next_i_lat=1
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI) 
+!        Ly     = D_wind/D_x
+!
+!      ELSEIF(box_alpha>=0.25*PI)THEN
+!        next_i_lon = i_lon
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
+!
+!        next_i_lat = i_lat + 1
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1) next_i_lat=1
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_y    = DY/360.0 * 2*PI*Re
+!        Ly     = D_wind/D_y
+!
+!      ELSE
+!        next_i_lon = i_lon + 1 
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
+!
+!        next_i_lat = i_lat
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1) next_i_lat=1
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+!        Ly     = D_wind/D_x
+!
+!      ENDIF
 
       !------------------------------------------------------------------
       ! Horizontal stretch:
@@ -1884,8 +1927,8 @@ CONTAINS
       Plume2d%LIFE   = box_life
 
 
-      Plume2d%DX = Pdx
-      Plume2d%DY = Pdy
+      Plume2d%PDX = Pdx
+      Plume2d%PDY = Pdy
 
       Plume2d%CONCNT2d    = box_concnt_2D
 
@@ -1957,11 +2000,11 @@ CONTAINS
       curr_pressure = box_lev      ! hPa
 
 
-      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+      i_lon = Find_iLonLat(curr_lon, DX, X_edge2)
       if(i_lon>IIPAR) i_lon=i_lon-IIPAR
       if(i_lon<1) i_lon=i_lon+IIPAR
 
-      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+      i_lat = Find_iLonLat(curr_lat, DY, Y_edge2)
       if(i_lat>JJPAR) i_lat=JJPAR
       if(i_lat<1) i_lat=1
 
@@ -2133,8 +2176,11 @@ CONTAINS
       box_omeg = ( RK_omeg(1) + 2.0*RK_omeg(2) &
                          + 2.0*RK_omeg(3) + RK_omeg(4) ) / 6.0
 
+
+
       !--------------------------------------------------------------------
-      ! interpolate temperature for plume volumn change (PV=nRT):
+      ! interpolate temperature for plume volumn change 
+      ! (PV=nRT):
       !--------------------------------------------------------------------
       if(abs(curr_lat)>Y_mid(JJPAR))then
          curr_T1 = Interplt_wind_RLL_polar(T1, i_lon, i_lat, &
@@ -2146,11 +2192,11 @@ CONTAINS
 
 
 
-      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+      i_lon = Find_iLonLat(curr_lon, DX, X_edge2)
       if(i_lon>IIPAR) i_lon=i_lon-IIPAR
       if(i_lon<1) i_lon=i_lon+IIPAR
 
-      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+      i_lat = Find_iLonLat(curr_lat, DY, Y_edge2)
       if(i_lat>JJPAR) i_lat=JJPAR
       if(i_lat<1) i_lat=1
 
@@ -2222,78 +2268,81 @@ CONTAINS
       !------------------------------------------------------------------
       ! calcualte the Lyaponov exponent (Ly), unit: s-1
       !------------------------------------------------------------------
-      IF(box_alpha>=1.75*PI)THEN
-        next_i_lon = i_lon + 1
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
-
-        next_i_lat = i_lat
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1) next_i_lat=1
+      Ly = Calc_Ly(u, v, i_lon, i_lat, i_lev, box_alpha, box_lon, box_lat)
 
 
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_x    = Dx/360.0 * 2*PI *Re*COS(box_lat/180*PI)
-        Ly     = D_wind/D_x
-
-      ELSEIF(box_alpha>=1.25*PI)THEN
-        next_i_lon = i_lon
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
-
-        next_i_lat = i_lat - 1
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1) next_i_lat=1
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_y    = Dy/360.0 * 2*PI*Re
-        Ly     = D_wind/D_y
-
-      ELSEIF(box_alpha>=0.75*PI)THEN
-        next_i_lon = i_lon - 1
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
-
-        next_i_lat = i_lat
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1) next_i_lat=1
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_x    = Dx/360.0 * 2*PI *Re*COS(box_lat/180*PI)
-        Ly     = D_wind/D_x
-
-      ELSEIF(box_alpha>=0.25*PI)THEN
-        next_i_lon = i_lon
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
-
-        next_i_lat = i_lat + 1
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1) next_i_lat=1
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_y    = Dy/360.0 * 2*PI*Re
-        Ly     = D_wind/D_y
-
-      ELSE
-        next_i_lon = i_lon + 1
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
-
-        next_i_lat = i_lat
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1) next_i_lat=1
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_x    = Dx/360.0 * 2*PI *Re*COS(box_lat/180*PI)
-        Ly     = D_wind/D_x
-
-      ENDIF
+!      IF(box_alpha>=1.75*PI)THEN
+!        next_i_lon = i_lon + 1
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
+!
+!        next_i_lat = i_lat
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1) next_i_lat=1
+!
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+!        Ly     = D_wind/D_x
+!
+!      ELSEIF(box_alpha>=1.25*PI)THEN
+!        next_i_lon = i_lon
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
+!
+!        next_i_lat = i_lat - 1
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1) next_i_lat=1
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_y    = DY/360.0 * 2*PI*Re
+!        Ly     = D_wind/D_y
+!
+!      ELSEIF(box_alpha>=0.75*PI)THEN
+!        next_i_lon = i_lon - 1
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
+!
+!        next_i_lat = i_lat
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1) next_i_lat=1
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+!        Ly     = D_wind/D_x
+!
+!      ELSEIF(box_alpha>=0.25*PI)THEN
+!        next_i_lon = i_lon
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
+!
+!        next_i_lat = i_lat + 1
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1) next_i_lat=1
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_y    = DY/360.0 * 2*PI*Re
+!        Ly     = D_wind/D_y
+!
+!      ELSE
+!        next_i_lon = i_lon + 1
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1) next_i_lon=next_i_lon+IIPAR
+!
+!        next_i_lat = i_lat
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1) next_i_lat=1
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+!        Ly     = D_wind/D_x
+!
+!      ENDIF
 
       !------------------------------------------------------------------
       ! Horizontal stretch:
@@ -2312,6 +2361,7 @@ CONTAINS
 !                                box_Ra*box_Rb*box_length*1.0e+6_fp &
 !                                  * SUM(box_concnt_1D(1:n_slab_max))
 
+      IF(box_label==283)WRITE(6,*)'Length (km):', NINT(box_length/1000), Ly
 
 
       Plume1d%LON    = box_lon
@@ -2366,6 +2416,126 @@ CONTAINS
 
   END SUBROUTINE lagrange_run
 
+
+
+!------------------------------------------------------------------
+! calcualte the Lyaponov exponent (Ly), unit: s-1
+!------------------------------------------------------------------
+  REAL(fp) FUNCTION Calc_Ly(u, v, i_lon, i_lat, i_lev, box_alpha, box_lon, box_lat)
+
+    implicit none
+
+    real(fp)    :: box_alpha, box_lon, box_lat
+    real(fp), pointer :: u(:,:,:), v(:,:,:)
+
+    real(fp)    :: D_wind, D_x, D_y, Ly
+
+    integer     :: i_lon, i_lat, i_lev
+    integer     :: next_i_lon, next_i_lat
+
+
+      IF(box_alpha>=1.75*PI)THEN
+        if(box_lon>=X_mid(i_lon))then
+          next_i_lon = i_lon + 1
+        else
+          next_i_lon = i_lon - 1
+        endif
+
+        next_i_lat = i_lat
+
+        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
+        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+        if(next_i_lat<1)     next_i_lat=1
+
+
+        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+        Ly     = D_wind/D_x
+
+      ELSEIF(box_alpha>=1.25*PI)THEN
+        if(box_lat>=Y_mid(i_lat))then
+          next_i_lat = i_lat + 1
+        else
+          next_i_lat = i_lat - 1
+        endif
+
+        next_i_lon = i_lon
+
+        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
+        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+        if(next_i_lat<1)     next_i_lat=1
+
+        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+        D_y    = DY/360.0 * 2*PI*Re
+        Ly     = D_wind/D_y
+
+      ELSEIF(box_alpha>=0.75*PI)THEN
+        if(box_lon>=X_mid(i_lon))then
+          next_i_lon = i_lon + 1
+        else
+          next_i_lon = i_lon - 1
+        endif
+
+        next_i_lat = i_lat
+
+        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
+        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+        if(next_i_lat<1)     next_i_lat=1
+
+        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+        Ly     = D_wind/D_x
+
+      ELSEIF(box_alpha>=0.25*PI)THEN
+        if(box_lat>=Y_mid(i_lat))then
+          next_i_lat = i_lat + 1
+        else
+          next_i_lat = i_lat - 1
+        endif
+
+        next_i_lon = i_lon
+
+        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
+        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+        if(next_i_lat<1)     next_i_lat=1
+
+        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+        D_y    = DY/360.0 * 2*PI*Re
+        Ly     = D_wind/D_y
+
+      ELSE
+        if(box_lon>=X_mid(i_lon))then
+          next_i_lon = i_lon + 1
+        else
+          next_i_lon = i_lon - 1
+        endif
+
+        next_i_lat = i_lat
+
+        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
+        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+        if(next_i_lat<1)     next_i_lat=1
+
+        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+        Ly     = D_wind/D_x
+
+      ENDIF
+
+      Calc_Ly = Ly
+
+    return
+  END FUNCTION
 
 !------------------------------------------------------------------
 ! functions to interpolate wind speed (u,v,omeg) 
@@ -3120,7 +3290,6 @@ CONTAINS
     real(fp)          :: curr_Ptemp, Ptemp_shear  ! potential temperature
     real(fp)          :: U_shear, V_shear, UV_shear
 
-    real(fp)          :: Dx, Dy
     real(fp)          :: wind_s_shear
     real(fp)          :: theta_previous
 
@@ -3179,7 +3348,7 @@ CONTAINS
 
     real(fp)  :: backgrd_concnt
 
-    real(fp)  :: Rate_Mix, Rate_Eul, Eul_concnt
+    real(fp)  :: Prod_before, Prod_after, Eul_concnt
 
     real(fp), allocatable :: box_lon_new(:), box_lat_new(:)
 
@@ -3301,9 +3470,6 @@ CONTAINS
     P_BXHEIGHT => State_Met%BXHEIGHT  ![IIPAR,JJPAR,KKPAR]
 
 
-    Dx = State_Grid%DX
-    Dy = State_Grid%DY
-
 
     allocate(SumV_Plume(LLPAR*JJPAR*IIPAR))
     allocate(Entropy_V(LLPAR*JJPAR*IIPAR))
@@ -3398,25 +3564,11 @@ CONTAINS
       box_label  = Plume2d%label
       box_life   = Plume2d%LIFE
 
-      Pdx    = Plume2d%DX
-      Pdy    = Plume2d%DY
+      Pdx    = Plume2d%PDX
+      Pdy    = Plume2d%PDY
 
       box_concnt_2D = Plume2d%CONCNT2d
 
-
-      !$OMP PARALLEL DO           &
-      !$OMP DEFAULT( SHARED     ) &
-      !$OMP PRIVATE( i_y, i_x )
-      DO i_y = 1,n_y_max,1
-      DO i_x = 1,n_x_max,1
-
-      ! run the fake 2nd order chemical reaction
-      box_concnt_2D(i_x,i_y,2) = box_concnt_2D(i_x,i_y,2) &
-                           + Dt* Kchem*box_concnt_2D(i_x,i_y,1)**2
-
-      ENDDO
-      ENDDO
-      !$OMP END PARALLEL DO
 
 
       ! make sure the location is not out of range
@@ -3444,11 +3596,11 @@ CONTAINS
 
 
 
-       i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+       i_lon = Find_iLonLat(curr_lon, DX, X_edge2)
        if(i_lon>IIPAR) i_lon=i_lon-IIPAR
        if(i_lon<1) i_lon=i_lon+IIPAR
 
-       i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+       i_lat = Find_iLonLat(curr_lat, DY, Y_edge2)
        if(i_lat>JJPAR) i_lat=JJPAR
        if(i_lat<1) i_lat=1
 
@@ -3462,6 +3614,27 @@ CONTAINS
 !       Plume_I(i_box) = i_lon
 !       Plume_J(i_box) = i_lat
 !       Plume_L(i_box) = i_lev
+
+
+
+
+       backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
+      !$OMP PARALLEL DO           &
+      !$OMP DEFAULT( SHARED     ) &
+      !$OMP PRIVATE( i_y, i_x )
+      DO i_y = 1,n_y_max,1
+      DO i_x = 1,n_x_max,1
+
+      ! run the fake 2nd order chemical reaction
+      box_concnt_2D(i_x,i_y,2) = box_concnt_2D(i_x,i_y,2) &
+         + Dt* Kchem*(box_concnt_2D(i_x,i_y,1)+backgrd_concnt)**2 &
+         - Dt* Kchem*backgrd_concnt**2
+
+      ENDDO
+      ENDDO
+      !$OMP END PARALLEL DO
+
+
 
 
        !====================================================================
@@ -4054,7 +4227,6 @@ CONTAINS
 !
 !
 !
-!           WRITE(6,*)'222'
 !
 !           GOTO 800 ! skip this box, go to next box
 !
@@ -4204,8 +4376,8 @@ CONTAINS
        Plume2d%LENGTH = box_length
        Plume2d%ALPHA  = box_alpha
  
-       Plume2d%DX = Pdx
-       Plume2d%DY = Pdy
+       Plume2d%PDX = Pdx
+       Plume2d%PDY = Pdy
  
        Plume2d%CONCNT2d    = box_concnt_2D
  
@@ -4299,11 +4471,11 @@ CONTAINS
 
 
 
-         i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+         i_lon = Find_iLonLat(curr_lon, DX, X_edge2)
          if(i_lon>IIPAR) i_lon=i_lon-IIPAR
          if(i_lon<1) i_lon=i_lon+IIPAR
 
-         i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+         i_lat = Find_iLonLat(curr_lat, DY, Y_edge2)
          if(i_lat>JJPAR) i_lat=JJPAR
          if(i_lat<1) i_lat=1
 
@@ -4393,11 +4565,6 @@ CONTAINS
          box_concnt_1D = Plume1d%CONCNT1d
 
 
-         ! run the fake 2nd order chemical reaction
-         box_concnt_1D(:,2) = box_concnt_1D(:,2) &
-                              + Dt* Kchem* box_concnt_1D(:,1)**2
-
-
 
 !         call cpu_time(start)
 !
@@ -4444,16 +4611,29 @@ CONTAINS
 
 
 
-         i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+         i_lon = Find_iLonLat(curr_lon, DX, X_edge2)
          if(i_lon>IIPAR) i_lon=i_lon-IIPAR
          if(i_lon<1) i_lon=i_lon+IIPAR
 
-         i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+         i_lat = Find_iLonLat(curr_lat, DY, Y_edge2)
          if(i_lat>JJPAR) i_lat=JJPAR
          if(i_lat<1) i_lat=1
 
          i_lev = Find_iPLev(curr_pressure,P_edge)
          if(i_lev>LLPAR) i_lev=LLPAR
+
+
+
+
+
+
+         ! run the fake 2nd order chemical reaction
+         backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
+
+         box_concnt_1D(:,2) = box_concnt_1D(:,2) &
+             + Dt* Kchem* (box_concnt_1D(:,1)+backgrd_concnt)**2 &
+             - Dt* Kchem* backgrd_concnt**2
+
 
 
         !====================================================================
@@ -4681,14 +4861,42 @@ CONTAINS
        ! background grid cell.                                          shw
        ! test this once big time step
        !===================================================================
+
+
+!       ! Without consider the interaction between Plume model and Eulerian model
+!       backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
+!
+!       Prod_before = V_grid_1D * SUM( box_concnt_1D(1:n_slab_max,1)**2 ) &
+!                + backgrd_concnt**2 * grid_volumn
+!
+!       Eul_concnt = ( SUM(box_concnt_1D(1:n_slab_max,1)) *V_grid_1D &
+!                    + backgrd_concnt*grid_volumn ) / grid_volumn
+!       Prod_after = Eul_concnt**2*grid_volumn
+!
+!
+!       IF(box_label==1)THEN
+!        WRITE(6,*)" "
+!        WRITE(6,*)'Product criterion :'
+!        WRITE(6,*)Prod_before, Prod_after, ABS(Prod_before-Prod_after)/Prod_after
+!       ENDIF
+
+       ! (1) Only consider the product producted by the tracer in Plume model
+       ! (2) Consider the interaction between Plume model and Eulerian model
+       ! Reference: Karamchandani et al., (2000)
+       !            Korsakissok and Mallet, (2010)
        backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_LA)
 
-       Rate_Mix = V_grid_1D * SUM( box_concnt_1D(1:n_slab_max,1)**2 ) &
-                + backgrd_concnt**2 * grid_volumn
+       Prod_before = SUM( ( box_concnt_1D(1:n_slab_max,1)+backgrd_concnt )**2 &
+                                               - backgrd_concnt**2 ) *V_grid_1D
 
        Eul_concnt = ( SUM(box_concnt_1D(1:n_slab_max,1)) *V_grid_1D &
                     + backgrd_concnt*grid_volumn ) / grid_volumn
-       Rate_Eul = Eul_concnt**2*grid_volumn
+
+       Prod_after = (Eul_concnt**2 - backgrd_concnt**2) *grid_volumn
+
+!       IF(box_label==1) WRITE(6,*)Prod_before, Prod_after, ABS(Prod_before-Prod_after)/Prod_after
+!       WRITE(6,*)' '
+
 
 
 !       WRITE(6,*)'1d test:', i_box, Num_Plume1d
@@ -4719,27 +4927,27 @@ CONTAINS
 
        ! ------------------------------------------------------------------
        ! 1. Product criterion
-       ! 2. Time criterion
+       ! 2. Volume criterion
        ! 3. Location critetion
-       ! 4. Volume criterion
+       ! 4. Time criterion
        ! ------------------------------------------------------------------
-       IF(      ABS(Rate_Mix-Rate_Eul)/Rate_Eul<Dissolve_critiria &
+       IF(      ABS(Prod_before-Prod_after)/Prod_after<Dissolve_critiria &
            .OR. Plume1d%Is_transfer==1 &
            .OR. box_lev>State_Met%TROPP(i_lon,i_lat) &
-           .OR. box_life/3600/24>30.0  )THEN 
+           .OR. box_life/3600/24>Critical_day  )THEN 
 
 
-         IF( ABS(Rate_Mix-Rate_Eul)/Rate_Eul<Dissolve_critiria ) &
+         IF( ABS(Prod_before-Prod_after)/Prod_after<Dissolve_critiria ) &
                                                       Type_transfer = 11
          IF( Plume1d%Is_transfer==1 )                 Type_transfer = 22
          IF( box_lev>State_Met%TROPP(i_lon,i_lat) )   Type_transfer = 33
-         IF( box_life/3600/24>30.0 )                  Type_transfer = 44
+         IF( box_life/3600/24>Critical_day )          Type_transfer = 44
 
 
 
          Num_dissolve = Num_dissolve+1
 
-         WRITE(484,*) DAY, Type_transfer, box_life
+         WRITE(484,*) NINT(box_length/1000), Type_transfer, NINT(box_life), NINT(box_label)
 
 !         WRITE(6,*)'DISSOLVE1:', i_box, box_label, box_life/3600/24,&
 !                              SUM(box_concnt_1D(1:n_slab_max)) * V_grid_1D
@@ -4808,7 +5016,7 @@ CONTAINS
 
          GOTO 200 ! skip this box, go to next box
 
-       ENDIF ! IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.01)THEN
+       ENDIF ! IF(ABS(Prod_before-Prod_after)/Prod_after<0.01)THEN
 
 
        !===================================================================
@@ -4962,7 +5170,7 @@ CONTAINS
 !
 !         GOTO 200 ! skip this box, go to next box
 !
-!       ENDIF ! IF(ABS(Rate_Mix-Rate_Eul)/Rate_Eul<0.01)THEN
+!       ENDIF ! IF(ABS(Prod_before-Prod_after)/Prod_after<0.01)THEN
 
 
        enddo ! do t1s=1,NINT(Dt/Dt2)
@@ -4972,9 +5180,17 @@ CONTAINS
 
        !===================================================================
        ! For filament structure:
-       ! If slab length(Ra) is bigger than 2* horizontal resolution (2*Dx),
+       !
+       ! 1. splitting for plume segment crtoss-section
+       ! If slab length(Ra) is bigger than 2* horizontal resolution (2*DX),
        ! split slab into five smaller segment (Ra/5)
+       !
+       ! 2. splitting for plume segment length
        !===================================================================
+
+       ! ----------------------------------------------
+       ! 1. Splitting for plume segment cross-section
+       ! ----------------------------------------------
        IF(N_split==1) GOTO 111
 
 
@@ -4984,23 +5200,20 @@ CONTAINS
        ENDIF
 
 
-
-!!! shw 
-       IF( box_Ra > Split_length* Dx*1.0e+5 ) THEN
+       IF( box_Ra > Split_length* DX*1.0e+5 ) THEN
 !         WRITE(6,*)"SPLIT:", i_box, box_label
 
          !-----------------------------------------------------------------------
          ! set initial location for new added boxes from splitting
          !-----------------------------------------------------------------------
-
          ! Based on Great_circle distance
 !         DlonN = 2.0 * 180/PI *ASIN( ABS( SIN(box_Ra(i_box)*COS(box_alpha)/N_split /Re *0.5) &
 !                                     / COS(box_lat(i_box)/180*PI)**2 ) )
         
-         DlonN = ABS(box_Ra*COS(box_alpha)/N_split) / &
+         DlonN = ABS(box_Ra*SIN(box_alpha)/N_split) / &
                         (2*PI *(Re*COS(box_lat/180*PI)) ) * 360
 
-         DlatN = ABS(box_Ra*SIN(box_alpha)/N_split) / (2*PI*Re) * 360
+         DlatN = ABS(box_Ra*COS(box_alpha)/N_split) / (2*PI*Re) * 360
 
 
          DO i = 1, (N_split-1)/2, 1
@@ -5013,10 +5226,8 @@ CONTAINS
            box_lat_new((N_split-1)/2+i) = box_lat + i*DlatN
          ENDDO 
 
-
          box_Ra    = box_Ra/N_split
 !         box_extra = box_extra/N_split
-
 
          do ii_box = 1, N_split-1, 1
 
@@ -5043,6 +5254,74 @@ CONTAINS
            Plume1d_tail%next => Plume1d_new
            Plume1d_tail => Plume1d_tail%next
 
+           Num_Plume1d = Num_Plume1d + 1
+           Num_inject  = Num_inject + 1
+
+         enddo ! do ii_box = 1, N_split-1, 1
+
+
+       ENDIF ! IF( box_Ra(i_box) > 2*DX )
+
+111     CONTINUE
+
+
+       ! -------------------------------------
+       ! 2. Splitting for plume segment length
+       ! -------------------------------------
+       IF(N_split==1) GOTO 222
+
+
+       IF(.NOT.ALLOCATED(box_lon_new))THEN
+         ALLOCATE(box_lon_new(N_split-1))
+         ALLOCATE(box_lat_new(N_split-1))
+       ENDIF
+
+
+       IF( box_length > Split_length* DX*1.0e+5 ) THEN
+
+         DlonN = ABS(box_length*COS(box_alpha)/N_split) / &
+                        (2*PI *(Re*COS(box_lat/180*PI)) ) * 360
+
+         DlatN = ABS(box_length*SIN(box_alpha)/N_split) / (2*PI*Re) * 360
+
+
+         DO i = 1, (N_split-1)/2, 1
+           box_lon_new(i) = box_lon - i*DlonN
+           box_lat_new(i) = box_lat - i*DlatN
+         ENDDO
+
+         DO i = 1, (N_split-1)/2, 1
+           box_lon_new((N_split-1)/2+i) = box_lon + i*DlonN
+           box_lat_new((N_split-1)/2+i) = box_lat + i*DlatN
+         ENDDO
+
+         box_length    = box_length/N_split
+!         box_extra = box_extra/N_split
+
+         do ii_box = 1, N_split-1, 1
+
+           ALLOCATE(Plume1d_new)
+           Plume1d_new%label = Num_inject+1
+
+           Plume1d_new%LON = box_lon_new(ii_box)
+           Plume1d_new%LAT = box_lat_new(ii_box)
+           Plume1d_new%LEV = box_lev
+
+           Plume1d_new%LENGTH = box_length
+           Plume1d_new%ALPHA  = box_alpha
+
+           Plume1d_new%LIFE = box_life
+
+           Plume1d_new%RA = box_Ra
+           Plume1d_new%RB = box_Rb
+
+           ALLOCATE(Plume1d_new%CONCNT1d(n_slab_max,n_species))
+           Plume1d_new%CONCNT1d = box_concnt_1D
+
+           ! add new splitting plume into the end of linked list
+           NULLIFY(Plume1d_new%next)
+           Plume1d_tail%next => Plume1d_new
+           Plume1d_tail => Plume1d_tail%next
 
            Num_Plume1d = Num_Plume1d + 1
            Num_inject  = Num_inject + 1
@@ -5050,9 +5329,9 @@ CONTAINS
          enddo ! do ii_box = 1, N_split-1, 1
 
 
-       ENDIF ! IF( box_Ra(i_box) > 2*Dx )
+       ENDIF ! IF( box_Ra(i_box) > 2*DX )
 
-111     CONTINUE
+222     CONTINUE
 
 
 
@@ -5189,8 +5468,8 @@ CONTAINS
       box_label  = Plume2d%label
       box_life   = Plume2d%LIFE
 
-      Pdx    = Plume2d%DX
-      Pdy    = Plume2d%DY
+      Pdx    = Plume2d%PDX
+      Pdy    = Plume2d%PDY
 
       box_concnt_2D = Plume2d%CONCNT2d
 
@@ -5219,11 +5498,11 @@ CONTAINS
 
 
 
-      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+      i_lon = Find_iLonLat(curr_lon, DX, X_edge2)
       if(i_lon>IIPAR) i_lon=i_lon-IIPAR
       if(i_lon<1) i_lon=i_lon+IIPAR
 
-      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+      i_lat = Find_iLonLat(curr_lat, DY, Y_edge2)
       if(i_lat>JJPAR) i_lat=JJPAR
       if(i_lat<1) i_lat=1
 
@@ -5313,11 +5592,11 @@ CONTAINS
 
 
 
-      i_lon = Find_iLonLat(curr_lon, Dx, X_edge2)
+      i_lon = Find_iLonLat(curr_lon, DX, X_edge2)
       if(i_lon>IIPAR) i_lon=i_lon-IIPAR
       if(i_lon<1) i_lon=i_lon+IIPAR
 
-      i_lat = Find_iLonLat(curr_lat, Dy, Y_edge2)
+      i_lat = Find_iLonLat(curr_lat, DY, Y_edge2)
       if(i_lat>JJPAR) i_lat=JJPAR
       if(i_lat<1) i_lat=1
 
@@ -5471,7 +5750,7 @@ CONTAINS
     real(fp) :: curr_xy, Dxy, XY_edge2
     Find_iLonLat = INT( (curr_xy - (XY_edge2 - Dxy)) / Dxy )+1
     ! Notice the difference between INT(), FLOOR(), AINT()
-    ! for lon: Xedge_Sec - Dx = Xedge_first
+    ! for lon: Xedge_Sec - DX = Xedge_first
     return
   end function
 
