@@ -452,7 +452,9 @@
 ! plume segment and its host Eulerian grid cell
 !       box_lon>=X_mid(i_lon)
 !       box_lat>=Y_mid(i_lat)
-
+!
+! 2.3 revise lyaponov equation:
+!      Ly     = D_wind/(D_x+D_y)
 
 
 
@@ -2443,16 +2445,17 @@ CONTAINS
 
         next_i_lat = i_lat
 
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1)     next_i_lat=1
-
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
-        Ly     = D_wind/D_x
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1)     next_i_lat=1
+!
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+!        D_y    = DY/360.0 * 2*PI*Re
+!        Ly     = D_wind/D_x
 
       ELSEIF(box_alpha>=1.25*PI)THEN
         if(box_lat>=Y_mid(i_lat))then
@@ -2463,15 +2466,15 @@ CONTAINS
 
         next_i_lon = i_lon
 
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1)     next_i_lat=1
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_y    = DY/360.0 * 2*PI*Re
-        Ly     = D_wind/D_y
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1)     next_i_lat=1
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_y    = DY/360.0 * 2*PI*Re
+!        Ly     = D_wind/D_y
 
       ELSEIF(box_alpha>=0.75*PI)THEN
         if(box_lon>=X_mid(i_lon))then
@@ -2482,15 +2485,15 @@ CONTAINS
 
         next_i_lat = i_lat
 
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1)     next_i_lat=1
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
-        Ly     = D_wind/D_x
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1)     next_i_lat=1
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+!        Ly     = D_wind/D_x
 
       ELSEIF(box_alpha>=0.25*PI)THEN
         if(box_lat>=Y_mid(i_lat))then
@@ -2501,15 +2504,15 @@ CONTAINS
 
         next_i_lon = i_lon
 
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1)     next_i_lat=1
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_y    = DY/360.0 * 2*PI*Re
-        Ly     = D_wind/D_y
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1)     next_i_lat=1
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_y    = DY/360.0 * 2*PI*Re
+!        Ly     = D_wind/D_y
 
       ELSE
         if(box_lon>=X_mid(i_lon))then
@@ -2520,17 +2523,30 @@ CONTAINS
 
         next_i_lat = i_lat
 
-        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
-        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
-        if(next_i_lat>JJPAR) next_i_lat=JJPAR
-        if(next_i_lat<1)     next_i_lat=1
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
-                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
-        Ly     = D_wind/D_x
+!        if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+!        if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
+!        if(next_i_lat>JJPAR) next_i_lat=JJPAR
+!        if(next_i_lat<1)     next_i_lat=1
+!
+!        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+!                +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+!        D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+!        Ly     = D_wind/D_x
 
       ENDIF
+
+      if(next_i_lon>IIPAR) next_i_lon=next_i_lon-IIPAR
+      if(next_i_lon<1)     next_i_lon=next_i_lon+IIPAR
+      if(next_i_lat>JJPAR) next_i_lat=JJPAR
+      if(next_i_lat<1)     next_i_lat=1
+
+
+      D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)) &
+              +ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
+      D_x    = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+      D_y    = DY/360.0 * 2*PI*Re
+      Ly     = D_wind/(D_x+D_y)
+
 
       Calc_Ly = Ly
 
