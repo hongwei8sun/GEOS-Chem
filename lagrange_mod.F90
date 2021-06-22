@@ -455,7 +455,10 @@
 !
 ! 2.3 revise lyaponov equation:
 !      Ly = ABS(u1-u2)/(D_x) or  Ly = ABS(v1-v2)/(D_y)
-
+!
+! 2.4 correct lyaponov equation, remove the ABS() functiono, so that Ly could be
+! both positive and negative, corresponding to stretch and contract. Previous
+! calculation only have stretch, NO contract.
 
 
 ! double check the P_edge, whether P_edge can change at different (lon, lat)
@@ -592,7 +595,8 @@ MODULE Lagrange_Mod
   ! 50.0e+0_fp       ! [hPa] at about 20 km
 
   ! some parameter for sensitive test
-  integer, parameter    :: N_split = 3
+  integer, parameter    :: N1_split = 3     ! Cross-section splitting
+  integer, parameter    :: N2_split = 1     ! length splitting
   integer, parameter    :: Split_length = 1 ! how many times of DX
   real, parameter       :: Dissolve_critiria = 5*0.01
   real, parameter       :: Volume_percent = 50*0.01
@@ -2363,8 +2367,11 @@ CONTAINS
 !                                box_Ra*box_Rb*box_length*1.0e+6_fp &
 !                                  * SUM(box_concnt_1D(1:n_slab_max))
 
-      IF(box_label==283)WRITE(6,*)'Length (km):', NINT(box_length/1000), Ly
-
+      IF(box_label==871)THEN
+        WRITE(6,*)'Length (km):', NINT(box_length/1000), Ly
+        WRITE(6,*) box_lon, box_lat, box_lev
+        WRITE(6,*) '  '
+      ENDIF
 
       Plume1d%LON    = box_lon
       Plume1d%LAT    = box_lat
@@ -2439,8 +2446,10 @@ CONTAINS
       IF(box_alpha>=1.75*PI)THEN
         if(box_lon>=X_mid(i_lon))then
           next_i_lon = i_lon + 1
+          DX_m   = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
         else
           next_i_lon = i_lon - 1
+          DX_m   = -1*DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
         endif
 
         next_i_lat = i_lat
@@ -2450,16 +2459,16 @@ CONTAINS
         if(next_i_lat>JJPAR) next_i_lat=JJPAR
         if(next_i_lat<1)     next_i_lat=1
 
-
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev))
-        DX_m   = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+        D_wind = u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)
         Ly     = D_wind/DX_m
 
       ELSEIF(box_alpha>=1.25*PI)THEN
         if(box_lat>=Y_mid(i_lat))then
           next_i_lat = i_lat + 1
+          DY_m   = DY/360.0 * 2*PI*Re
         else
           next_i_lat = i_lat - 1
+          DY_m   = -1*DY/360.0 * 2*PI*Re
         endif
 
         next_i_lon = i_lon
@@ -2469,15 +2478,16 @@ CONTAINS
         if(next_i_lat>JJPAR) next_i_lat=JJPAR
         if(next_i_lat<1)     next_i_lat=1
 
-        D_wind = ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        DY_m   = DY/360.0 * 2*PI*Re
+        D_wind = v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev)
         Ly     = D_wind/DY_m
 
       ELSEIF(box_alpha>=0.75*PI)THEN
         if(box_lon>=X_mid(i_lon))then
           next_i_lon = i_lon + 1
+          DX_m   = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
         else
           next_i_lon = i_lon - 1
+          DX_m   = -1*DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
         endif
 
         next_i_lat = i_lat
@@ -2487,15 +2497,16 @@ CONTAINS
         if(next_i_lat>JJPAR) next_i_lat=JJPAR
         if(next_i_lat<1)     next_i_lat=1
 
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev))
-        DX_m   = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+        D_wind = u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)
         Ly     = D_wind/DX_m
 
       ELSEIF(box_alpha>=0.25*PI)THEN
         if(box_lat>=Y_mid(i_lat))then
           next_i_lat = i_lat + 1
+          DY_m   = DY/360.0 * 2*PI*Re
         else
           next_i_lat = i_lat - 1
+          DY_m   = -1*DY/360.0 * 2*PI*Re
         endif
 
         next_i_lon = i_lon
@@ -2505,15 +2516,16 @@ CONTAINS
         if(next_i_lat>JJPAR) next_i_lat=JJPAR
         if(next_i_lat<1)     next_i_lat=1
 
-        D_wind = ABS(v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev))
-        DY_m   = DY/360.0 * 2*PI*Re
+        D_wind = v(next_i_lon, next_i_lat, i_lev)-v(i_lon, i_lat, i_lev)
         Ly     = D_wind/DY_m
 
       ELSE
         if(box_lon>=X_mid(i_lon))then
           next_i_lon = i_lon + 1
+          DX_m   = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
         else
           next_i_lon = i_lon - 1
+          DX_m   = -1*DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
         endif
 
         next_i_lat = i_lat
@@ -2523,8 +2535,7 @@ CONTAINS
         if(next_i_lat>JJPAR) next_i_lat=JJPAR
         if(next_i_lat<1)     next_i_lat=1
 
-        D_wind = ABS(u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev))
-        DX_m   = DX/360.0 * 2*PI *Re*COS(box_lat/180*PI)
+        D_wind = u(next_i_lon, next_i_lat, i_lev)-u(i_lon, i_lat, i_lev)
         Ly     = D_wind/DX_m
 
       ENDIF
@@ -4945,7 +4956,7 @@ CONTAINS
 
          Num_dissolve = Num_dissolve+1
 
-         WRITE(484,*) NINT(box_length/1000), Type_transfer, NINT(box_life), NINT(box_label)
+         WRITE(484,*) box_length/1000, Type_transfer, box_life, box_label
 
 !         WRITE(6,*)'DISSOLVE1:', i_box, box_label, box_life/3600/24,&
 !                              SUM(box_concnt_1D(1:n_slab_max)) * V_grid_1D
@@ -5189,12 +5200,12 @@ CONTAINS
        ! ----------------------------------------------
        ! 1. Splitting for plume segment cross-section
        ! ----------------------------------------------
-       IF(N_split==1) GOTO 111
+       IF(N1_split==1) GOTO 111
 
 
        IF(.NOT.ALLOCATED(box_lon_new))THEN
-         ALLOCATE(box_lon_new(N_split-1))
-         ALLOCATE(box_lat_new(N_split-1))
+         ALLOCATE(box_lon_new(N1_split-1))
+         ALLOCATE(box_lat_new(N1_split-1))
        ENDIF
 
 
@@ -5205,29 +5216,29 @@ CONTAINS
          ! set initial location for new added boxes from splitting
          !-----------------------------------------------------------------------
          ! Based on Great_circle distance
-!         DlonN = 2.0 * 180/PI *ASIN( ABS( SIN(box_Ra(i_box)*COS(box_alpha)/N_split /Re *0.5) &
+!         DlonN = 2.0 * 180/PI *ASIN( ABS( SIN(box_Ra(i_box)*COS(box_alpha)/N1_split /Re *0.5) &
 !                                     / COS(box_lat(i_box)/180*PI)**2 ) )
         
-         DlonN = ABS(box_Ra*SIN(box_alpha)/N_split) / &
+         DlonN = ABS(box_Ra*SIN(box_alpha)/N1_split) / &
                         (2*PI *(Re*COS(box_lat/180*PI)) ) * 360
 
-         DlatN = ABS(box_Ra*COS(box_alpha)/N_split) / (2*PI*Re) * 360
+         DlatN = ABS(box_Ra*COS(box_alpha)/N1_split) / (2*PI*Re) * 360
 
 
-         DO i = 1, (N_split-1)/2, 1
+         DO i = 1, (N1_split-1)/2, 1
            box_lon_new(i) = box_lon - i*DlonN
            box_lat_new(i) = box_lat - i*DlatN
          ENDDO
 
-         DO i = 1, (N_split-1)/2, 1
-           box_lon_new((N_split-1)/2+i) = box_lon + i*DlonN
-           box_lat_new((N_split-1)/2+i) = box_lat + i*DlatN
+         DO i = 1, (N1_split-1)/2, 1
+           box_lon_new((N1_split-1)/2+i) = box_lon + i*DlonN
+           box_lat_new((N1_split-1)/2+i) = box_lat + i*DlatN
          ENDDO 
 
-         box_Ra    = box_Ra/N_split
-!         box_extra = box_extra/N_split
+         box_Ra    = box_Ra/N1_split
+!         box_extra = box_extra/N1_split
 
-         do ii_box = 1, N_split-1, 1
+         do ii_box = 1, N1_split-1, 1
 
            ALLOCATE(Plume1d_new)
            Plume1d_new%label = Num_inject+1
@@ -5255,7 +5266,7 @@ CONTAINS
            Num_Plume1d = Num_Plume1d + 1
            Num_inject  = Num_inject + 1
 
-         enddo ! do ii_box = 1, N_split-1, 1
+         enddo ! do ii_box = 1, N1_split-1, 1
 
 
        ENDIF ! IF( box_Ra(i_box) > 2*DX )
@@ -5266,37 +5277,37 @@ CONTAINS
        ! -------------------------------------
        ! 2. Splitting for plume segment length
        ! -------------------------------------
-       IF(N_split==1) GOTO 222
+       IF(N2_split==1) GOTO 222
 
 
        IF(.NOT.ALLOCATED(box_lon_new))THEN
-         ALLOCATE(box_lon_new(N_split-1))
-         ALLOCATE(box_lat_new(N_split-1))
+         ALLOCATE(box_lon_new(N2_split-1))
+         ALLOCATE(box_lat_new(N2_split-1))
        ENDIF
 
 
        IF( box_length > Split_length* DX*1.0e+5 ) THEN
 
-         DlonN = ABS(box_length*COS(box_alpha)/N_split) / &
+         DlonN = ABS(box_length*COS(box_alpha)/N2_split) / &
                         (2*PI *(Re*COS(box_lat/180*PI)) ) * 360
 
-         DlatN = ABS(box_length*SIN(box_alpha)/N_split) / (2*PI*Re) * 360
+         DlatN = ABS(box_length*SIN(box_alpha)/N2_split) / (2*PI*Re) * 360
 
 
-         DO i = 1, (N_split-1)/2, 1
+         DO i = 1, (N2_split-1)/2, 1
            box_lon_new(i) = box_lon - i*DlonN
            box_lat_new(i) = box_lat - i*DlatN
          ENDDO
 
-         DO i = 1, (N_split-1)/2, 1
-           box_lon_new((N_split-1)/2+i) = box_lon + i*DlonN
-           box_lat_new((N_split-1)/2+i) = box_lat + i*DlatN
+         DO i = 1, (N2_split-1)/2, 1
+           box_lon_new((N2_split-1)/2+i) = box_lon + i*DlonN
+           box_lat_new((N2_split-1)/2+i) = box_lat + i*DlatN
          ENDDO
 
-         box_length    = box_length/N_split
-!         box_extra = box_extra/N_split
+         box_length    = box_length/N2_split
+!         box_extra = box_extra/N2_split
 
-         do ii_box = 1, N_split-1, 1
+         do ii_box = 1, N2_split-1, 1
 
            ALLOCATE(Plume1d_new)
            Plume1d_new%label = Num_inject+1
@@ -5324,7 +5335,7 @@ CONTAINS
            Num_Plume1d = Num_Plume1d + 1
            Num_inject  = Num_inject + 1
 
-         enddo ! do ii_box = 1, N_split-1, 1
+         enddo ! do ii_box = 1, N2_split-1, 1
 
 
        ENDIF ! IF( box_Ra(i_box) > 2*DX )
