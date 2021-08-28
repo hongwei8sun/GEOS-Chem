@@ -477,6 +477,15 @@
 ! simulation have the same initial injection.
 
 
+! Aug 28, 2021
+! (1)
+! Add aerosol module to the code
+! (2)
+! edd code to excahnge unit between [molec/cm3] and [v/v] for species in plume segments
+
+
+
+
 ! double check the P_edge, whether P_edge can change at different (lon, lat)
 
 
@@ -505,7 +514,7 @@ MODULE Plume_list
 
     real(fp) :: PDX, PDY
  
-    real(fp), DIMENSION(:), POINTER :: rWet
+    real(fp), DIMENSION(:),     POINTER :: rWet
     real(fp), DIMENSION(:,:,:), POINTER :: aWP
     real(fp), DIMENSION(:,:,:), POINTER :: aDen
     real(fp), DIMENSION(:,:,:), POINTER :: Sfc_Ten
@@ -529,7 +538,13 @@ MODULE Plume_list
     real(fp) :: LIFE
 
     real(fp) :: RA, RB, THETA
-    real(fp), DIMENSION(:,:), POINTER :: CONCNT1d ! [n_slab_max,n_species]
+
+    real(fp), DIMENSION(:),     POINTER :: rWet
+    real(fp), DIMENSION(:,:), POINTER :: aWP
+    real(fp), DIMENSION(:,:), POINTER :: aDen
+    real(fp), DIMENSION(:,:), POINTER :: Sfc_Ten
+
+    real(fp), DIMENSION(:,:),   POINTER :: CONCNT1d ! [n_slab_max,n_species]
 
 
     TYPE(Plume1d_list), POINTER :: next
@@ -651,7 +666,7 @@ MODULE Lagrange_Mod
   integer               :: id_GC(n_species)     ! Species id in GEOS-Chem
 
 !  real(fp), parameter       :: Kchem = 1.0e-20_fp ! chemical reaction rate
-  ! use Kchem = 1.0e-20_fp for >1 year simulation
+! use Kchem = 1.0e-20_fp for >1 year simulation
 
 !  integer               :: Stop_inject ! 1: stop injecting; 0: keep injecting
 !                           ! used for contiuing injecting scenario
@@ -4325,6 +4340,20 @@ CONTAINS
              Plume1d_tail%RA = box_Ra
              Plume1d_tail%RB = box_Rb
 
+
+             ALLOCATE(Plume1d_tail%rWet(n_bins))
+             Plume1d_tail%rWet  = 0.0e+0_fp
+
+             ALLOCATE(Plume1d_tail%aWP(n_slab_max, n_bins))
+             Plume1d_tail%aWP  = 0.0e+0_fp
+
+    	     ALLOCATE(Plume1d_tail%aDen(n_slab_max, n_bins))
+   	     Plume1d_tail%aDen = 0.0e+0_fp
+
+    	     ALLOCATE(Plume1d_tail%Sfc_Ten(n_slab_max, n_bins))
+    	     Plume1d_tail%Sfc_Ten = 0.0e+0_fp
+
+
              ALLOCATE(Plume1d_tail%CONCNT1d(n_slab_max,n_species))
              Plume1d_tail%CONCNT1d = box_concnt_1D
 
@@ -4355,6 +4384,20 @@ CONTAINS
 
              Plume1d_new%RA = box_Ra
              Plume1d_new%RB = box_Rb
+
+
+             ALLOCATE(Plume1d_tail%rWet(n_bins))
+             Plume1d_tail%rWet  = 0.0e+0_fp
+
+             ALLOCATE(Plume1d_tail%aWP(n_slab_max, n_bins))
+             Plume1d_tail%aWP  = 0.0e+0_fp
+
+             ALLOCATE(Plume1d_tail%aDen(n_slab_max, n_bins))
+             Plume1d_tail%aDen = 0.0e+0_fp
+
+             ALLOCATE(Plume1d_tail%Sfc_Ten(n_slab_max, n_bins))
+             Plume1d_tail%Sfc_Ten = 0.0e+0_fp
+
 
              ALLOCATE(Plume1d_new%CONCNT1d(n_slab_max,n_species))
              Plume1d_new%CONCNT1d = box_concnt_1D
@@ -6065,6 +6108,8 @@ CONTAINS
     integer     :: i_x, i_y
     integer     :: i_lon, i_lat, i_lev
 
+    integer	:: i_slab
+    integer     :: i_species
     integer     :: ts_sec, ts_coag
 
     real(fp)    :: box_lon, box_lat, box_lev
@@ -6074,17 +6119,22 @@ CONTAINS
     real(fp)    :: box_extra, box_life, box_label
 
     real(fp), dimension(:,:,:), allocatable :: box_concnt_2D
-    real(fp), dimension(:,:), allocatable   :: box_concnt_1D
+    real(fp), dimension(:,:),   allocatable :: box_concnt_1D
 
     real(fp), pointer           :: X_edge(:), Y_edge(:)
     real(fp)                    :: X_edge2, Y_edge2
 
     ! Aerosol properties taken from input
     real(fp)                    :: T_K_Vec, p_hPa_Vec, ndens_Vec, vvH2O_Vec
+    real(fp)                    :: MW_kg, MW_g
 
-    real(fp)                    :: box_aWP     (n_x_max, n_y_max, n_bins)
-    real(fp)                    :: box_aDen    (n_x_max, n_y_max, n_bins)
-    real(fp)                    :: box_Sfc_Ten (n_x_max, n_y_max, n_bins)
+    real(fp)                    :: box2d_aWP     (n_x_max, n_y_max, n_bins)
+    real(fp)                    :: box2d_aDen    (n_x_max, n_y_max, n_bins)
+    real(fp)                    :: box2d_Sfc_Ten (n_x_max, n_y_max, n_bins)
+
+    real(fp)                    :: box1d_aWP     (n_slab_max, n_bins)
+    real(fp)                    :: box1d_aDen    (n_slab_max, n_bins)
+    real(fp)                    :: box1d_Sfc_Ten (n_slab_max, n_bins)
 
     real(fp)                    :: aWP_arr     (n_bins)
     real(fp)                    :: aDen_arr    (n_bins)
@@ -6094,8 +6144,8 @@ CONTAINS
 
     real(fp)                    :: vvH2SO4_Vec
 
-    TYPE(Plume2d_list), POINTER :: Plume2d_new, Plume2d, Plume2d_prev
-    TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
+    TYPE(Plume2d_list), POINTER :: Plume2d
+    TYPE(Plume1d_list), POINTER :: Plume1d
 
 
     CHARACTER(LEN=255)          :: ErrMsg
@@ -6172,9 +6222,9 @@ CONTAINS
       Pdy           = Plume2d%PDY
 
       box_rWet      = Plume2d%rWet
-      box_aWP       = Plume2d%aWP
-      box_aDen      = Plume2d%aDen
-      box_Sfc_Ten   = Plume2d%Sfc_Ten
+      box2d_aWP       = Plume2d%aWP
+      box2d_aDen      = Plume2d%aDen
+      box2d_Sfc_Ten   = Plume2d%Sfc_Ten
 
       box_concnt_2D = Plume2d%CONCNT2d
 
@@ -6224,12 +6274,26 @@ CONTAINS
       vvH2O_Vec    = State_Chm%Species(i_lon,i_lat,i_lev,id_H2O)
 
 
+
+      ! change unit from [molec/cm3] to [v/v] for species in plume segments
+      DO i_species=1,n_species
+
+        MW_kg = State_Chm%SpcData(id_GC(i_species))%Info%emMW_g * 1.e-3_fp
+        MW_g  = State_Chm%SpcData(id_GC(i_species))%Info%emMW_g
+
+        box_concnt_2D(:,:,i_species) = box_concnt_2D(:,:,i_species)     &
+                                     /  AVO * MW_kg                     &
+                                     / (State_Met%AIRDEN(i_lon,i_lat,i_lev)/1e6) &
+                                     * ( AIRMW / MW_g)
+      END DO
+
+
       DO i_y = 1, n_y_max, 1
       DO i_x = 1, n_x_max, 1
 
-        aWP_arr         = box_aWP(i_x,i_y,:)
-        aDen_arr        = box_aDen(i_x,i_y,:)
-        Sfc_Ten_arr     = box_Sfc_Ten(i_x,i_y,:)
+        aWP_arr         = box2d_aWP(i_x,i_y,3:42)
+        aDen_arr        = box2d_aDen(i_x,i_y,3:42)
+        Sfc_Ten_arr     = box2d_Sfc_Ten(i_x,i_y,3:42)
 
         vvSul_Arr       = box_concnt_2D(i_x,i_y,3:42)! 40 bins
         vvH2SO4_Vec     = box_concnt_2D(i_x,i_y,2)! 1
@@ -6242,8 +6306,29 @@ CONTAINS
                           LAER_Nuc,LAER_Grow,LAER_Coag,&
                           LAER_Coag_Imp, RC)
 
+
+        box2d_aWP(i_x,i_y,3:42)         = aWP_arr
+        box2d_aDen(i_x,i_y,3:42)        = aDen_arr
+        box2d_Sfc_Ten(i_x,i_y,3:42)     = Sfc_Ten_arr
+
+        box_concnt_2D(i_x,i_y,3:42)   = vvSul_Arr     ! 40 bins
+        box_concnt_2D(i_x,i_y,2)      = vvH2SO4_Vec   ! 1
+
       ENDDO
       ENDDO
+
+
+      ! change unit from [v/v] to [molec/cm3] for species in plume segments
+      DO i_species=1,n_species
+
+        MW_kg = State_Chm%SpcData(id_GC(i_species))%Info%emMW_g * 1.e-3_fp
+        MW_g  = State_Chm%SpcData(id_GC(i_species))%Info%emMW_g
+
+        box_concnt_2D(:,:,i_species) = box_concnt_2D(:,:,i_species)     &
+                                     *  AVO / MW_kg                     &
+                                     * (State_Met%AIRDEN(i_lon,i_lat,i_lev)/1e6) &
+                                     / ( AIRMW / MW_g )
+      END DO
 
 
       ! -----------------------------------------------------------
@@ -6262,8 +6347,9 @@ CONTAINS
       Plume2d%PDY       = Pdy
 
       Plume2d%rWet      = box_rWet
-      Plume2d%aWP       = box_aWP
-      Plume2d%aDen      = box_aDen
+      Plume2d%aWP       = box2d_aWP
+      Plume2d%aDen      = box2d_aDen
+      Plume2d%Sfc_Ten   = box2d_Sfc_Ten
 
       Plume2d%CONCNT2d  = box_concnt_2D
 
@@ -6291,18 +6377,21 @@ CONTAINS
       i_box = i_box+1
 
 
-      box_lon    = Plume1d%LON
-      box_lat    = Plume1d%LAT
-      box_lev    = Plume1d%LEV
-      box_length = Plume1d%LENGTH
-      box_alpha  = Plume1d%ALPHA
-      box_label  = Plume1d%label
-      box_life   = Plume1d%LIFE
+      box_lon       = Plume1d%LON
+      box_lat       = Plume1d%LAT
+      box_lev       = Plume1d%LEV
+      box_length    = Plume1d%LENGTH
+      box_alpha     = Plume1d%ALPHA
+      box_label     = Plume1d%label
+      box_life      = Plume1d%LIFE
 
-      box_Ra    = Plume1d%RA
-      box_Rb    = Plume1d%RB
+      box_Ra        = Plume1d%RA
+      box_Rb        = Plume1d%RB
 
-!      WRITE(6,*) i_box, SHAPE(box_concnt_1D), SHAPE(Plume1d%CONCNT1d)
+      box_rWet        = Plume1d%rWet
+      box1d_aWP       = Plume1d%aWP
+      box1d_aDen      = Plume1d%aDen
+      box1d_Sfc_Ten   = Plume1d%Sfc_Ten
 
       box_concnt_1D = Plume1d%CONCNT1d
 
@@ -6326,6 +6415,70 @@ CONTAINS
       end do
 
 
+      ! Find the location (GEOS-Chem grid cell) of plume segment
+      i_lon = Find_iLonLat(box_lon, DX, X_edge2)
+      if(i_lon>IIPAR) i_lon=i_lon-IIPAR
+      if(i_lon<1) i_lon=i_lon+IIPAR
+
+      i_lat = Find_iLonLat(box_lat, DY, Y_edge2)
+      if(i_lat>JJPAR) i_lat=JJPAR
+      if(i_lat<1) i_lat=1
+
+      i_lev = Find_iPLev(box_lev,P_edge)
+      if(i_lev>LLPAR) i_lev=LLPAR
+
+
+      ! Get properties of location
+      T_K_Vec      = State_Met%T(i_lon,i_lat,i_lev)
+      p_hPa_Vec    = State_Met%PMID(i_lon,i_lat,i_lev)
+      ndens_Vec    = State_Met%AIRNUMDEN(i_lon,i_lat,i_lev)
+
+!      Spc_vv      = State_Chm%Species(i_lon,i_lat,i_lev,:)
+      id_H2O       = Ind_('H2O')
+      vvH2O_Vec    = State_Chm%Species(i_lon,i_lat,i_lev,id_H2O)
+
+
+      ! change unit from [molec/cm3] to [v/v] for species in plume segments
+      DO i_species=1,n_species
+
+        MW_kg = State_Chm%SpcData(id_GC(i_species))%Info%emMW_g * 1.e-3_fp
+        MW_g  = State_Chm%SpcData(id_GC(i_species))%Info%emMW_g
+
+        box_concnt_1D(:,i_species) = box_concnt_1D(:,i_species)     &
+                                     /  AVO * MW_kg                     &
+                                     / (State_Met%AIRDEN(i_lon,i_lat,i_lev)/1e6) &
+                                     * ( AIRMW / MW_g)
+      END DO
+
+
+      DO i_slab = 1, n_slab_max, 1
+
+        aWP_arr         = box1d_aWP(i_slab,3:42)
+        aDen_arr        = box1d_aDen(i_slab,3:42)
+        Sfc_Ten_arr     = box1d_Sfc_Ten(i_slab,3:42)
+
+        vvSul_Arr       = box_concnt_1D(i_slab,3:42)! 40 bins
+        vvH2SO4_Vec     = box_concnt_1D(i_slab,2)! 1
+
+
+        CALL Box_Sect_Aer(aWP_arr,aDen_arr,&
+                          vvSul_Arr,Sfc_Ten_arr,vvH2O_Vec,&
+                          vvH2SO4_Vec,box_rWet,T_K_Vec,p_hPa_Vec,&
+                          ndens_Vec,ts_sec,ts_coag,&
+                          LAER_Nuc,LAER_Grow,LAER_Coag,&
+                          LAER_Coag_Imp, RC)
+
+
+        box1d_aWP(i_slab,3:42)         = aWP_arr
+        box1d_aDen(i_slab,3:42)        = aDen_arr
+        box1d_Sfc_Ten(i_slab,3:42)     = Sfc_Ten_arr
+
+        box_concnt_1D(i_slab,3:42)   = vvSul_Arr     ! 40 bins
+        box_concnt_1D(i_slab,2)      = vvH2SO4_Vec   ! 1
+
+      ENDDO
+
+
 
 
       Plume1d%LON       = box_lon
@@ -6338,12 +6491,23 @@ CONTAINS
       Plume1d%RA        = box_Ra
       Plume1d%RB        = box_Rb
 
+      Plume1d%rWet      = box_rWet
+      Plume1d%aWP       = box1d_aWP
+      Plume1d%aDen      = box1d_aDen
+      Plume1d%Sfc_Ten   = box1d_Sfc_Ten
+
       Plume1d%CONCNT1d  = box_concnt_1D
 
 
       Plume1d   => Plume1d%next
 
     ENDDO  ! DO WHILE(ASSOCIATED(Plume1d))
+
+
+    ! Convert back to whatever we had before
+    Call Convert_Spc_Units(Input_Opt,  State_Chm, &
+                           State_Grid, State_Met, Src_Unit,  &
+                           RC)
 
 
   620 CONTINUE
