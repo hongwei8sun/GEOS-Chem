@@ -665,7 +665,7 @@ MODULE Lagrange_Mod
   ! SO2, SO4, AERSctSul001 to AERSctSul040
   integer, parameter    :: n_species    = 42
   integer, parameter    :: n_bins       = 40
-  integer, parameter    :: i_inject     = 3     ! GEOS-Chem index of injected tracer
+  integer, parameter    :: i_inject     = 1     ! GEOS-Chem index of injected tracer
   integer, parameter    :: i_entropy    = 1     ! GEOS-Chem index of tracer for entropy
 !  integer, parameter    :: i_product = 2
 
@@ -6104,6 +6104,32 @@ CONTAINS
 
 
 
+      WRITE(6,*)'shw, PiG, T, P, ndens, H2O:'
+      WRITE(6,*)T_K_Vec, p_hPa_Vec, ndens_Vec, vvH2O_Vec
+
+
+
+
+      ! output once every day (24 hours)
+      IF(mod(tt*INT(ts_sec),60*60)==0)THEN
+
+        File580   = 'Plume_total_concentration.txt'
+        OPEN( 580,      FILE=TRIM( File580 ), STATUS='OLD',  &
+             POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+        DO i_species=1,n_species
+          Concnt_total(i_species) = SUM(box_concnt_2D(:,:,i_species))
+        END DO
+
+!        WRITE(580,*) Concnt_total(3:42)
+        WRITE(580,'(40E15.3E4)') box_concnt_2D(n_x_mid, n_y_mid, 3:42)
+        WRITE(6,*)'shw: Concnt:', box_concnt_2D(n_x_mid-1, n_y_mid-1, n_species-15)
+
+      ENDIF
+
+
+
+
       ! change unit from [molec/cm3] to [v/v] for species in plume segments
       DO i_species=1,n_species
 
@@ -6129,13 +6155,13 @@ CONTAINS
 
 
  !!! shw
-	IF(MAXVAL(vvSul_Arr)>0.0)THEN
+	IF(MAXVAL(vvSul_Arr)>=0.0)THEN
           CALL Box_Sect_Aer(aWP_arr,aDen_arr,&
                             vvSul_Arr,Sfc_Ten_arr,vvH2O_Vec,&
                             vvH2SO4_Vec,box_rWet,T_K_Vec,p_hPa_Vec,&
                             ndens_Vec,ts_sec,ts_coag,&
                             LAER_Nuc,LAER_Grow,LAER_Coag,&
-                            LAER_Coag_Imp, RC)
+                            LAER_Coag_Imp, i_y, i_x, RC)
 	ENDIF
 
 
@@ -6162,28 +6188,6 @@ CONTAINS
                                      * (State_Met%AIRDEN(i_lon,i_lat,i_lev)/1e6) &
                                      / ( AIRMW / MW_g )
       ENDDO
-
-
-
-
-      ! output once every day (24 hours)
-      IF(mod(tt*INT(ts_sec),60*60)==0)THEN
-
-        File580   = 'Plume_total_concentration.txt'
-        OPEN( 580,      FILE=TRIM( File580 ), STATUS='OLD',  &
-             POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
-
-        DO i_species=1,n_species
-          Concnt_total(i_species) = SUM(box_concnt_2D(:,:,i_species))
-        END DO
-
-!        WRITE(580,*) Concnt_total(3:42)
-        WRITE(580,*) box_concnt_2D(n_x_mid, n_y_mid, 3:42)
-        WRITE(580,*) '...'
-	WRITE(6,*)'shw: Concnt:', box_concnt_2D(n_x_mid-1, n_y_mid-1, n_species-15)
-
-      ENDIF
-
 
 
 
