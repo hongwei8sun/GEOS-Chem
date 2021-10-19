@@ -63,8 +63,19 @@ module sect_aer_mod
 ! !PUBLIC MEMBER FUNCTIONS:
 !
   PUBLIC  :: Do_Sect_Aer
+  PUBLIC  :: Do_Sect_Aer_Box
+  PUBLIC  :: Box_Sect_Aer
   PUBLIC  :: Init_Sect_Aer
   PUBLIC  :: Cleanup_Sect_Aer
+
+!  PUBLIC  :: AER_wpden
+!  PUBLIC  :: Cal_Coag_Kernel
+!  PUBLIC  :: Cal_Coag_Kernel_Implicit
+!  PUBLIC  :: AER_grow
+!  PUBLIC  :: AER_nucleation
+!  PUBLIC  :: AER_coagulation
+!  PUBLIC  :: AER_coagulation_Implicit
+!  PUBLIC  :: AER_mass_check
 !
 ! !PRIVATE MEMBER FUNCTIONS:
 !
@@ -341,10 +352,22 @@ CONTAINS
           Call AER_wpden(aWP_Box, aDen_Box, ST_Box, BVP_Box,&
                          T_K,     P_hPa,    H2O_vv, rWet)
 
+
           ! If we aren't running a microphysics step, stop here
+	  Run_Micro = (LAer_Nuc.or.LAer_Grow.or.LAer_Coag)
+
           If (Run_Micro) Then
              ! Get more met properties
              air_dens = State_Met%AIRNUMDEN(I,J,L)
+
+	
+	     ! !!! shw
+	     IF(I==39 .and. J==16 .and. L==9)THEN
+      		WRITE(6,*)'shw, GEOS, T, P, ndens, H2O:'
+      		WRITE(6,*)T_K, p_hPa, air_dens, H2O_vv_old
+	     ENDIF
+
+
 
              ! Calculate coagulation kernel
              CK_Box => ck(I,J,L,:,:)
@@ -509,8 +532,11 @@ CONTAINS
   end subroutine do_sect_aer
 !EOC
 #endif
-#if defined( MDL_BOX )
-  subroutine do_sect_aer(n_boxes,aWP_Arr,aDen_Arr,&
+
+
+
+! #if defined( MDL_BOX )
+  subroutine Do_Sect_Aer_Box(n_boxes,aWP_Arr,aDen_Arr,&
                          vvSO4_Arr,Sfc_Ten_Arr,vvH2O_Vec,&
                          vvH2SO4_Vec,rWet_Arr,T_K_Vec,p_hPa_Vec,&
                          ndens_Vec,ts_sec,ts_coag,&
@@ -560,7 +586,7 @@ CONTAINS
     integer                 :: I_Bin, I_Box
 
     ! For time step control
-    Integer                 :: NAStep
+    Integer                 :: N_Step
     Real(fp)                ::dt_substep
 
     ! Diagnostics
@@ -581,8 +607,8 @@ CONTAINS
     Run_Micro = (LAer_Nuc.or.LAer_Grow.or.LAer_Coag)
 
     ! How many substeps?
-    NAStep = NINT(dble(ts_sec)/dble(ts_coag))
-    dt_substep = dble(ts_sec)/dble(NAStep)
+    N_Step = NINT(dble(ts_sec)/dble(ts_coag))
+    dt_substep = dble(ts_sec)/dble(N_Step)
 
 !$OMP PARALLEL  DO                                               &
 !$OMP DEFAULT(  SHARED                                         ) &
@@ -636,7 +662,7 @@ CONTAINS
           box_grow_d  = 0.0e+0_fp
           box_nrate_d = 0.0e+0_fp
 
-          Do K=1,NAStep
+          Do K=1,N_Step
              If (LAER_grow) &
              Call AER_grow(T_K,       air_dens,   dt_substep, aWP_Box, &
                            aDen_box,  ST_Box,     BVP_Box,    vvH2So4, &
@@ -650,8 +676,8 @@ CONTAINS
              If (LAER_coag.and.LAER_Coag_Imp) &
              Call AER_Coagulation_Implicit(vvSO4_Box,fijk_Box,CK_box,aWP_Box,aDen_Box,air_dens,dt_substep)
           End Do
-          !aero_grow_d(I,J,L)  = box_grow_d/real(NAStep)
-          !aero_nrate_d(I,J,L) = box_nrate_d/real(NAStep)
+          !aero_grow_d(I,J,L)  = box_grow_d/real(N_Step)
+          !aero_nrate_d(I,J,L) = box_nrate_d/real(N_Step)
           CK_Box => Null()
        
           ! Make sure that the mass hasn't drifted too far 
@@ -676,8 +702,181 @@ CONTAINS
 !$OMP END PARALLEL DO
 
     RC = 0
-  end subroutine do_sect_aer
-#endif
+  end subroutine do_sect_aer_box
+! #endif
+
+
+
+
+  !------------------------------------------------------------------
+  ! Aerosol box model for one plume segment
+  !------------------------------------------------------------------
+  SUBROUTINE Box_Sect_Aer(aWP_Arr,aDen_Arr,&
+                         vvSO4_Arr,Sfc_Ten_Arr,vvH2O_Vec,&
+                         vvH2SO4_Vec,rWet_Arr,T_K_Vec,p_hPa_Vec,&
+                         ndens_Vec,ts_sec,ts_coag,&
+                         LAER_Nuc,LAER_Grow,LAER_Coag,&
+                         LAER_Coag_Imp,RC)
+
+
+    real(fp), intent(inout) :: aWP_Arr     (n_aer_bin)
+    real(fp), intent(inout) :: aDen_Arr    (n_aer_bin)
+    real(fp), intent(inout) :: vvSO4_Arr   (n_aer_bin)
+    real(fp), intent(inout) :: rWet_Arr    (n_aer_bin)
+    real(fp), intent(inout) :: Sfc_Ten_Arr (n_aer_bin)
+    real(fp), intent(inout) :: vvH2O_Vec
+    real(fp), intent(inout) :: vvH2SO4_Vec
+    real(fp), intent(in)    :: T_K_Vec
+    real(fp), intent(in)    :: p_hPa_Vec
+    real(fp), intent(in)    :: ndens_Vec
+    integer, intent(in)     :: ts_sec
+    integer, intent(in)     :: ts_coag
+    logical, intent(in)     :: LAer_Coag_Imp
+    integer, intent(out)    :: RC
+
+
+    ! Atmospheric conditions
+    real(fp)                :: T_K, p_hPa, air_dens
+
+    ! Aerosol properties taken from input
+    real(fp)                :: aWP_Box      (n_aer_bin)
+    real(fp)                :: aDen_Box     (n_aer_bin)
+    real(fp)                :: vvSO4_Box    (n_aer_bin)
+    real(fp)                :: ST_Box       (n_aer_bin)
+    real(fp)                :: vvSO4_Box_0  (n_aer_bin)
+
+    real(fp)                :: vvH2O
+    real(fp)                :: vvH2SO4
+    real(fp)                :: vvH2SO4_0
+
+    ! Aerosol properties calculated during operation
+    real(fp)                :: BVP_Box (n_aer_bin)
+    real(fp)                :: rWet    (n_aer_bin)
+
+    ! Coagulation kernel
+    real(fp), pointer       :: CK_Box(:,:)
+    real(fp)                :: fijk_Box(n_aer_bin,n_aer_bin,n_aer_bin)
+
+    ! Loop indices 
+    integer                 :: K,N
+    integer                 :: I_Bin
+
+    ! For time step control
+    Integer                 :: N_Step
+    Real(fp)                :: dt_substep
+
+    ! Diagnostics
+    Real(fp)                :: box_grow_d, box_nrate_d, box_wp_d
+    Real(fp)                :: S_Start, S_End
+
+
+    ! Logicals
+    logical, intent(in)     :: LAer_Nuc
+    logical, intent(in)     :: LAer_Grow
+    logical, intent(in)     :: LAer_Coag
+    logical                 :: Run_Micro
+
+
+
+    Run_Micro = (LAer_Nuc.or.LAer_Grow.or.LAer_Coag)
+
+    ! How many substeps?
+    N_Step = NINT(dble(ts_sec)/dble(ts_coag))
+    dt_substep = dble(ts_sec)/dble(N_Step)
+
+
+    ! Copy properties into temporary variables
+    vvH2O        = vvH2O_Vec
+    vvH2SO4      = vvH2SO4_Vec
+    ST_Box(:)    = Sfc_Ten_Arr(:)
+    aWP_Box(:)   = aWP_Arr    (:)
+    aDen_Box(:)  = aDen_Arr   (:)
+    vvSO4_Box(:) = vvSO4_Arr  (:)
+
+    ! Store for later mass check
+    vvSO4_Box_0(:) = vvSO4_Box(:)
+    vvH2SO4_0      = vvH2SO4
+
+    ! Get properties of location
+    T_K          = T_K_Vec
+    P_hPa        = p_hPa_Vec
+
+    ! For safety's sake (these will be recalculated)
+    BVP_Box(:)   = 0.0e+0_fp
+    rWet(:)      = 0.0e+0_fp
+
+    ! Calculate updated weight % H2SO4 and density
+    Call AER_wpden(aWP_Box, aDen_Box, ST_Box, BVP_Box,&
+                   T_K,     P_hPa,    vvH2O,  rWet)
+
+
+    ! If we aren't running a microphysics step, stop here
+    If (Run_Micro) Then
+       ! Get more met properties
+       air_dens = ndens_vec
+
+       ! Calculate coagulation kernel
+       CK_Box => ck(1,1,1,:,:)
+       If (LAER_coag) &
+       Call Cal_Coag_Kernel(CK_Box,aWP_Box,aDen_Box,T_K,P_hPa)
+
+       ! If using implicit coagulation..
+       fijk_Box = 0.0e+0_fp
+       If (LAER_coag.and.LAER_Coag_Imp) &
+       Call Cal_Coag_Kernel_Implicit(fijk_Box,aWP_Box,aDen_Box)
+
+          ! Run microphysical processes
+          box_grow_d  = 0.0e+0_fp
+          box_nrate_d = 0.0e+0_fp
+
+          Do K=1,N_Step
+             If (LAER_grow) &
+             Call AER_grow(T_K,       air_dens,   dt_substep, aWP_Box, &
+                           aDen_box,  ST_Box,     BVP_Box,    vvH2So4, &
+                           vvSO4_Box, box_grow_d)
+
+             If (LAER_nuc) &
+             Call AER_nucleation(T_K,      P_hPa,       air_dens, dt_substep, &
+                                 aWP_Box,  aDen_Box,    vvH2O,    vvH2SO4,    &
+                                 vvSO4_Box,box_nrate_d, box_wp_d              )
+
+             If (LAER_coag.and.(.not.LAER_Coag_Imp)) &
+             Call AER_coagulation(vvSO4_Box,CK_box,air_dens,dt_substep)
+
+             If (LAER_coag.and.LAER_Coag_Imp) &
+             Call AER_Coagulation_Implicit(vvSO4_Box,fijk_Box,CK_box,aWP_Box, &
+                                           aDen_Box,air_dens,dt_substep       )
+
+          End Do
+          !aero_grow_d(I,J,L)  = box_grow_d/real(N_Step)
+          !aero_nrate_d(I,J,L) = box_nrate_d/real(N_Step)
+          CK_Box => Null()
+
+          ! Make sure that the mass hasn't drifted too far 
+          Call AER_mass_check(vvH2SO4, vvSO4_Box,  vvH2SO4_0, vvSO4_Box_0, &
+                              air_dens, s_start, s_end,        RC          )
+          If (RC.ne.0) Then
+             Call Error_Stop('Failure in strat aerosol mass balance', &
+                             'sect_aer_mod.F90')
+          End If
+          !Call AER_Washout(?,?,?,?)
+       End If
+
+       ! Copy results back out
+       vvH2O_Vec      = vvH2O
+       vvH2SO4_Vec    = vvH2SO4
+       Sfc_Ten_Arr(:) = ST_Box(:)
+       aWP_Arr    (:) = aWP_Box(:)
+       aDen_Arr   (:) = aDen_Box(:)
+       vvSO4_Arr  (:) = vvSO4_Box(:)
+       rWet_Arr   (:) = rWet(:)
+
+
+  END SUBROUTINE Box_Sect_Aer
+
+
+
+
 #if !defined( MDL_BOX )
 !------------------------------------------------------------------------------
 !                  GEOS-Chem Global Chemical Transport Model                  !
@@ -827,6 +1026,9 @@ CONTAINS
 
   end subroutine init_sect_aer
 #endif
+
+
+
 #if defined( MDL_BOX )
   subroutine init_sect_aer( n_boxes, n_bins, RC )
 
