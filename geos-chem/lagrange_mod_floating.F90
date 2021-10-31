@@ -2,6 +2,10 @@
 !                  GEOS-Chem Global Chemical Transport Model
 !--------------------------------------------------------------------------
 
+! Floating
+
+
+
 ! New version
 ! use linked link to store injected plumes' character(concentration, location,
 ! etc.)
@@ -928,34 +932,6 @@ CONTAINS
     ENDIF
 
 
-!   DO ii=1,42,1
-!      State_Chm%Species(:,:,:,id_GC(ii)) = 0.0        ! !!! shw
-!    ENDDO
-
-    WRITE(6,*) ".............................................."
-    WRITE(6,*) "The initial concentration of injected species:"
-    WRITE(6,*) State_Chm%Species(:,:,:,id_GC(i_inject))
-    WRITE(6,*) ".............................................."
-
-
-    IF(use_lagrange==0)THEN
-    ! instantly dissolve injected plume into Eulerian grid 
-
-      WRITE(6,'(a)') ' '
-      WRITE(6,'(a)') '********************************************************'
-      WRITE(6,'(a)') ' You are not using lagrange_mod now'
-      WRITE(6,'(a)') ' set variable use_lagrange = 1 to turn on lagrnage_mod  '
-      WRITE(6,'(a)') '********************************************************'
-      WRITE(6,'(a)') ' '
-
-
-      WRITE(6,'(a)') ' '
-      WRITE(6,'(a)') '********************************************************'
-      WRITE(6,'(a)') ' WARNING: all initial SULF concentrations are set as 0  '
-      WRITE(6,'(a)') '********************************************************'
-      WRITE(6,'(a)') ' '
-
-
 
       box_lon    = Inject_lon
       box_lat    = -29.95e+0_fp
@@ -977,6 +953,36 @@ CONTAINS
 
       IF(i_lev==LLPAR) WRITE(6,*) 'box_lev:', box_lev, i_lev
       IF(ABS(box_lat)>40) WRITE(6,*)'*** ERROR in box_lat:', i_box, box_lat
+
+
+
+
+! !!! shw, Set a super high (100*) background concentration for SUL001, which is
+! not the injected species.
+     State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_inject+1)) = &
+        100* State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_inject+40)) &
+        + 100* Length_init*1.0e-3_fp*Inject_rate/State_Met%AD(i_lon,i_lat,i_lev)
+! !!! shw
+
+
+
+    IF(use_lagrange==0)THEN
+    ! instantly dissolve injected plume into Eulerian grid 
+
+      WRITE(6,'(a)') ' '
+      WRITE(6,'(a)') '********************************************************'
+      WRITE(6,'(a)') ' You are not using lagrange_mod now'
+      WRITE(6,'(a)') ' set variable use_lagrange = 1 to turn on lagrnage_mod  '
+      WRITE(6,'(a)') '********************************************************'
+      WRITE(6,'(a)') ' '
+
+
+      WRITE(6,'(a)') ' '
+      WRITE(6,'(a)') '********************************************************'
+      WRITE(6,'(a)') ' WARNING: all initial SULF concentrations are set as 0  '
+      WRITE(6,'(a)') '********************************************************'
+      WRITE(6,'(a)') ' '
+
 
       ! ====================================================================
       ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in 
