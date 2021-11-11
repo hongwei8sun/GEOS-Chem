@@ -5,14 +5,14 @@
 # -------------------------------------------------
 
 # Input GRIB directory
-set grbdir=/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2000
+set grbdir=/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2001
 
 # Output netCDF directory
-set cdfdir=/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2000
+set cdfdir=/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2001
 
 # Start and end date for conversion, and time step
-set startdate = 20000101_00
-set finaldate = 20001231_21
+set startdate = 20010101_00
+set finaldate = 20011231_21
 set timestep  = 3
 
 # -------------------------------------------------
@@ -20,7 +20,7 @@ set timestep  = 3
 # -------------------------------------------------
 
 # Incrrement finaldate by one timestep - to include finaldate
-set finaldate=`/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2000/newtime ${finaldate} ${timestep}` 
+set finaldate=`/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2001/newtime ${finaldate} ${timestep}` 
 
 # Change to grib directory
 cd ${cdfdir}
@@ -31,13 +31,13 @@ loop:
 
 # Convert an${date}_uvwt
 \rm -f P${date}_tuvw
-cdo -f nc -t ecmwf copy -invertlat -chname,w,OMEGA ${grbdir}/an${date}_tuvw P${date}_tuvw
+cdo -f nc -t ecmwf copy -invertlat -chname,w,OMEGA -chname,u,U -chname,v,V ${grbdir}/an${date}_tuvw P${date}_tuvw
 
 echo "pass tuvw"
 
 # Convert an${date}_T
  \rm -f P${date}_T
- cdo -f nc -t ecmwf copy -invertlat ${grbdir}/an${date}_T P${date}_T
+ cdo -f nc -t ecmwf copy -invertlat -chname,t,T ${grbdir}/an${date}_T P${date}_T
 
 echo "pass T"
 
@@ -62,7 +62,7 @@ echo "pass ps"
  \rm -f P${date}_ps_scratch
 
 # Proceed to next date
-set date=`/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2000/newtime ${date} ${timestep}` 
+set date=`/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2001/newtime ${date} ${timestep}` 
 if ( "${date}" != "${finaldate}" ) goto loop
 
 exit 0
