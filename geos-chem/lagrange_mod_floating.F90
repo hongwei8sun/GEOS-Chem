@@ -959,9 +959,9 @@ CONTAINS
 
 ! !!! shw, Set a super high (100*) background concentration for SUL001, which is
 ! not the injected species.
-     State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_inject+1)) = &
-        100* State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_inject+40)) &
-        + 100* Length_init*1.0e-3_fp*Inject_rate/State_Met%AD(i_lon,i_lat,i_lev)
+     State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_inject+10)) = &
+        5* State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_inject)) &
+        + 5* Length_init*1.0e-3_fp*Inject_rate/State_Met%AD(i_lon,i_lat,i_lev)
 ! !!! shw
 
 
