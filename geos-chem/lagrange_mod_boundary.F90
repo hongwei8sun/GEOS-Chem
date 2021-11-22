@@ -644,7 +644,7 @@ MODULE Lagrange_Mod
 
   real, parameter       :: Dx_init     = 100
   real, parameter       :: Dy_init     = 10
-  real, parameter       :: Length_init = 40.0*1000.0 ! [m], 20km
+  real, parameter       :: Length_init = 20.0*1000.0 ! [m], 20km
 
   real, parameter       :: Inject_lon   = -141.0e+0_fp
   real, parameter       :: Inject_hPa   = 50.0e+0_fp

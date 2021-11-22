@@ -3,16 +3,21 @@
 # -------------------------------------------------
 # Set some parameters
 # -------------------------------------------------
+rm -rf an2004*
+
+ln -sf /n/home12/hongwei/HONGWEI/lagranto.ecmwf/ERA5_model/2004/3-hour/UVW/an2004* .
+ln -sf /n/home12/hongwei/HONGWEI/lagranto.ecmwf/ERA5_model/2004/3-hour/T/an2004* .
+ln -sf /n/home12/hongwei/HONGWEI/lagranto.ecmwf/ERA5_model/2004/3-hour/lnsp/an2004* .
 
 # Input GRIB directory
-set grbdir=/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2001
+set grbdir=/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2004
 
 # Output netCDF directory
-set cdfdir=/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2001
+set cdfdir=/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2004
 
 # Start and end date for conversion, and time step
-set startdate = 20010101_00
-set finaldate = 20011231_21
+set startdate = 20040101_00
+set finaldate = 20041231_21
 set timestep  = 3
 
 # -------------------------------------------------
@@ -20,7 +25,7 @@ set timestep  = 3
 # -------------------------------------------------
 
 # Incrrement finaldate by one timestep - to include finaldate
-set finaldate=`/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2001/newtime ${finaldate} ${timestep}` 
+set finaldate=`/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2004/newtime ${finaldate} ${timestep}` 
 
 # Change to grib directory
 cd ${cdfdir}
@@ -62,7 +67,7 @@ echo "pass ps"
  \rm -f P${date}_ps_scratch
 
 # Proceed to next date
-set date=`/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2001/newtime ${date} ${timestep}` 
+set date=`/n/home12/hongwei/HONGWEI/lagranto.ecmwf/convert/cdo_2004/newtime ${date} ${timestep}` 
 if ( "${date}" != "${finaldate}" ) goto loop
 
 exit 0
