@@ -461,6 +461,13 @@
 ! calculation only have stretch, NO contract.
 
 
+! Dec 23, 2021
+! Calculate perfect entropy without any diffusion. [Entropy0]
+! In this perfect case: all the injected tracer stays in the center 2-D grid
+! cell forever.
+
+
+
 ! double check the P_edge, whether P_edge can change at different (lon, lat)
 
 
@@ -559,7 +566,9 @@ MODULE Lagrange_Mod
   integer               :: Volume_Sort  = 1 
   ! 1 = use SortList() function, transfer largest (not oldest) plume segment for
   ! volume criterion
+
   integer               :: Calc_entropy = 1 ! 1 = turn on entropy calculation
+  real(fp)		:: Entropy0	 ! perfect entropy without diffusion
 
   integer, parameter    :: n_x_max = 207 ! 243  !number of x grids in 2D, should be (9 x odd)
   integer, parameter    :: n_y_max = 81  ! 117  !number of y grids in 2D, should be (9 x odd)
@@ -607,7 +616,7 @@ MODULE Lagrange_Mod
 
   real(fp)              :: DX, DY
 
-  real(fp) :: mass_eu, mass_la, mass_la2
+  real(fp) 		:: mass_eu, mass_la, mass_la2
 
   integer               :: N_parcel   ! 131        
   integer               :: Num_inject, Num_Plume2d, Num_Plume1d, Num_dissolve     
@@ -828,6 +837,7 @@ CONTAINS
     Plume2d_tail%CONCNT2d = 0.0e+0_fp
     Plume2d_tail%CONCNT2d(n_x_mid,n_y_mid,i_tracer) = Plume2d_tail%LENGTH*30.0 &
                   /(Plume2d_tail%PDX*Plume2d_tail%PDY*Plume2d_tail%LENGTH)
+
     ! From [g/m3] to [molec/cm3], 98.0 g/mol for H2SO4
     Plume2d_tail%CONCNT2d(n_x_mid,n_y_mid,i_tracer) = &
                               Plume2d_tail%CONCNT2d(n_x_mid,n_y_mid,i_tracer) &
@@ -1033,6 +1043,8 @@ CONTAINS
     real(fp) :: Entropy2_Concnt, Entropy2_V, Entropy2
     real(fp) :: tracer2_mol, air2_mol, mix2_ratio
 
+    real(fp) :: tracer0_mol, air0_mol, mix0_ratio
+
     CHARACTER(LEN=63)      :: OrigUnit
     CHARACTER(LEN=255)     :: ErrMsg
     CHARACTER(LEN=255)     :: FileEntropy
@@ -1102,6 +1114,25 @@ CONTAINS
         PASV_EU = PASV_EU + Length_init*1.0e-3_fp*30.0 &
                                     /State_Met%AD(i_lon,i_lat,i_lev)
 
+
+
+
+
+	! calculte the perfect entropy in Plume-in-Grid model without any
+	! diffusion, all the injected tracer stay in the center 2-D grid 
+	! cell forever.
+	! State_Met%AIRDEN: [kg m-3]
+	! State_Met%AIRVOL: [m3]
+
+        tracer0_mol = Length_init*30.0/98.0 ! [mol] ( inject: 30.0 g/m )
+        air0_mol    = Dx_init*Dy_init*Length_init & ! [m]*[m]*[m]
+		     *State_Met%AIRDEN(i_lon,i_lat,i_lev)*1000/AIRMW ! [mol]
+        mix0_ratio  = tracer0_mol/air0_mol
+
+        IF(mix0_ratio>0) Entropy0 = Entropy0 - BOLTZ*tracer0_mol*log(mix0_ratio)
+
+
+
       ENDDO ! i_box = Num_inject+1, Num_inject+N_parcel, 1
 
       ! use this value to set the initial latutude for injected plume
@@ -1160,6 +1191,8 @@ CONTAINS
       DO i_lon = 1, IIPAR
       DO i_lat = 1, JJPAR
       DO i_lev = 1, LLPAR
+	! AIRDEN [kg m-3]
+	! AIRVOL [m3]
 
         Entropy2_Concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU)
         Entropy2_V = State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp
@@ -1183,8 +1216,8 @@ CONTAINS
       OPEN( 487,      FILE=TRIM( FileEntropy   ), STATUS='OLD',  &
            POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
 
-      WRITE(*,*) "Entropy:", Entropy2
-      WRITE(487,*) Entropy2
+      WRITE(*,*) "Entropy:", Entropy2, Entropy0
+      WRITE(487,*) Entropy2, Entropy0
 
       CLOSE(487)
 
