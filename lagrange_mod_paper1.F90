@@ -561,7 +561,7 @@ MODULE Lagrange_Mod
 
   PUBLIC :: use_lagrange
 
-  integer               :: use_lagrange = 0
+  integer               :: use_lagrange = 1
   integer               :: TROPP_sink = 0
   integer               :: Volume_Sort  = 1 
   ! 1 = use SortList() function, transfer largest (not oldest) plume segment for
@@ -3461,6 +3461,8 @@ CONTAINS
 
     Dt = GET_TS_DYN()
 
+    Entropy = 0.0
+
 
     YEAR        = GET_YEAR()
     MONTH       = GET_MONTH()
@@ -4051,8 +4053,8 @@ CONTAINS
            ! return initial box_Ra(i_box), box_Rb(i_box), box_concnt_1D(i_box)
 
            Cslab = box_concnt_1D(:,i_species)
-           CALL Slab_init(Pdx, Pdy, box_theta, Pc, Yscale, &
-                               box_Ra, box_Rb, Cslab)
+!           CALL Slab_init_bilinear(Pdx, Pdy, box_theta, Pc, Yscale, box_Ra, box_Rb, Cslab)
+           CALL Slab_init_conservative(Pdx, Pdy, box_theta, Pc, Yscale, box_Ra, box_Rb, Cslab)
            box_concnt_1D(:,i_species) = Cslab
 
 
@@ -4069,12 +4071,14 @@ CONTAINS
            D_mass_plume = mass_plume_new - mass_plume
 
 
-!           IF(ABS(D_mass_plume/mass_plume)>0.01)THEN
-!             WRITE(6,*) '*********************************************'
-!             WRITE(6,*) '    more than 1% mass lost from 2-D to 1-D'
-!             WRITE(6,*) ABS(D_mass_plume/mass_plume)
-!             WRITE(6,*) '*********************************************'
-!           ENDIF
+
+           IF(ABS(D_mass_plume/mass_plume)>0.01)THEN
+             WRITE(6,*) '*********************************************'
+             WRITE(6,*) '    more than 1% mass lost from 2-D to 1-D'
+             WRITE(6,*) ABS(D_mass_plume/mass_plume)
+             WRITE(6,*) '*********************************************'
+           ENDIF
+
 
 
            i_advect = id_PASV_LA +i_species -1
@@ -6306,7 +6310,651 @@ CONTAINS
 
 
 
-  SUBROUTINE Slab_init(Pdx, Pdy, theta1, Pc_2D, Height1, box_Ra, box_Rb, Cslab)
+
+!======================================================================
+! Conservatice interpolation
+!======================================================================
+
+  SUBROUTINE Slab_init_conservative(Pdx, Pdy, theta1, Pc_2D, Height1, &
+						box_Ra, box_Rb, Cslab)
+
+    IMPLICIT NONE
+
+    REAL(fp)    :: Pdx, Pdy, theta1, Height1
+    REAL(fp), INTENT(INOUT)  :: box_Ra, box_Rb
+    REAL(fp), INTENT(INOUT)  :: Cslab(n_slab_max)
+    REAL(fp)    :: Pc_2D(n_x_max,n_y_max) !, Ec_2D(n_x_max,n_y_max)
+
+
+    INTEGER, parameter     :: Nb = n_slab_max +2
+    INTEGER, parameter     :: Na = (INT(n_x_max/4)+1)*4 +2
+
+    INTEGER     :: Nb_mid, Na_mid
+
+    REAL(fp)    :: X2d(Na,Nb), Y2d(Na,Nb), C2d(Na,Nb) !, Extra_C2d(Na,Nb)
+
+    REAL(fp)    :: LenB, LenA
+    REAL(fp)    :: Adx, Ady, Bdx, Bdy
+    REAL(fp)    :: Prod, M, Lb, La
+
+    REAL(fp)    :: C_slab(Nb) !, Extra_slab(Nb)
+
+    REAL(fp)    :: start, finish
+
+    INTEGER     :: i, j
+
+
+    REAL(fp)	:: X2d_edge(4), Y2d_edge(4)
+    REAL(fp)	:: Area_target
+    REAL(fp)	:: X_max, X_min, Y_max, Y_min
+    REAL(fp)	:: Xx(n_x_max), Yy(n_y_max)
+    REAL(fp)	:: source_Xedge(4), source_Yedge(4)
+    REAL(fp)	:: source_X1, source_X2, source_Y1, source_Y2
+    REAL(fp)	:: target_X1, target_X2, target_Y1, target_Y2
+    REAL(fp)	:: X_intersect, Y_intersect
+    REAL(fp)	:: Points_X(8), Points_Y(8)
+    REAL(fp)	:: mass_total, area_total, area_overlap
+
+    real(fp), dimension(:), allocatable   :: Pts_X, Pts_Y
+
+    INTEGER	:: ix_max, ix_min, iy_max, iy_min
+    INTEGER	:: ix, iy
+    INTEGER	:: Nx_dim, Ny_dim
+    INTEGER	:: ip, ip_S, i_point
+    INTEGER	:: N_diff
+
+    LOGICAL	:: Is_inside
+
+
+      ! define the coordinate system
+      DO i=1, n_x_max
+        Xx(i) = Pdx*(i-n_x_mid)
+      ENDDO
+      DO j=1, n_y_max
+        Yy(j) = Pdy*(j-n_y_mid)
+      ENDDO
+
+
+
+      Nb_mid = INT(Nb/2)
+      Na_mid = INT(Na/2)
+
+
+      LenB = Pdy ! 8.0 *Height1 / Nb /SIN(theta1)
+      LenA = Pdx ! 1.3 *Height1 *TAN(theta1) /Na /SIN(theta1)
+
+
+      ! interval in long radius
+      Adx = LenA*SIN(theta1)
+      Ady = LenA*COS(theta1)
+
+      ! interval in short radius
+      Bdy = LenB*SIN(theta1)
+      Bdx = LenB*COS(theta1)
+
+
+      ! find the location of 1D grid in 2D XY grids
+      DO i=1,Na,1
+        X2d(i,Nb_mid) = -Adx*Na_mid + Adx*(i-0.5)
+        Y2d(i,Nb_mid) = -Ady*Na_mid + Ady*(i-0.5)
+      ENDDO
+
+
+      X2d(:,Nb_mid) = X2d(:,Nb_mid) + 0.5*Bdx
+      Y2d(:,Nb_mid) = Y2d(:,Nb_mid) - 0.5*Bdy
+
+      DO j=Nb_mid+1, Nb, 1
+        X2d(:,j) = X2d(:,j-1) - Bdx
+        Y2d(:,j) = Y2d(:,j-1) + Bdy
+      ENDDO
+
+
+      DO j=Nb_mid-1, 1, -1
+        X2d(:,j) = X2d(:,j+1) + Bdx
+        Y2d(:,j) = Y2d(:,j+1) - Bdy
+      ENDDO
+
+
+
+
+
+      ! begin the conservative interpolation
+      DO i=2,Na-1,1
+      DO j=2,Nb-1,1
+
+
+	! four edge points of selected target grid cell
+	X2d_edge(1) = ( X2d(i,j) + X2d(i-1,j-1) )/2
+	Y2d_edge(1) = ( Y2d(i,j) + Y2d(i-1,j-1) )/2
+
+        X2d_edge(2) = ( X2d(i,j) + X2d(i+1,j-1) )/2
+        Y2d_edge(2) = ( Y2d(i,j) + Y2d(i+1,j-1) )/2
+
+        X2d_edge(3) = ( X2d(i,j) + X2d(i+1,j+1) )/2
+        Y2d_edge(3) = ( Y2d(i,j) + Y2d(i+1,j+1) )/2
+
+        X2d_edge(4) = ( X2d(i,j) + X2d(i-1,j+1) )/2
+        Y2d_edge(4) = ( Y2d(i,j) + Y2d(i-1,j+1) )/2
+
+
+	! Check whether target grid cell area is equal to Dx*Dy
+	Area_target = 							&
+	    Heron_Formula( X2d_edge(1), Y2d_edge(1), 			&
+		X2d_edge(3), Y2d_edge(3), X2d_edge(2), Y2d_edge(2) ) 	&
+	  + Heron_Formula( X2d_edge(1), Y2d_edge(1), 			&
+                X2d_edge(3), Y2d_edge(3), X2d_edge(4), Y2d_edge(4) )
+
+!	if(i==Na_mid.and.j==Nb_mid)then
+!	  WRITE(6,*)"Target grid cell area is:", Area_target, Pdx*Pdy
+!	endif
+
+	! Find all the source grid cells that may overlap with the target grid
+	! cell, based on the four edge points of the target grid cell
+	X_max = MAXVAL( X2d_edge(:) )
+	X_min = MINVAL( X2d_edge(:) )
+  
+	Y_max = MAXVAL( Y2d_edge(:) )
+	Y_min = MINVAL( Y2d_edge(:) )
+
+
+	ix_max = CEILING( (X_max - ( Xx(1)-Pdx/2 )) /Pdx )
+	ix_min = CEILING( (X_min - ( Xx(1)-Pdx/2 )) /Pdx )
+ 
+        iy_max = CEILING( (Y_max - ( Yy(1)-Pdy/2 )) /Pdy )
+        iy_min = CEILING( (Y_min - ( Yy(1)-Pdy/2 )) /Pdy )
+
+
+	! for the target grid cell located in the edge of the source grid domain
+	if(ix_min<1) ix_min = 1
+	if(iy_min<1) iy_min = 1
+
+	if(ix_max>n_x_max) ix_max = n_x_max
+	if(iy_max>n_y_max) iy_max = n_y_max
+
+	
+	! when the target grid cell is totally outside the source grid domain
+	if(ix_min>n_x_max)then
+	  ix_min = n_x_max
+	  ix_max = n_x_max
+	endif
+
+	if(iy_min>n_y_max)then
+	  iy_min = n_y_max
+	  iy_max = n_y_max
+	endif
+
+	if(ix_max<1)then
+	  ix_max = 1
+	  ix_min = 1
+	endif
+
+	if(iy_max<1)then
+	  iy_max=1
+	  iy_min=1
+	endif
+
+	! loop for all selected source grid cell, calculate the overlap area
+	! between the selected source grid cell and the target grid cell
+        Nx_dim = ix_max-ix_min+1
+	Ny_dim = iy_max-iy_min+1
+
+!        !!! shw
+!	if(Nx_dim<1.or.Ny_dim<1) WRITE(6,*)"shw1:", Nx_dim, Ny_dim
+
+
+	area_overlap 	 = 0.0
+
+	mass_total	 = 0.0
+	area_total	 = 0.0
+
+
+!        if(i==Na_mid.and.j==Nb_mid)then
+!            WRITE(6,*) " ...... "
+!	    WRITE(6,*) "BEGIN: Na_mid, Nb_mid"
+!	    WRITE(6,*) "X2d_edge", X2d_edge
+!	    WRITE(6,*) "Y2d_edge", Y2d_edge
+!            WRITE(6,*) " ...... "
+!        endif
+
+
+
+	do ix = ix_min, ix_max, 1
+	do iy = iy_min, iy_max, 1
+	 
+ 
+          area_overlap = 0.0
+
+          Points_X(:) = 0.0
+          Points_Y(:) = 0.0
+
+
+	  i_point = 0
+	  N_diff  = 0
+
+	  ! four edge points of the selected source grid cell
+	  source_Xedge(1) = Xx(ix) - Pdx/2
+          source_Yedge(1) = Yy(iy) - Pdy/2
+	  
+          source_Xedge(2) = Xx(ix) - Pdx/2
+          source_Yedge(2) = Yy(iy) + Pdy/2
+
+          source_Xedge(3) = Xx(ix) + Pdx/2
+          source_Yedge(3) = Yy(iy) + Pdy/2
+
+          source_Xedge(4) = Xx(ix) + Pdx/2
+          source_Yedge(4) = Yy(iy) - Pdy/2
+	  
+	
+!          if(i==Na_mid.and.j==Nb_mid)then
+!	     WRITE(6,*)" ... Check0 ..."
+!            WRITE(6,*) "source_Xedge:", source_Xedge
+!            WRITE(6,*) "source_Yedge:", source_Yedge
+!	     WRITE(6,*) i_point
+!            WRITE(6,*) Points_X
+!	    WRITE(6,*) Points_Y
+!	  endif
+
+	  ! (1) check whether target grid cell edge points are inside the source
+	  ! grid cell
+	  do ip=1,4,1
+	  if(      ABS(X2d_edge(ip)-Xx(ix))<Pdx/2 &
+	     .and. ABS(Y2d_edge(ip)-Yy(iy))<Pdy/2 )then
+		i_point = i_point+1
+		Points_X(i_point) = X2d_edge(ip)
+		Points_Y(i_point) = Y2d_edge(ip)
+	  endif
+	  enddo
+
+!          if(i==Na_mid.and.j==Nb_mid)then
+!            WRITE(6,*)" ... Check1 ..."
+!            WRITE(6,*) i_point 
+!            WRITE(6,*) Xx(ix), Yy(iy), Pdx/2, Pdy/2
+!            WRITE(6,*) X2d_edge
+!            WRITE(6,*) Y2d_edge
+!            WRITE(6,*) Points_X
+!            WRITE(6,*) Points_Y
+!          endif
+
+	  ! (2) Check whether source grid cell edge points are inside the target
+	  ! grid cell
+	  do ip_S=1,4,1
+	    Is_inside = In_box(source_Xedge(ip_S), source_Yedge(ip_S), &
+							X2d_edge, Y2d_edge)
+	    if(Is_inside)then
+		i_point = i_point+1
+                Points_X(i_point) = source_Xedge(ip_S)
+                Points_Y(i_point) = source_Yedge(ip_S)
+	    endif
+	  enddo
+
+!          if(i==Na_mid.and.j==Nb_mid)then
+!            WRITE(6,*)" ... Check2 ..."
+!            WRITE(6,*) i_point
+!            WRITE(6,*) Points_X
+!            WRITE(6,*) Points_Y
+!          endif
+
+	  ! (3) Check the intersection point between source grid cell side and
+	  ! target grid cell side
+	  do ip=1,4,1
+	    if(ip==4)then
+		target_X1 = X2d_edge(ip)
+		target_Y1 = Y2d_edge(ip)
+		target_X2 = X2d_edge(1)
+		target_Y2 = Y2d_edge(1)
+	    else
+                target_X1 = X2d_edge(ip)
+                target_Y1 = Y2d_edge(ip)
+                target_X2 = X2d_edge(ip+1)
+                target_Y2 = Y2d_edge(ip+1)
+	    endif
+
+	    do ip_S=1,4,1
+	      if(ip_S==4)then
+                  source_X1 = source_Xedge(ip_S)
+                  source_Y1 = source_Yedge(ip_S)
+                  source_X2 = source_Xedge(1)
+                  source_Y2 = source_Yedge(1)
+	      else
+		  source_X1 = source_Xedge(ip_S)
+		  source_Y1 = source_Yedge(ip_S)
+		  source_X2 = source_Xedge(ip_S+1)
+		  source_Y2 = source_Yedge(ip_S+1)
+	      endif
+
+
+
+	      ! calculate the intersect point for the two given lines.
+	      !
+	      ! In this special case: (1) the side of the source grid cell must 
+	      ! be parallel to either x or y axis; (2) the side slope of the 
+	      ! target grid cell must not be parallel to both x and y axis.
+
+	      if(source_X1==source_X2)then
+		X_intersect = source_X1
+		Y_intersect = (target_Y2-target_Y1) / (target_X2-target_X1) &
+					* (X_intersect-target_X1) + target_Y1
+	      endif
+
+
+	      if(source_Y1==source_Y2)then
+		Y_intersect = source_Y1
+		X_intersect = (target_X2-target_X1) / (target_Y2-target_Y1) &
+					* (Y_intersect-target_Y1) + target_X1
+	      endif
+
+
+	      ! check whether this intersect point is located in the both line
+	      ! segments
+	      if( (X_intersect-target_X1)*(X_intersect-target_X2)<=0 .and. &
+		  (Y_intersect-target_Y1)*(Y_intersect-target_Y2)<=0 .and. &
+		  (X_intersect-source_X1)*(X_intersect-source_X2)<=0 .and. &
+		  (Y_intersect-source_Y1)*(Y_intersect-source_Y2)<=0 )then
+
+                i_point = i_point+1
+                Points_X(i_point) = X_intersect
+                Points_Y(i_point) = Y_intersect
+
+	      endif
+
+            enddo ! do ip_S=1,4,1
+	  enddo ! do ip=1,4,1
+
+
+!          if(i==Na_mid.and.j==Nb_mid)then
+!            WRITE(6,*)" ... Check3 ..."
+!            WRITE(6,*) i_point
+!            WRITE(6,*) Points_X
+!            WRITE(6,*) Points_Y
+!          endif
+
+
+
+          ! tempprary put all the last elements to be same as the i_point
+	  ! all the repeated elements will be deleted later
+          if(i_point==0)then
+            Points_X(:) = 0
+            Points_Y(:) = 0
+	  else
+	    Points_X(i_point:8) = Points_X(i_point)
+	    Points_Y(i_point:8) = Points_Y(i_point)
+	  endif
+
+
+
+	  ! Sort all the intersect points in one direction (clock/anti-clock)
+	  CALL Sort_points(Points_X, Points_Y, N_diff)
+
+!          if(i==Na_mid.and.j==Nb_mid)then
+!	    WRITE(6,*) " ... "
+!            WRITE(6,*) "Points_X 2:", Points_X
+!            WRITE(6,*) "Points_Y 2:", Points_Y
+!            WRITE(6,*) "i_point, N_diff 2:", i_point, N_diff
+!          endif
+
+
+
+	  if(N_diff>=3)then
+	    ! delete all the repeate points
+
+	    allocate( Pts_X(N_diff) )
+	    allocate( Pts_Y(N_diff) )
+	  
+	    Pts_X(:) = Points_X(1:N_diff)
+	    Pts_Y(:) = Points_Y(1:N_diff)
+
+	    ! Calculate the total overlapping area based on the final sorted
+	    ! points
+	    do ip=2,N_diff-1,1
+	      area_overlap = area_overlap + 		&
+		Heron_Formula(Pts_X(1), Pts_Y(1), Pts_X(ip), Pts_Y(ip), &
+					      Pts_X(ip+1), Pts_Y(ip+1) )
+	    enddo
+
+
+!           if(i==Na_mid.and.j==Nb_mid)then
+!	      WRITE(6,*) " ... "
+!	      WRITE(6,*) i, j
+!	      WRITE(6,*) "Pts_X:", Pts_X
+!	      WRITE(6,*) "Pts_Y:", Pts_Y
+!	      WRITE(6,*)'area_overlap(ix,iy)', ix, iy, area_overlap(ix,iy)
+!	    endif
+
+
+	    area_total = area_total + area_overlap
+	    mass_total = mass_total + area_overlap * Pc_2d(ix,iy)
+
+            deallocate(Pts_X)
+            deallocate(Pts_Y)
+
+
+          endif ! if(N_diff>=3)then
+
+
+	enddo ! iy = iy_min, iy_max, 1
+	enddo ! ix = ix_min, ix_max, 1
+
+
+
+	if(area_total<=0)then
+	  C2d(i, j) = 0.0
+	else
+	  C2d(i, j) = mass_total/area_total
+	endif
+
+
+
+
+!        if(i==Na_mid.and.j==Nb_mid)then
+!            WRITE(6,*) " ... "
+! 	     WRITE(6,*) i, j
+!            WRITE(6,*)"ix, iy:", ix, iy
+!	     WRITE(6,*) "total:", area_total,  Area_target
+!            WRITE(6,*)"C2d(i, j):", C2d(i, j), mass_total/area_total
+!            WRITE(6,*) Pc_2d(ix_min,iy_min), Pc_2d(ix_max,iy_max)
+!        endif
+
+
+
+
+      ENDDO ! DO i=1,Na,1
+      ENDDO ! DO j=1,Nb,1
+
+
+      ! define the length/width of slab based on 95% total mass
+      Lb = LenB
+      La = Height1 *TAN(theta1)
+
+
+      ! Nb = n_slab_max +2
+      ! C2d(Na,Nb)
+
+      DO j=1,n_slab_max,1
+        C_slab(j)     = SUM(C2d(:,j+1)) *(LenA*LenB)/ (La*Lb)
+      ENDDO
+
+
+      ! Return:
+      box_Ra = La
+      box_Rb = Lb
+      Cslab(1:n_slab_max) = C_slab(1:n_slab_max)
+
+
+
+  END SUBROUTINE
+
+
+
+
+  ! Calculate triangle's area based on its three sides
+  REAL(fp) FUNCTION Heron_Formula(x1, y1, x2, y2, x3, y3)
+    IMPLICIT NONE
+
+    real(fp)	:: x1, y1, x2, y2, x3, y3
+    real(fp)	:: L1, L2, L3, Ss
+    real(fp)	:: Area
+
+    L1 = SQRT( (x1-x2)**2 + (y1-y2)**2 )
+    L2 = SQRT( (x2-x3)**2 + (y2-y3)**2 )
+    L3 = SQRT( (x1-x3)**2 + (y1-y3)**2 )
+
+    Ss = (L1+L2+L3)/2.0
+
+
+    if( (Ss-L1)*(Ss-L2)*(Ss-L3)<=0 )then
+!	WRITE(6,*)"*** ERROR in Heron_Formula ***"
+!	WRITE(6,*)"*** three points may in one line ***"
+!	WRITE(6,*)x1, x2, x3
+!	WRITE(6,*)y1, y2, y3
+	Area = 0.0
+    else
+	Area = SQRT( Ss*(Ss-L1)*(Ss-L2)*(Ss-L3) )
+    endif
+
+    Heron_Formula = Area
+
+    RETURN
+  END FUNCTION
+
+
+
+
+  ! check whether source point is always in the same side of four line of the
+  ! target grid cell, if so, the source point is inside the target grid cell
+  LOGICAL FUNCTION In_box(X_source, Y_source, Xs_target, Ys_target)
+    IMPLICIT NONE
+
+    real(fp)	:: X_source, Y_source
+    real(fp)	:: Xs_target(4), Ys_target(4)
+    real(fp)	:: Vec_x1, Vec_x2, Vec_y1, Vec_y2
+    real(fp)	:: dot, det, angle
+
+    integer	:: i, signal
+
+    signal = 0
+
+    ! for the first 3 lines of the target grid cell
+    do i=1,3,1
+	Vec_x1 = X_source - Xs_target(i)
+	Vec_y1 = Y_source - Ys_target(i)
+
+	Vec_x2 = Xs_target(i+1) - Xs_target(i)
+	Vec_y2 = Ys_target(i+1) - Ys_target(i)
+
+	dot = Vec_x1*Vec_x2 + Vec_y1*Vec_y2
+	det = Vec_x1*Vec_y2 - Vec_y1*Vec_x2
+
+	angle  = ATAN2(det,dot)
+	signal = signal + NINT(angle/ABS(angle))
+    enddo
+
+    ! for the last line of the target grid cell
+    Vec_x1 = X_source - Xs_target(4)
+    Vec_y1 = Y_source - Ys_target(4)
+
+    Vec_x2 = Xs_target(4) - Xs_target(4)
+    Vec_y2 = Y_source - Ys_target(4)
+
+    dot = Vec_x1*Vec_x2 + Vec_y1*Vec_y2
+    det = Vec_x1*Vec_y2 - Vec_y1*Vec_x2
+
+    angle  = ATAN2(det,dot)
+    signal = signal + NINT(angle/ABS(angle))
+
+
+    ! check whether source point is always in the same side of four line of the
+    ! target grid cell, if so, the source point is inside the target grid cell
+    if(signal==4 .or. signal==-4)then
+	In_box = 1
+    else
+	In_box = 0
+    endif
+
+
+    RETURN
+  END FUNCTION
+
+
+
+  SUBROUTINE Sort_points(Points_X, Points_Y, N_diff)
+    IMPLICIT NONE
+
+    real(fp), intent(inout)	:: Points_X(8),  Points_Y(8)
+    real(fp), dimension(8)	:: Xs_ascend,    Ys_ascend
+    real(fp)			:: Angles(8), Angles_ascend(8)
+    real(fp)			:: Vec_X1, Vec_Y1, Vec_X2, Vec_Y2
+    real(fp)			:: dot, det
+    real(fp)			:: X_center, Y_center
+
+
+    integer, intent(inout)	:: N_diff
+    integer			:: ip
+    integer			:: idx(1)
+
+    logical, dimension(8)	:: mask
+    
+    X_center = SUM(Points_X)/8
+    Y_center = SUM(Points_Y)/8
+
+
+
+    Vec_X1 = Points_X(1) - X_center
+    Vec_Y1 = Points_Y(1) - Y_center
+
+    Angles(1) = 0.0
+
+    do ip=2,8,1
+	Vec_X2 = Points_X(ip) - X_center
+	Vec_Y2 = Points_Y(ip) - Y_center
+
+	dot = Vec_X1*Vec_X2 + Vec_Y1*Vec_Y2	! dot product
+	det = Vec_X1*Vec_Y2 - Vec_Y1*Vec_X2	! determinant
+
+	Angles(ip) = ATAN2(det, dot)
+	if(Angles(ip)<0) Angles(ip) = 2*PI + Angles(ip)
+    enddo
+
+
+
+    mask(:) = .TRUE.
+
+    DO ip = 1, 8, 1
+	idx = MINLOC(Angles,mask)
+	Angles_ascend(ip) = Angles( idx(1) )
+	Xs_ascend(ip) 	  = Points_X( idx(1) )
+	Ys_ascend(ip) 	  = Points_Y( idx(1) )
+	mask(idx(1)) 	  = .FALSE.
+    END DO
+
+
+
+    ! select all the identical elements
+    N_diff = 1
+    Points_X(N_diff) = Xs_ascend(1)
+    Points_Y(N_diff) = Ys_ascend(1)
+
+    do ip = 1, 8-1, 1
+    if(    Xs_ascend(ip)/=Xs_ascend(ip+1) &
+       .or.Ys_ascend(ip)/=Ys_ascend(ip+1))then
+
+	N_diff = N_diff + 1
+	Points_X(N_diff) = Xs_ascend(ip+1)
+	Points_Y(N_diff) = Ys_ascend(ip+1)
+
+    endif
+    enddo
+
+
+  END SUBROUTINE
+
+
+
+!======================================================================
+! Bilinear interpolation
+!======================================================================
+
+  SUBROUTINE Slab_init_bilinear(Pdx, Pdy, theta1, Pc_2D, Height1, &
+						box_Ra, box_Rb, Cslab)
  
     IMPLICIT NONE
 
@@ -6333,12 +6981,13 @@ CONTAINS
 
     INTEGER     :: i, j
 
+
       Nb_mid = INT(Nb/2)
       Na_mid = INT(Na/2)
 
 
       LenB = Pdy ! 8.0 *Height1 / Nb /SIN(theta1)
-      LenA = 1.3 *Height1 *TAN(theta1) /Na /SIN(theta1)
+      LenA = Pdx ! 1.3 *Height1 *TAN(theta1) /Na /SIN(theta1)
 
 
       ! interval in long radius
@@ -6415,11 +7064,8 @@ CONTAINS
 
   END SUBROUTINE
 
-
-
   REAL(fp) FUNCTION Interplt_2D(Pdx, Pdy, x0, y0, C_2D, ids)
     ! n_x_max, n_y_max, Pdx, Pdy are global variables
-
     IMPLICIT NONE
 
 
@@ -6447,11 +7093,9 @@ CONTAINS
       IF(Ix0<1 .or. Ix0>=n_x_max)THEN
         Interplt_2D = 0.0
 !        IF(ids==1)WRITE(6,*)"*** ERROR: Find_theta() out bounds ***"
-
       ELSE IF((Iy0<1 .or. Iy0>=n_y_max))THEN
         Interplt_2D = 0.0
 !        IF(ids==1)WRITE(6,*)"*** ERROR: Find_theta() out bounds***"
-
       ELSE
         C1 = Interplt_linear(x0, X1d(Ix0), X1d(Ix0+1), &
                 C_2D(Ix0,Iy0),C_2D(Ix0+1,Iy0))
@@ -6461,7 +7105,6 @@ CONTAINS
 
         Interplt_2D = Interplt_linear(y0, Y1d(Iy0), &
                                           Y1d(Iy0+1), C1, C2)
-
       ENDIF
 
     return
