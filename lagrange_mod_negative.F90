@@ -6075,6 +6075,7 @@ CONTAINS
 
     real(fp)			:: Concnt_total(n_species)
 
+    real(fp)			:: Dt
 
     TYPE(Plume2d_list), POINTER :: Plume2d
     TYPE(Plume1d_list), POINTER :: Plume1d
@@ -6116,6 +6117,7 @@ CONTAINS
     LAER_Coag_Imp =  .False.
 
 
+    Dt = GET_TS_DYN()
     ts_sec  = Real(GET_TS_CHEM())
     ts_coag = ts_sec
 
@@ -6125,6 +6127,9 @@ CONTAINS
                            State_Grid, State_Met, 'v/v dry', &
                            RC, Src_Unit)
 
+    ! Chemical step is not same as transport time step, so aerosol process is
+    ! not carried out every time
+    IF(MOD(tt,NINT(ts_sec/Dt)).ne.0) GOTO 620
 
     !----------------------------------------------------------------
     ! Loop for 2-D plume segment

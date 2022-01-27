@@ -2,17 +2,15 @@
 !                  GEOS-Chem Global Chemical Transport Model
 !--------------------------------------------------------------------------
 
-! Boundary
+! Floating: only 2D grid
 
-! Oct 26, 2021
-! First, plume injected into an Eulerian grid cell and cover some space from
-! Eulerian grid cell. Once the plume occupy some space, the plume space will
-! become isolated and have boundary with the Eulerian grid cell. The Eulerian
-! grid cell will have less space. When dissolve the plume into host Eulerian
-! grid cell, the two spaces will be combined into one space.
+! This version is used to validate that Seb's aerosol code for the GEOS-Chem
+! grid is same as the box model code.
 
-! Nov 11, 2021
-! active 1-D grid in the plume model
+! There is will be no interaction between plume model and host Eulerian model,
+! the injection will be same for both plume model and Eulerian model.
+! Temperature, pressure, water vapor mixing ratio are all same for the plume
+! model and GEOS-Chem model.
 
 
 
@@ -500,6 +498,11 @@
 ! Use function Ind_() to find the species index in GEOS-Chem.
 
 
+! Jan 25, 2022
+! correct the time step inside the plume aerosol module
+
+
+
 
 ! double check the P_edge, whether P_edge can change at different (lon, lat)
 
@@ -563,7 +566,7 @@ MODULE Plume_list
     real(fp), DIMENSION(:,:), POINTER :: aDen
     real(fp), DIMENSION(:,:), POINTER :: Sfc_Ten
 
-    real(fp), DIMENSION(:,:), POINTER :: CONCNT1d ! [n_slab_max,n_species]
+    real(fp), DIMENSION(:,:),   POINTER :: CONCNT1d ! [n_slab_max,n_species]
 
 
     TYPE(Plume1d_list), POINTER :: next
@@ -610,6 +613,9 @@ MODULE Lagrange_Mod
 
   PUBLIC :: use_lagrange
 
+  ! 1: inject in plume model
+  ! 0: inject in Eulerian model
+  ! other number: no injection
   integer               :: use_lagrange = 1
   integer               :: TROPP_sink   = 0
   integer               :: Volume_Sort  = 1 
@@ -644,21 +650,21 @@ MODULE Lagrange_Mod
 
   real, parameter       :: Dx_init     = 100
   real, parameter       :: Dy_init     = 10
-  real, parameter       :: Length_init = 20.0*1000.0 ! [m], 20km
+  real, parameter       :: Length_init = 40.0*1000.0 ! [m], 20km
 
   real, parameter       :: Inject_lon   = -141.0e+0_fp
   real, parameter       :: Inject_hPa   = 50.0e+0_fp
-  real, parameter       :: Inject_rate  = 30.0e+0_fp ! [kg/km]
+  real, parameter       :: Inject_rate  = 0.0 ! 30.0e+0_fp ! [kg/km]
   ! 25.0e+0_fp ! [hPa] at about 25 km
   ! 50.0e+0_fp       ! [hPa] at about 20 km
 
   ! some parameter for sensitive test
-  integer, parameter    :: N1_split            = 1 !5        ! Cross-section splitting
-  integer, parameter    :: N2_split            = 1 !5        ! length splitting
-  integer, parameter    :: Split_length        = 1        ! how many times of DX
+  integer, parameter    :: N1_split            = 5     ! Cross-section splitting
+  integer, parameter    :: N2_split            = 5     ! length splitting
+  integer, parameter    :: Split_length        = 1     ! how many times of DX
   real, parameter       :: Dissolve_critiria   = 10*0.01
-  real, parameter       :: Volume_percent      = 50*0.01  ! 30*0.01
-  real, parameter       :: Critical_day        = 7        ! 28.0 [day]
+  real, parameter       :: Volume_percent      = 30*0.01
+  real, parameter       :: Critical_day        = 28.0         ! [day]
 
   real(fp), pointer     :: X_mid(:), Y_mid(:), P_mid(:)
   real(fp), pointer     :: P_edge(:)
@@ -771,7 +777,7 @@ CONTAINS
     INTEGER                       :: i_box, i_slab
     INTEGER                       :: ii, jj, kk
     CHARACTER(LEN=255)            :: FILENAME, FileEntropy, File996, File580
-    CHARACTER(LEN=255)            :: FILENAME2, FILENAME3
+    CHARACTER(LEN=255)            :: FILENAME2, FILENAME3, File502
 
     integer                       :: i_lon, i_lat, i_lev            !1:IIPAR
     real(fp)                      :: box_lon, box_lat, box_lev
@@ -791,6 +797,9 @@ CONTAINS
     real(fp), pointer   :: PASV_EU
 !    REAL(fp)            :: MW_g
     REAL(fp)            :: Dt
+
+    real(fp)		:: Norm_vv(40) ! initial normal particle size distribution
+    real(fp)            :: C_H2O
 
     ! Strings
     CHARACTER(LEN=255)	:: MSG, LOC
@@ -871,6 +880,13 @@ CONTAINS
     CLOSE(580)
 
 
+    File502   = 'AERSctSul001_040_Number_density.txt'
+
+    OPEN( 502,      FILE=TRIM( File502  ), STATUS='REPLACE',  &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+    CLOSE(502)
+
 
     allocate(box_concnt_2D(n_x_max, n_y_max, n_species))
     allocate(box_concnt_1D(n_slab_max,n_species))
@@ -942,14 +958,15 @@ CONTAINS
     ENDIF
 
 
-!   DO ii=1,42,1
-!      State_Chm%Species(:,:,:,id_GC(ii)) = 0.0        ! !!! shw
-!    ENDDO
+      ! Set all the initial concentration to be 0 except H2O
+      C_H2O = State_Chm%Species(9,16,39,Ind_('H2O'))
+      State_Chm%Species(:,:,:,:) = 0.0                     !!! shw
+      State_Chm%Species(9,16,39,Ind_('H2O')) = 3.14/1e6    !!! shw
 
-!    WRITE(6,*) ".............................................."
-!    WRITE(6,*) "The initial concentration of injected species:"
-!    WRITE(6,*) State_Chm%Species(:,:,:,id_GC(i_inject))
-!    WRITE(6,*) ".............................................."
+!      WRITE(6,*) ".............................................."
+!      WRITE(6,*) "The initial concentration of injected species:"
+!      WRITE(6,*) State_Chm%Species(:,:,:,id_GC(i_inject))
+!      WRITE(6,*) ".............................................."
 
 
 
@@ -975,18 +992,53 @@ CONTAINS
       IF(ABS(box_lat)>40) WRITE(6,*)'*** ERROR in box_lat:', i_box, box_lat
 
 
-
 ! !!! shw, Set a super high (100*) background concentration for SUL001, which is
-! not the injected species
-     State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_inject+10)) = &
-	5* State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_inject)) &
-	+ 5* Length_init*1.0e-3_fp*Inject_rate/State_Met%AD(i_lon,i_lat,i_lev)
+! not the injected species.
+      !======================================================================
+      ! Convert species to [molec/cm3] (ewl, 8/16/16)
+      !======================================================================
+      CALL Convert_Spc_Units( Input_Opt, State_Chm, State_Grid, State_Met, &
+                              'v/v dry', RC, OrigUnit=OrigUnit )
+      IF ( RC /= GC_SUCCESS ) THEN
+         ErrMsg = 'Unit conversion error!'
+         CALL GC_Error( ErrMsg, RC, 'lagrange_init() in lagrange_mod.F90')
+         RETURN
+      ENDIF
 
-     WRITE(6,*)'SHW, Background H2SO4 concentration:', &
-			   State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_inject))
+	! test 1: Figure 6.2
+	! 40 pptv H2SO4 gas phase
+	State_Chm%Species(i_lon,i_lat,i_lev,Ind_('SO4')) = 40.0/1e12 ! 40 pptv
+!
+!        State_Met%PMID(9, 16, 39) = 124.0
+!        State_Met%T(9, 16, 39) = 199.0
+!        State_Chm%Species(9, 16, 39, Ind_('H2O')) = 3.14
 
-     WRITE(6,*)'SHW, Background concentration:', &
-                           State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_inject+40))
+!	Norm_vv(:) = &
+!	(/0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, &
+!	  0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 2.50e-25, &
+!	  2.30e-23, 1.46e-21, 6.78e-20, 2.28e-18, 5.58e-17, 9.91e-16, &
+!	  1.28e-14, 1.20e-13, 8.23e-13, 4.10e-12, 1.49e-11, 3.93e-11, &
+!	  7.58e-11, 1.06e-10, 1.09e-10, 8.14e-11, 4.43e-11, 1.76e-11, &
+!	  5.08e-12, 1.07e-12, 1.64e-13, 1.83e-14, 1.48e-15, 8.76e-17, &
+!	  3.76e-18, 1.17e-19, 2.66e-21, 4.37e-23/)
+!
+!	DO ii=3,42,1
+!          State_Chm%Species(i_lon,i_lat,i_lev,id_GC(ii)) = Norm_vv(ii-2)
+!	ENDDO
+
+
+      !=======================================================================
+      ! Convert species back to original units (ewl, 8/16/16)
+      !=======================================================================
+      CALL Convert_Spc_Units( Input_Opt, State_Chm,  State_Grid, State_Met, &
+                              OrigUnit,  RC )
+
+      IF ( RC /= GC_SUCCESS ) THEN
+         ErrMsg = 'Unit conversion error!'
+         CALL GC_Error( ErrMsg, RC, 'plume_mod.F90' )
+         RETURN
+      ENDIF
+
 ! !!! shw
 
 
@@ -997,7 +1049,7 @@ CONTAINS
       WRITE(6,'(a)') ' '
       WRITE(6,'(a)') '********************************************************'
       WRITE(6,'(a)') ' You are not using lagrange_mod now'
-      WRITE(6,'(a)') ' set variable use_lagrange = 1 to turn on lagrnage_mod  '
+      WRITE(6,'(a)') ' set variable se_lagrange = 1 to turn on lagrnage_mod  '
       WRITE(6,'(a)') '********************************************************'
       WRITE(6,'(a)') ' '
 
@@ -1007,7 +1059,6 @@ CONTAINS
       WRITE(6,'(a)') ' WARNING: all initial SULF concentrations are set as 0  '
       WRITE(6,'(a)') '********************************************************'
       WRITE(6,'(a)') ' '
-
 
 
       ! ====================================================================
@@ -1042,18 +1093,6 @@ CONTAINS
       WRITE(6,'(a)') '********************************************************'
       WRITE(6,'(a)') ' '
 
-
-
-      !======================================================================
-      ! Convert species to [molec/cm3] (ewl, 8/16/16)
-      !======================================================================
-      CALL Convert_Spc_Units( Input_Opt, State_Chm, State_Grid, State_Met, &
-                              'molec/cm3', RC, OrigUnit=OrigUnit )
-      IF ( RC /= GC_SUCCESS ) THEN
-         ErrMsg = 'Unit conversion error!'
-         CALL GC_Error( ErrMsg, RC, 'plume_run in lagrange_mod.F90')
-         RETURN
-      ENDIF
 
 
     ! -----------------------------------------------------------
@@ -1105,13 +1144,33 @@ CONTAINS
 
 
 
-! !!! shw: For Boundary
-    DO ii=1,42,1
-	Plume2d_tail%CONCNT2d(:,:,ii) = &
-		Plume2d_tail%CONCNT2d(:,:,ii) + &
-			State_Chm%Species(i_lon,i_lat,i_lev,id_GC(ii))
-    ENDDO
-! !!! shw
+! shw
+      CALL Convert_Spc_Units( Input_Opt, State_Chm, State_Grid, State_Met, &
+                              'molec/cm3', RC, OrigUnit=OrigUnit )
+      IF ( RC /= GC_SUCCESS ) THEN
+         ErrMsg = 'Unit conversion error!'
+         CALL GC_Error( ErrMsg, RC, 'lagrange_init() in lagrange_mod.F90')
+         RETURN
+      ENDIF
+
+
+      Plume2d_tail%CONCNT2d(n_x_mid,n_y_mid,i_inject) = &
+                              State_Chm%Species(i_lon,i_lat,i_lev,Ind_('SO4'))
+
+      WRITE(6,*)'Track: ', Plume2d_tail%CONCNT2d(n_x_mid,n_y_mid,i_inject)
+
+      !=======================================================================
+      ! Convert species back to original units (ewl, 8/16/16)
+      !=======================================================================
+      CALL Convert_Spc_Units( Input_Opt, State_Chm,  State_Grid, State_Met, &
+                              OrigUnit,  RC )
+
+      IF ( RC /= GC_SUCCESS ) THEN
+         ErrMsg = 'Unit conversion error!'
+         CALL GC_Error( ErrMsg, RC, 'plume_mod.F90' )
+         RETURN
+      ENDIF
+! shw
 
 
 
@@ -1132,24 +1191,6 @@ CONTAINS
     Num_Plume1d = 0
 
     Num_dissolve = 0
-
-
-
-
-      !=======================================================================
-      ! Convert species back to original units (ewl, 8/16/16)
-      !=======================================================================
-      CALL Convert_Spc_Units( Input_Opt, State_Chm,  State_Grid, State_Met, &
-                              OrigUnit,  RC )
-
-      IF ( RC /= GC_SUCCESS ) THEN
-         ErrMsg = 'Unit conversion error!'
-         CALL GC_Error( ErrMsg, RC, 'plume_mod.F90' )
-         RETURN
-      ENDIF
-
-
-
 
     ENDIF ! IF(use_lagrange==0)THEN
 
@@ -1187,6 +1228,8 @@ CONTAINS
     USE State_Chm_Mod,   ONLY : ChmState
     USE State_Grid_Mod,  ONLY : GrdState
 
+    USE State_Chm_Mod,  ONLY : Ind_
+
     USE TIME_MOD,        ONLY : GET_TS_DYN
     USE UnitConv_Mod,    ONLY : Convert_Spc_Units
 
@@ -1203,7 +1246,7 @@ CONTAINS
     real(fp)          :: X_edge2, Y_edge2
 
 
-    integer  :: i_box
+    integer  :: i_box, i_species
 
     integer  :: i_lon, i_lat, i_lev
     real(fp) :: box_lon, box_lat, box_lev
@@ -1221,9 +1264,58 @@ CONTAINS
 
     CHARACTER(LEN=63)      :: OrigUnit
     CHARACTER(LEN=255)     :: ErrMsg
-    CHARACTER(LEN=255)     :: FileEntropy
+    CHARACTER(LEN=255)     :: FileEntropy, File502
 
     ErrMsg = ''
+
+
+
+
+      !======================================================================
+      ! Convert species to [molec/cm3] (ewl, 8/16/16)
+      !======================================================================
+      CALL Convert_Spc_Units( Input_Opt, State_Chm, State_Grid, State_Met, &
+                              'molec/cm3', RC, OrigUnit=OrigUnit )
+      IF ( RC /= GC_SUCCESS ) THEN
+         ErrMsg = 'Unit conversion error!'
+         CALL GC_Error( ErrMsg, RC, 'plume_run in lagrange_mod.F90')
+         RETURN
+      ENDIF
+
+
+!      File502   = 'AERSctSul001_040_Number_density.txt'
+!!
+!      OPEN( 502,      FILE=TRIM( File502  ), STATUS='OLD',  &
+!          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+!
+!      DO i_species=1,n_species,1
+!        WRITE(502,'(I10, E20.5)') INT(tt), &
+!	  State_Chm%Species( 9, 16, 39, id_GC(i_species) )
+!      ENDDO ! DO i_species=1,n_species,1
+!
+!
+!      WRITE(6,*) "shw: ", &
+!          State_Met%PMID(9, 16, 39), &
+!          State_Met%T(9, 16, 39), &
+!          State_Chm%Species(9, 16, 39, Ind_('H2O'))
+
+! shw
+!      State_Met%PMID(9, 16, 39) = 124.0
+!      State_Met%T(9, 16, 39) = 199.0
+! shw
+
+      !=======================================================================
+      ! Convert species back to original units (ewl, 8/16/16)
+      !=======================================================================
+      CALL Convert_Spc_Units( Input_Opt, State_Chm,  State_Grid, State_Met, &
+                              OrigUnit,  RC )
+
+      IF ( RC /= GC_SUCCESS ) THEN
+         ErrMsg = 'Unit conversion error!'
+         CALL GC_Error( ErrMsg, RC, 'plume_mod.F90' )
+         RETURN
+      ENDIF
+
 
 
 
@@ -1351,7 +1443,6 @@ CONTAINS
       ENDDO
       ENDDO
       !$OMP END PARALLEL DO
-
 
 
     ! Calculate Entropy for Eulerian model
@@ -1630,6 +1721,7 @@ CONTAINS
       Plume2d_new%CONCNT2d(n_x_mid,n_y_mid,i_inject) = &
                 Plume2d_new%CONCNT2d(n_x_mid,n_y_mid,i_inject)/1.0e+6_fp/98.0*AVO
 
+
       mass_la = mass_la + Plume2d_new%CONCNT2d(n_x_mid,n_y_mid,i_inject)* &
              (Plume2d_new%PDX*Plume2d_new%Pdy*Plume2d_new%LENGTH*1.0e+6_fp)
 
@@ -1746,13 +1838,34 @@ CONTAINS
 
       IF(i_lev==LLPAR) WRITE(6,*) 'box_lev:', curr_pressure, i_lev
 
-
-
-! !!! shw: For BOUNDARY
       ! For new injected plume:
-      if(Plume2d%IsNew==1)then
-
-         Plume2d%IsNew = 0
+!      if(Plume2d%IsNew==1)then
+!
+!         Plume2d%IsNew = 0
+!
+!        ! ====================================================================
+!        ! Add concentraion of PASV into conventional Eulerian GEOS-Chem in 
+!        ! corresponding with injected parcels in Lagrangian model
+!        ! For conventional GEOS-Chem for comparison with Lagrangian Model:
+!        !
+!        !  AD(I,J,L) = grid box dry air mass [kg]
+!        !  AIRMW     = dry air molecular wt [g/mol]
+!        !  MW_G(N)   = species molecular wt [g/mol]
+!        !     
+!        ! the conversion is:
+!        ! 
+!        !====================================================================
+!         PASV_EU => State_Chm%Species(i_lon,i_lat,i_lev,id_PASV_EU)  ! [kg/kg]
+!
+!         MW_g = State_Chm%SpcData(nAdv)%Info%MW_g
+!         ! Here assume the injection rate is 30 kg/km for H2SO4: 
+!         PASV_EU = PASV_EU + box_length*1.0e-3_fp*30.0 &
+!                                        /State_Met%AD(i_lon,i_lat,i_lev)
+!
+!
+!          mass_eu = mass_eu + box_length*1.0e-3_fp*30.0 * 1000.0/98*AVO
+!
+!          WRITE(6,*)'mass_eu: ', box_length*1.0e-3_fp*30.0 * 1000.0/98*AVO
 
          !======================================================================
          ! Set up the new injected plumes/box
@@ -1764,41 +1877,39 @@ CONTAINS
          !======================================================================
          ! Convert species to [molec/cm3] (ewl, 8/16/16)
          !======================================================================
-         CALL Convert_Spc_Units( Input_Opt, State_Chm, State_Grid, State_Met, &
-                              'molec/cm3', RC, OrigUnit=OrigUnit )
+!         CALL Convert_Spc_Units( am_I_Root, Input_Opt, State_Met, &
+!                                 State_Chm, 'molec/cm3', RC, OrigUnit=OrigUnit )
+!
+!         IF ( RC /= GC_SUCCESS ) THEN
+!            ErrMsg = 'Unit conversion error!'
+!            CALL GC_Error( ErrMsg, RC, 'lagrange_run in lagrange_mod.F90')
+!            RETURN
+!         ENDIF
 
 
-         IF ( RC /= GC_SUCCESS ) THEN
-            ErrMsg = 'Unit conversion error!'
-            CALL GC_Error( ErrMsg, RC, 'lagrange_run in lagrange_mod.F90')
-            RETURN
-         ENDIF
-
-
-         do i_species = 1, 42, 1
-           box_concnt_2D(:,:,i_species)=box_concnt_2D(:,:,i_species) &
-                    + State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_species))
-         enddo 
+!         do i_species = 1, N_species
+!           box_concnt_2D(:,:,i_species)=box_concnt_2D(:,:,i_species) &
+!                    + State_Chm%Species(i_lon,i_lat,i_lev,State_Chm%nAdvect-1)
+!        
+!         ![molec]
+!
+!         enddo 
 
 
          !=======================================================================
          ! Convert species back to original units (ewl, 8/16/16)
          !=======================================================================
-         CALL Convert_Spc_Units( Input_Opt, State_Chm,  State_Grid, State_Met, &
-                              OrigUnit,  RC )
-
-         IF ( RC /= GC_SUCCESS ) THEN
-            ErrMsg = 'Unit conversion error!'
-            CALL GC_Error( ErrMsg, RC, 'plume_mod.F90' )
-            RETURN
-         ENDIF
-
-      endif ! if(Plume2d%IsNew==1)then
-! !!! shw: For BOUNDARY
+!         CALL Convert_Spc_Units( am_I_Root, Input_Opt, State_Met, &
+!                                 State_Chm, OrigUnit,  RC )
+!         IF ( RC /= GC_SUCCESS ) THEN
+!            ErrMsg = 'Unit conversion error!'
+!            CALL GC_Error( ErrMsg, RC, 'plume_mod.F90' )
+!            RETURN
+!         ENDIF
 
 
 
-
+!      endif ! if(Plume2d%IsNew==1)then
 
 
       DO Ki = 1,4,1
@@ -3424,8 +3535,8 @@ CONTAINS
     real(fp)  :: Pc_bottom, Pc_top
     real(fp)  :: Pc_left, Pc_right
 
-    real(fp)  :: Pc_inject(n_x_max,n_y_max)
-    real(fp)  :: Pc(n_x_max,n_y_max) 		!, Ec(n_x_max,n_y_max)
+
+    real(fp)  :: Pc(n_x_max,n_y_max),Pc2(n_x_max,n_y_max) !, Ec(n_x_max,n_y_max)
     real(fp)  :: Pc_bdy(n_x_max2,n_y_max2)
 !    real(fp)  :: D_concnt(n_x_max,n_y_max)
     real(fp)  :: Xscale, Yscale, frac_mass
@@ -3468,7 +3579,7 @@ CONTAINS
     TYPE(Plume1d_list), POINTER :: Plume1d_new, Plume1d, Plume1d_prev
 
 
-    CHARACTER(LEN=255)     :: FILENAME2
+    CHARACTER(LEN=255)     :: FILENAME2, FILE502
     CHARACTER(LEN=63)      :: OrigUnit
     CHARACTER(LEN=255)     :: ErrMsg
 
@@ -3551,6 +3662,16 @@ CONTAINS
 
     OPEN( 484,      FILE=TRIM( FILENAME2   ), STATUS='OLD',  &
           POSITION='APPEND', FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+
+
+
+    File502   = 'AERSctSul001_040_Number_density.txt'
+
+    OPEN( 502,      FILE=TRIM( File502  ), STATUS='OLD',  &
+          FORM='FORMATTED',    ACCESS='SEQUENTIAL' )
+
+
 
 
     Dt = GET_TS_DYN()
@@ -3897,8 +4018,7 @@ CONTAINS
 !       IF(box_label==1) WRITE(6,*)'Dt in 2D is:', Pdt, Pdx/Pu(1,2)
 !       IF(box_label==1) WRITE(6,*)   Pdx/Pu(1,1), Pdy**2/(2*eddy_v)
 
-! !!! shw
-       Concnt2D_bdy(:,:) = State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_species))
+       Concnt2D_bdy(:,:) = 0.0
        Concnt2D_bdy(2:n_x_max2-1,2:n_y_max2-1) = box_concnt_2D(:,:,i_species)
 
         
@@ -3953,29 +4073,31 @@ CONTAINS
 
          ! Only calculate the vertical half 2D domain         
 
-         !$OMP PARALLEL DO           &
-         !$OMP DEFAULT( SHARED     ) &
-         !$OMP PRIVATE(i_y,i_x,CFL,Pc_middle,Pc_top,Pc_bottom,Pc_right,Pc_left)
-         DO i_y = 2, n_y_mid2, 1
-         DO i_x = 2, n_x_max2-1, 1
-
-           Pc_middle = Pc_bdy( i_x,   i_y  )
-           Pc_top    = Pc_bdy( i_x,   i_y+1)
-           Pc_bottom = Pc_bdy( i_x,   i_y-1)
-           Pc_right  = Pc_bdy( i_x+1, i_y  )
-           Pc_left   = Pc_bdy( i_x-1, i_y  )
-
-           CFL       = Pdt*Pu(i_x,i_y)/Pdx
-
-           Concnt2D_bdy(i_x, i_y) = Pc_middle           &
-              - 0.5 * CFL    * ( Pc_right - Pc_left )   &
-              + 0.5 * CFL**2 * ( Pc_right - 2*Pc_middle + Pc_left )         &
-              + Pdt*( eddy_h*( Pc_right -2*Pc_middle +Pc_left   ) /(Pdx**2) &
-                     +eddy_v*( Pc_top   -2*Pc_middle +Pc_bottom ) /(Pdy**2) )
-
-         ENDDO
-         ENDDO
-         !$OMP END PARALLEL DO
+! shw
+!         !$OMP PARALLEL DO           &
+!         !$OMP DEFAULT( SHARED     ) &
+!         !$OMP PRIVATE(i_y,i_x,CFL,Pc_middle,Pc_top,Pc_bottom,Pc_right,Pc_left)
+!         DO i_y = 2, n_y_mid2, 1
+!         DO i_x = 2, n_x_max2-1, 1
+!
+!           Pc_middle = Pc_bdy( i_x,   i_y  )
+!           Pc_top    = Pc_bdy( i_x,   i_y+1)
+!           Pc_bottom = Pc_bdy( i_x,   i_y-1)
+!           Pc_right  = Pc_bdy( i_x+1, i_y  )
+!           Pc_left   = Pc_bdy( i_x-1, i_y  )
+!
+!           CFL       = Pdt*Pu(i_x,i_y)/Pdx
+!
+!           Concnt2D_bdy(i_x, i_y) = Pc_middle           &
+!              - 0.5 * CFL    * ( Pc_right - Pc_left )   &
+!              + 0.5 * CFL**2 * ( Pc_right - 2*Pc_middle + Pc_left )         &
+!              + Pdt*( eddy_h*( Pc_right -2*Pc_middle +Pc_left   ) /(Pdx**2) &
+!                     +eddy_v*( Pc_top   -2*Pc_middle +Pc_bottom ) /(Pdy**2) )
+!
+!         ENDDO
+!         ENDDO
+!         !$OMP END PARALLEL DO
+! shw
 
          ! update the other half based on vertical symmetry 
          DO i_y = n_y_mid2+1, n_y_max2-1, 1
@@ -4004,14 +4126,18 @@ CONTAINS
 
          D_mass_plume = mass_plume_new - mass_plume
 
+! shw
+!         backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_species))
+!
+!         backgrd_concnt = ( backgrd_concnt*grid_volumn &
+!                                           - D_mass_plume) /grid_volumn
+!
+!         State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_species)) = backgrd_concnt
+! shw
 
-         backgrd_concnt = State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_species))
-
-         backgrd_concnt = ( backgrd_concnt*grid_volumn &
-                                           - D_mass_plume) /grid_volumn
-
-         State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_species)) = backgrd_concnt
-
+         WRITE(502,'(I10, I10, E20.5, E20.5)') INT(tt), i_species, &
+		box_concnt_2D(n_x_mid,n_y_mid,i_species), &
+		State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_species))
 
        ENDDO ! DO i_species=1,n_species,1
 
@@ -4022,23 +4148,34 @@ CONTAINS
          ! once the tilting degree is bigger than 88 deg (88/180*3.14)
          !====================================================================
 
-         IF(Plume2d%LIFE>4.0*3600.0)THEN
-!         IF(Plume2d%LIFE>10.0*3600.0)THEN ! !!! shw
+!         IF(Plume2d%LIFE>4.0*3600.0)THEN
+         IF(Plume2d%LIFE>10.0*3600.0)THEN ! !!! shw
 
          frac_mass = 0.95
 
 
-         Pc_inject = box_concnt_2D(:,:,1)
-         Xscale    = Get_XYscale(Pc_inject, Pdx, Pdy, frac_mass, 2)
-         Yscale    = Get_XYscale(Pc_inject, Pdx, Pdy, frac_mass, 1)
+         Pc2 = box_concnt_2D(:,:,1)
+         Xscale = Get_XYscale(Pc2, Pdx, Pdy, frac_mass, 2)
+         Yscale = Get_XYscale(Pc2, Pdx, Pdy, frac_mass, 1)
 
          box_theta = ATAN( Xscale/Yscale )
+
+
+
+!         IF( Plume2d%LIFE>18.0*3600.0 ) THEN
+!           WRITE(6,*) "*** ERROR: 2D plume live too long! ***"
+!           WRITE(6,*) box_label, Xscale, Yscale, Pdx, Pdy 
+!           WRITE(6,*) wind_s_shear, eddy_h, eddy_v
+!           WRITE(6,*) Pc2(n_x_mid-1,:)
+!           WRITE(6,*) Pc2(:,n_y_mid)
+!         ENDIF
 
 
 !         IF( Xscale/Yscale>25.0 &
 !                        .or. Plume2d%LIFE>12.0*3600.0 ) THEN !!! shw ???
 !
-         IF( Xscale/Yscale>25.0 ) THEN !!! shw ???
+         IF( Xscale/Yscale>25.0 &
+                        .or. Plume2d%LIFE>10.0*3600.0 ) THEN !!! shw ???
 
            DO i_species=1,n_species,1
 
@@ -4069,6 +4206,15 @@ CONTAINS
 
            !!! update the background concentration:
            D_mass_plume = mass_plume_new - mass_plume
+
+
+!           IF(ABS(D_mass_plume/mass_plume)>0.01)THEN
+!             WRITE(6,*) '*********************************************'
+!             WRITE(6,*) '    more than 1% mass lost from 2-D to 1-D'
+!             WRITE(6,*) ABS(D_mass_plume/mass_plume)
+!             WRITE(6,*) '*********************************************'
+!           ENDIF
+
 
 !           i_advect = id_PASV_LA +i_species -1
 
@@ -4525,7 +4671,7 @@ CONTAINS
          box_alpha  = Plume1d%ALPHA
 
          box_label  = Plume1d%label
-         box_life   = Plume1d%LIFE
+         box_life  = Plume1d%LIFE
 
          box_Ra    = Plume1d%RA
          box_Rb    = Plume1d%RB
@@ -4910,11 +5056,11 @@ CONTAINS
 
        grid_volumn     = State_Met%AIRVOL(i_lon,i_lat,i_lev)*1e+6_fp ![cm3]
 
-       mass_plume     = V_grid_1D * SUM( C1d_prev(1:n_slab_max) )
+       mass_plume = V_grid_1D * SUM( C1d_prev(1:n_slab_max) )
        mass_plume_new = V_grid_1D * SUM(box_concnt_1D(1:n_slab_max,i_species))
 
        ! [molec]
-       D_mass_plume   = mass_plume_new - mass_plume
+       D_mass_plume = mass_plume_new - mass_plume
 
 !       i_advect = id_PASV_LA +i_species -1
 
@@ -5025,6 +5171,9 @@ CONTAINS
        ENDIF
 
 
+       ! !!! shw : Once plume1d is created, dissolve it immediately
+       Plume1d%Is_transfer = 1
+
 
        ! ------------------------------------------------------------------
        ! 1. Product criterion
@@ -5032,14 +5181,10 @@ CONTAINS
        ! 3. Location critetion
        ! 4. Time criterion
        ! ------------------------------------------------------------------
-!       IF(      ABS(Prod_before-Prod_after)/Prod_after<Dissolve_critiria &
-!           .OR. Plume1d%Is_transfer==1 &
-!           .OR. box_lev>State_Met%TROPP(i_lon,i_lat) &
-!           .OR. box_life/3600/24>Critical_day  )THEN 
-
-       IF(      Plume1d%Is_transfer==1 			&
-           .OR. box_lev>State_Met%TROPP(i_lon,i_lat) 	&
-           .OR. box_life/3600/24>Critical_day  )THEN
+       IF(      ABS(Prod_before-Prod_after)/Prod_after<Dissolve_critiria &
+           .OR. Plume1d%Is_transfer==1 &
+           .OR. box_lev>State_Met%TROPP(i_lon,i_lat) &
+           .OR. box_life/3600/24>Critical_day  )THEN 
 
 
          IF( ABS(Prod_before-Prod_after)/Prod_after<Dissolve_critiria ) &
@@ -5048,7 +5193,6 @@ CONTAINS
          IF( box_lev>State_Met%TROPP(i_lon,i_lat) )   Type_transfer = 33
          IF( box_life/3600/24>Critical_day )          Type_transfer = 44
 
-	 WRITE(6,*)"Type_transfer=", Type_transfer
 
 
          Num_dissolve = Num_dissolve+1
@@ -5066,15 +5210,9 @@ CONTAINS
          backgrd_concnt = &
                   State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_species))
 
-! !!! shw, for BOUNDARY method
-!         backgrd_concnt = &
-!           ( SUM(box_concnt_1D(1:n_slab_max,i_species)) * V_grid_1D   &
-!                + backgrd_concnt*grid_volumn ) / grid_volumn
          backgrd_concnt = &
            ( SUM(box_concnt_1D(1:n_slab_max,i_species)) * V_grid_1D   &
-            + backgrd_concnt*(grid_volumn-n_slab_max*V_grid_1D) ) / grid_volumn
-
-
+                + backgrd_concnt*grid_volumn ) / grid_volumn
 
          State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_species)) = backgrd_concnt
          ENDDO
@@ -5972,7 +6110,7 @@ CONTAINS
 
     real(fp)			:: Concnt_total(n_species)
 
-    real(fp)			:: Dt
+    REAL(fp) 			:: Dt
 
     TYPE(Plume2d_list), POINTER :: Plume2d
     TYPE(Plume1d_list), POINTER :: Plume1d
@@ -6014,9 +6152,13 @@ CONTAINS
     LAER_Coag_Imp =  .False.
 
 
+
     Dt = GET_TS_DYN()
-    ts_sec  = Real(GET_TS_DYN())
+    ts_sec  = Real(GET_TS_CHEM()) 
+! better change to GET_TS_CHEM, pay attention to the correct loop !!!
     ts_coag = ts_sec
+
+
 
 
     ! Convert Eulerian data to VMR
@@ -6025,9 +6167,12 @@ CONTAINS
                            RC, Src_Unit)
 
 
+
+
     ! Chemical step is not same as transport time step, so aerosol process is
     ! not carried out every time
     IF(MOD(tt,NINT(ts_sec/Dt)).ne.0) GOTO 620
+
 
 
     !----------------------------------------------------------------
@@ -6113,8 +6258,8 @@ CONTAINS
 
 
 
-!      WRITE(6,*)'shw, PiG, T, P, ndens, H2O:'
-!      WRITE(6,*)T_K_Vec, p_hPa_Vec, ndens_Vec, vvH2O_Vec
+      WRITE(6,*)'shw, PiG, T, P, ndens, H2O:'
+      WRITE(6,*)T_K_Vec, p_hPa_Vec, ndens_Vec, vvH2O_Vec
 
 
       ! output once every day (24 hours)
@@ -6138,6 +6283,7 @@ CONTAINS
       ! change unit from [molec/cm3] to [v/v] for species in plume segments
       DO i_species=1,n_species
 
+
         MW_kg = State_Chm%SpcData(id_GC(i_species))%Info%emMW_g * 1.e-3_fp
         MW_g  = State_Chm%SpcData(id_GC(i_species))%Info%emMW_g
 
@@ -6145,41 +6291,89 @@ CONTAINS
                                      /  AVO * MW_kg                     &
                                      / (State_Met%AIRDEN(i_lon,i_lat,i_lev)/1e6) &
                                      * ( AIRMW / MW_g)
+
+
+        concnt_2D_backgrd(:,:,i_species) = State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_species))
+
+	concnt_2D_total(:,:,i_species) = box_concnt_2D(:,:,i_species) &
+			+ State_Chm%Species(i_lon,i_lat,i_lev,id_GC(i_species))
+
       END DO
 
 
       DO i_y = 1, n_y_max, 1
       DO i_x = 1, n_x_max, 1
 
+
+!!! background
+!        aWP_arr         = box2d_aWP(i_x,i_y,:)
+!        aDen_arr        = box2d_aDen(i_x,i_y,:)
+!        Sfc_Ten_arr     = box2d_Sfc_Ten(i_x,i_y,:)
+!
+!        vvSul_Arr       = concnt_2D_backgrd(i_x,i_y,3:42) ! 40 bins
+!        vvH2SO4_Vec     = concnt_2D_backgrd(i_x,i_y,2)    ! 1
+!
+!        IF(MAXVAL(vvSul_Arr)>=0.0)THEN
+!!          CALL Box_Sect_Aer(aWP_arr,aDen_arr,&
+!                            vvSul_Arr,Sfc_Ten_arr,vvH2O_Vec,&
+!                            vvH2SO4_Vec,box_rWet,T_K_Vec,p_hPa_Vec,&
+!                            ndens_Vec,ts_sec,ts_coag,&
+!                            LAER_Nuc,LAER_Grow,LAER_Coag,&
+!                            LAER_Coag_Imp, RC)
+!        ELSE
+!          WRITE(6,*)'========================================='
+!          WRITE(6,*)' Max(vvSul_Arr) is < 0 !!! '
+!          WRITE(6,*)'========================================='
+!        ENDIF
+!
+!
+!        box2d_aWP(i_x,i_y,:)         = aWP_arr
+!        box2d_aDen(i_x,i_y,:)        = aDen_arr
+!        box2d_Sfc_Ten(i_x,i_y,:)     = Sfc_Ten_arr
+!
+!        concnt_2D_backgrd(i_x,i_y,3:42)   = vvSul_Arr     ! 40 bins
+!        concnt_2D_backgrd(i_x,i_y,2)      = vvH2SO4_Vec   ! 1
+!
+!
         aWP_arr         = box2d_aWP(i_x,i_y,:)
         aDen_arr        = box2d_aDen(i_x,i_y,:)
         Sfc_Ten_arr     = box2d_Sfc_Ten(i_x,i_y,:)
 
-        vvSul_Arr       = box_concnt_2D(i_x,i_y,3:42) ! 40 bins
-        vvH2SO4_Vec     = box_concnt_2D(i_x,i_y,2)    ! 1
+        vvSul_Arr       = box_concnt_2D(i_x,i_y,3:42)! 40 bins
+        vvH2SO4_Vec     = box_concnt_2D(i_x,i_y,2)   ! 1
 
-        IF(MAXVAL(vvSul_Arr)>=0.0)THEN
+	IF(MAXVAL(vvSul_Arr)>=0.0)THEN
           CALL Box_Sect_Aer(aWP_arr,aDen_arr,&
                             vvSul_Arr,Sfc_Ten_arr,vvH2O_Vec,&
                             vvH2SO4_Vec,box_rWet,T_K_Vec,p_hPa_Vec,&
                             ndens_Vec,ts_sec,ts_coag,&
                             LAER_Nuc,LAER_Grow,LAER_Coag,&
                             LAER_Coag_Imp, RC)
-        ELSE
-          WRITE(6,*)'========================================='
-          WRITE(6,*)' Max(vvSul_Arr) is < 0 !!! '
-          WRITE(6,*)'========================================='
-        ENDIF
+	ELSE
+	  WRITE(6,*)'========================================='
+	  WRITE(6,*)' Max(vvSul_Arr) is < 0 !!! '
+	  WRITE(6,*)'========================================='
+	ENDIF
+
 
         box2d_aWP(i_x,i_y,:)         = aWP_arr
         box2d_aDen(i_x,i_y,:)        = aDen_arr
         box2d_Sfc_Ten(i_x,i_y,:)     = Sfc_Ten_arr
 
-        box_concnt_2D(i_x,i_y,3:42)  = vvSul_Arr     ! 40 bins
-        box_concnt_2D(i_x,i_y,2)     = vvH2SO4_Vec   ! 1
+        box_concnt_2D(i_x,i_y,3:42) = vvSul_Arr     ! 40 bins
+        box_concnt_2D(i_x,i_y,2)    = vvH2SO4_Vec   ! 1
+
+
+!!!
+!        box_concnt_2D(i_x,i_y,3:42)   = concnt_2D_total(i_x,i_y,3:42) &
+!				      - concnt_2D_backgrd(i_x,i_y,3:42)
+!
+!        box_concnt_2D(i_x,i_y,2)      = concnt_2D_total(i_x,i_y,2) &
+!                                      - concnt_2D_backgrd(i_x,i_y,2)
 
       ENDDO
       ENDDO
+
 
 
       ! change unit from [v/v] to [molec/cm3] for species in plume segments
@@ -6206,6 +6400,7 @@ CONTAINS
       Plume2d%ALPHA     = box_alpha
       Plume2d%label     = box_label
       Plume2d%LIFE      = box_life
+
 
       Plume2d%PDX       = Pdx
       Plume2d%PDY       = Pdy
@@ -6246,7 +6441,6 @@ CONTAINS
       box_lev       = Plume1d%LEV
       box_length    = Plume1d%LENGTH
       box_alpha     = Plume1d%ALPHA
-
       box_label     = Plume1d%label
       box_life      = Plume1d%LIFE
 
@@ -6260,9 +6454,7 @@ CONTAINS
 
       box_concnt_1D = Plume1d%CONCNT1d
 
-      !------------------------------------------------------------
-      ! For the center of the plume
-      !------------------------------------------------------------
+
 
       ! make sure the location is not out of range
       do while (box_lat > Y_edge(JJPAR+1))
@@ -6328,18 +6520,13 @@ CONTAINS
         vvH2SO4_Vec     = box_concnt_1D(i_slab,2)! 1
 
 ! !!! shw
-        IF(MAXVAL(vvSul_Arr)>=0.0)THEN
-          CALL Box_Sect_Aer(aWP_arr,aDen_arr,&
-                          vvSul_Arr,Sfc_Ten_arr,vvH2O_Vec,&
-                          vvH2SO4_Vec,box_rWet,T_K_Vec,p_hPa_Vec,&
-                          ndens_Vec,ts_sec,ts_coag,&
-                          LAER_Nuc,LAER_Grow,LAER_Coag,&
-                          LAER_Coag_Imp, RC)
-        ELSE
-          WRITE(6,*)'========================================='
-          WRITE(6,*)' 1-D: Max(vvSul_Arr) is < 0 !!! '
-          WRITE(6,*)'========================================='
-        ENDIF
+!        CALL Box_Sect_Aer(aWP_arr,aDen_arr,&
+!                          vvSul_Arr,Sfc_Ten_arr,vvH2O_Vec,&
+!                          vvH2SO4_Vec,box_rWet,T_K_Vec,p_hPa_Vec,&
+!                          ndens_Vec,ts_sec,ts_coag,&
+!                          LAER_Nuc,LAER_Grow,LAER_Coag,&
+!                          LAER_Coag_Imp, RC)
+
 
         box1d_aWP(i_slab,:)         = aWP_arr
         box1d_aDen(i_slab,:)        = aDen_arr
@@ -6350,17 +6537,7 @@ CONTAINS
 
       ENDDO
 
-      ! change unit from [v/v] to [molec/cm3] for species in plume segments
-      DO i_species=1,n_species
 
-        MW_kg = State_Chm%SpcData(id_GC(i_species))%Info%emMW_g * 1.e-3_fp
-        MW_g  = State_Chm%SpcData(id_GC(i_species))%Info%emMW_g
-
-        box_concnt_1D(:,i_species) = box_concnt_1D(:,i_species)               &
-                                  *  AVO / MW_kg                              &
-                                  * (State_Met%AIRDEN(i_lon,i_lat,i_lev)/1e6) &
-                                  / ( AIRMW / MW_g )
-      ENDDO
 
 
       Plume1d%LON       = box_lon
@@ -6370,7 +6547,6 @@ CONTAINS
       Plume1d%ALPHA     = box_alpha
       Plume1d%label     = box_label
       Plume1d%LIFE      = box_life
-
       Plume1d%RA        = box_Ra
       Plume1d%RB        = box_Rb
 
