@@ -176,6 +176,8 @@ MODULE UCX_MOD
   REAL(fp),DIMENSION(:,:,:,:),ALLOCATABLE :: NOX_J
   REAL(fp),DIMENSION(:,:),ALLOCATABLE     :: SO4_TOPPHOT
 
+  INTEGER,DIMENSION(:,:,:),ALLOCATABLE :: SetInit !!! shw40
+  INTEGER,DIMENSION(:,:,:),ALLOCATABLE :: InTropo_old !!! shw40
   !=================================================================
   ! Variables to use NOx coefficients in ESMF / grid-independent
   ! envionment. The NOx coefficients are climatological 2D
@@ -1610,6 +1612,7 @@ CONTAINS
     USE State_Chm_Mod,      ONLY : ChmState
     USE State_Grid_Mod,     ONLY : GrdState
     USE State_Met_Mod,      ONLY : MetState
+    Use Sect_Aer_Mod,       ONLY : ID_Bins !!! shw40
 !
 ! !INPUT PARAMETERS:
 !
@@ -1659,31 +1662,34 @@ CONTAINS
     ! Copy fields from INPUT_OPT
     prtDebug = Input_Opt%LPRT .and. Input_Opt%amIRoot
 
-    ! If using sectional microphysics - this is already done. The SO4
-    ! tracer now only represents tropospheric aerosol or H2SO4 gas
-    If (Input_Opt%LStratMicro.and.(.not.FIRST)) Then !!! shw40
+!!! shw40 ***
+!
+!    ! If using sectional microphysics - this is already done. The SO4
+!    ! tracer now only represents tropospheric aerosol or H2SO4 gas
 !    If (Input_Opt%LStratMicro) Then
-       !$OMP PARALLEL DO &
-       !$OMP DEFAULT( SHARED  ) &
-       !$OMP PRIVATE( I, J, L ) &
-       !$OMP SCHEDULE( DYNAMIC )
-       DO L = 1, State_Grid%NZ
-       DO J = 1, State_Grid%NY
-       DO I = 1, State_Grid%NX
-          If (State_Met%InTroposphere(I,J,L)) Then
-             ! Don't interfere with tropospheric aerosol
-             AerFrac(I,J,L,1) = 1.0e+0_fp
-          Else
-             ! All "SO4" tracer is gas in the stratosphere
-             AerFrac(I,J,L,1) = 0.0e+0_fp
-          End If
-       END DO
-       END DO
-       END DO
-       !$OMP END PARALLEL DO
-       IF ( prtDebug ) CALL DEBUG_MSG( '### UCX: H2SO4g tagged' )
-       Return
-    End If
+!       !$OMP PARALLEL DO &
+!       !$OMP DEFAULT( SHARED  ) &
+!       !$OMP PRIVATE( I, J, L ) &
+!       !$OMP SCHEDULE( DYNAMIC )
+!       DO L = 1, State_Grid%NZ
+!       DO J = 1, State_Grid%NY
+!       DO I = 1, State_Grid%NX
+!          If (State_Met%InTroposphere(I,J,L)) Then
+!             ! Don't interfere with tropospheric aerosol
+!             AerFrac(I,J,L,1) = 1.0e+0_fp
+!          Else
+!             ! All "SO4" tracer is gas in the stratosphere
+!             AerFrac(I,J,L,1) = 0.0e+0_fp
+!          End If
+!       END DO
+!       END DO
+!       END DO
+!       !$OMP END PARALLEL DO
+!       IF ( prtDebug ) CALL DEBUG_MSG( '### UCX: H2SO4g tagged' )
+!       Return
+!    End If
+!
+!!! shw40 ***
 
     ! Copy fields from species database
     SO4_MW_G = State_Chm%SpcData(id_SO4)%Info%emMW_g ! g/mol
@@ -1753,6 +1759,54 @@ CONTAINS
     ENDDO
     ENDDO
     !$OMP END PARALLEL DO
+
+
+!!! shw40 ******
+
+    ! If using sectional microphysics - this is already done. The SO4
+    ! tracer now only represents tropospheric aerosol or H2SO4 gas
+    If (Input_Opt%LStratMicro) Then
+       !$OMP PARALLEL DO &
+       !$OMP DEFAULT( SHARED  ) &
+       !$OMP PRIVATE( I, J, L ) &
+       !$OMP SCHEDULE( DYNAMIC )
+       DO L = 1, State_Grid%NZ
+       DO J = 1, State_Grid%NY
+       DO I = 1, State_Grid%NX
+
+!	 IF( SUM(Spc(I,J,L,ID_Bins(:,1))) < &
+!               MIN( 5.0, 0.5*Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)) ) THEN
+	 IF(.NOT.State_Met%InTroposphere(I,J,L) .and. &
+	    InTropo_old(I,J,L)==1) THEN
+
+  	   SetInit(I,J,L)=1
+
+	 ELSE
+
+	   SetInit(I,J,L)=0
+
+           If (State_Met%InTroposphere(I,J,L)) Then
+              ! Don't interfere with tropospheric aerosol
+              AerFrac(I,J,L,1) = 1.0e+0_fp
+           Else
+              ! All "SO4" tracer is gas in the stratosphere
+              AerFrac(I,J,L,1) = 0.0e+0_fp
+           End If
+
+	 ENDIF
+
+	 if(I==22.and.J==27.and.L==37)then
+	   write(6,*)"AerFrac, SetInit:", AerFrac(I,J,L,1), SetInit(I,J,L)
+	 endif
+
+       END DO
+       END DO
+       END DO
+       !$OMP END PARALLEL DO
+       IF ( prtDebug ) CALL DEBUG_MSG( '### UCX: H2SO4g tagged' )
+    End If
+
+!!! shw40 ******
 
     ! Free pointer
     NULLIFY( Spc )
@@ -1966,10 +2020,10 @@ CONTAINS
     Real(fp)                :: MASS_SUM,  VOL_SUM,    RAD_SUM  
 
     !!! shw40
-    LOGICAL, SAVE           :: Set_init=.TRUE.
+!    LOGICAL, SAVE           :: Set_init=.TRUE.
     REAL		    :: Wts(40), NDens_Unit(40), AER_Unit(40)
     REAL                    :: Wts1(40), Wts2(40)
-    REAL		    :: R0, Sigma, r, Dr 
+    REAL		    :: Rm, Sigma, r, Dr 
     REAL                    :: R1, R2, Sigma1, Sigma2
 
     !=================================================================
@@ -2059,7 +2113,7 @@ CONTAINS
     !$OMP PRIVATE( NDENS_BIN,    SAD_BIN,            VOL_BIN       ) &
     !$OMP PRIVATE( VOL_TOT,      BOX_LAT                           ) &
     !$OMP PRIVATE( Wts,		 NDens_Unit,	     AER_Unit      ) &
-    !$OMP PRIVATE( R0, 	         Sigma, 	     r		   ) &
+    !$OMP PRIVATE( Rm, 	         Sigma, 	     r		   ) &
     !$OMP PRIVATE( R1, 	         Sigma1, 	     Wts1	   ) &
     !$OMP PRIVATE( R2, 	         Sigma2, 	     Wts2	   ) &
     !$OMP PRIVATE( Dr						   ) &
@@ -2380,15 +2434,20 @@ CONTAINS
 
 	  !******************************************************
 	  !!! shw40: set initial value for 40-bin
-	  if (Set_init==.True.) then
-
+	  ! The following if condition can ensure:
+	  ! (1) set particle size distribution (PSD) at the beginning of simulation
+	  ! (2) set again PSD when the grid cell change from tropophere to
+	  ! stratosphere due to tropopause change.
+	  if (SetInit(I,J,L)==1) then
+!	  SUM(Spc(I,J,L,ID_Bins(:,1))) < &
+!		MIN( 5.0, 0.5*Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)) ) then
 
 	  ! SLA radius: RAD_AER_BOX ! m
 	  ! SLA mass/concnt: Spc(I,J,L,id_Bins(I_Bin,1)) ! kg
 
 	  !Spc(I,J,L,id_Bins(I_Bin,1)) = KG_AER_BOX/100.0*aWP(I,J,L,I_Bin)
 
-!	  if(I==10.and.J==10.and.L==35)then
+!	  if(I==10.and.J==23.and.L==37)then
 !            Spc(I,J,L,id_Bins(:,1)) = 0.0
 !	    write(6,*)"-- initial value [kg]:"
 
@@ -2417,22 +2476,57 @@ CONTAINS
 !            Spc(I,J,L,id_SO4) = 0.0
 
 
-!	  endif !  if(I==10.and.J==10.and.L==35)then
+!	  endif !  if(I==10.and.J==23.and.L==37)then
 
 
           ! ------------unimodal set lognormal distribution ------------------
 	  ! input: 
 	  !   r: aer_dry_rad(I_Bin)
-	  !   R0: REFF or 0.0604 um from Grainger et al. (1995)
+	  !   Rm: median radius of lognormal distribution from Grainger et al. (1995)
 	  !   Sigma: 1.82 from Grainger et al. (1995)
 
-          ! Get aerosol effective radius
-          CALL GET_STRAT_OPT(I, J, L, ISTRAT, RAER, REFF, &
-                             SADSTRAT, XSASTRAT)
 
-          R0 = 0.0604 ! [um]
+	  ! First, calculate the effective radius
+          IF (STATE_LOCAL.eq.0) THEN
+             ! Allow binary H2SO4.nH2O only
+             CALL TERNARY( PCENTER,TCENTER,H2OSUM,H2SO4_BOX_L, &
+                           0.e+0_fp   ,HClSUM,HOClSUM,HBrSUM,HOBrSUM, &
+                           W_H2SO4,W_H2O,W_HNO3,W_HCl,W_HOCl,W_HBr,W_HOBr, &
+                           HNO3GASFRAC,HClGASFRAC,HOClGASFRAC, &
+                           HBrGASFRAC,HOBrGASFRAC,VOL_SLA,RHO_AER_BOX)
+
+             ! For safety's sake, zero out HNO3 uptake
+             HNO3GASFRAC = 1.e+0_fp
+             W_H2O = W_H2O + W_HNO3
+             W_HNO3 = 0.e+0_fp
+             HNO3_BOX_G = HNO3SUM - HNO3_BOX_S
+             HNO3_BOX_L = 0.e+0_fp
+          ELSE
+             ! As per Buchholz, use only non-NAT HNO3 for STS
+             HNO3_BOX_G = HNO3SUM - HNO3_BOX_S
+             CALL TERNARY( PCENTER,TCENTER,H2OSUM,H2SO4_BOX_L, &
+                           HNO3_BOX_G,HClSUM,HOClSUM,HBrSUM,HOBrSUM, &
+                           W_H2SO4,W_H2O,W_HNO3,W_HCl,W_HOCl,W_HBr,W_HOBr, &
+                           HNO3GASFRAC,HClGASFRAC,HOClGASFRAC, &
+                           HBrGASFRAC,HOBrGASFRAC,VOL_SLA,RHO_AER_BOX)
+
+             ! Partition HNO3 here for safety
+             HNO3_BOX_G = HNO3_BOX_G*HNO3GASFRAC
+             HNO3_BOX_L = HNO3SUM - (HNO3_BOX_G+HNO3_BOX_S)
+          ENDIF
+
+          ! Calculate SLA parameters (Grainger 1995)
+          SAD_AER_BOX = SLA_VA*(VOL_SLA**0.751e+0_fp)        ! cm2/cm3
+          RAD_AER_BOX = SLA_VR*SLA_RR*(VOL_SLA**0.249e+0_fp) ! m
+          KG_AER_BOX  = RHO_AER_BOX*VOL_SLA*State_Met%AIRVOL(I,J,L) ! kg
+
+
+	  ! Second, set initial Rm and sigma
           Sigma = 0.55 ! 1.82
+          Rm = RAD_AER_BOX*1e6/exp(5.0/2.0*Sigma**2) ! [um]
 
+
+	  ! Third, set inital unimodal lognormal distribution
           do I_Bin=1,40
  	    r  = aer_dry_rad(I_Bin) ! [um]
 
@@ -2448,19 +2542,39 @@ CONTAINS
 	    ! Assume density is same in different bins, so mass distribution is
 	    ! same as volume distribution
 	    Wts(I_Bin) = Aer_Mass(I_Bin) * Dr * 1/(Sigma*sqrt(2.0*PI)) * 1/r &
-		       * exp( -1* (log(r)-log(R0))**2 / (2.0*Sigma**2) )
+		       * exp( -1* (log(r)-log(Rm))**2 / (2.0*Sigma**2) )
 	  enddo
+
+
+          if(I==10.and.J==23.and.L==37)then
+            WRITE(6,*)"23 *** SHW40: this is working!!! ---"
+            WRITE(6,*)"23 RAD_AER_BOX, Rm:", RAD_AER_BOX*1e6, Rm
+            WRITE(6,*)"23 SLA_VR, SLA_RR, VOL_SLA=", SLA_VR, SLA_RR, VOL_SLA
+            WRITE(6,*)"23 KG_AER_BOX=", KG_AER_BOX
+            WRITE(6,*)"23 Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)=", AERFRAC(I,J,L,1), Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)
+          endif
+
+          if(I==10.and.J==10.and.L==37)then
+            WRITE(6,*)"10 *** SHW40: this is working!!! ---"
+            WRITE(6,*)"10 RAD_AER_BOX, Rm:", RAD_AER_BOX*1e6, Rm
+            WRITE(6,*)"10 SLA_VR, SLA_RR, VOL_SLA=", SLA_VR, SLA_RR, VOL_SLA
+            WRITE(6,*)"10 KG_AER_BOX=", KG_AER_BOX
+            WRITE(6,*)"10 Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)=", AERFRAC(I,J,L,1), Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)
+          endif
+
+          if(I==22.and.J==27.and.L==37)then
+            WRITE(6,*)"27 *** SHW40: this is working!!! ---"
+            WRITE(6,*)"27 RAD_AER_BOX, Rm:", RAD_AER_BOX*1e6, Rm
+            WRITE(6,*)"27 SLA_VR, SLA_RR, VOL_SLA=", SLA_VR, SLA_RR, VOL_SLA
+            WRITE(6,*)"27 KG_AER_BOX=", KG_AER_BOX
+            WRITE(6,*)"27 Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)=", AERFRAC(I,J,L,1), Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)
+          endif
 
 	  do I_Bin=1,40
             Spc(I,J,L,ID_Bins(I_Bin,1)) = Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1) * Wts(I_Bin)/SUM(Wts(:))
           enddo
           Spc(I,J,L,id_SO4) = Spc(I,J,L,id_SO4)*(1-AERFRAC(I,J,L,1)) ! [kg]
-
-	  if(I==10.and.J==10.and.L==35)then
-	    WRITE(6,*)"*** SHW40: this is working!!! ---"
-	  endif
-
-
+	  AERFRAC(I,J,L,1) = 0.0
 
           ! ------------bimodal set lognormal distribution ------------------
           ! input: 
@@ -2524,13 +2638,12 @@ CONTAINS
 !          enddo
 !          Spc(I,J,L,id_SO4) = Spc(I,J,L,id_SO4)*(1-AERFRAC(I,J,L,1))
 !
-!          if(I==10.and.J==10.and.L==35)then
+!          if(I==10.and.J==23.and.L==37)then
 !            WRITE(6,*)"*** SHW40: this is working!!! ---"
 !          endif
 
-
+            SetInit(I,J,L)=0
           endif ! if (Set_init=.True.) then
-
 
 
 !!! shw40
@@ -2580,8 +2693,18 @@ CONTAINS
                         Aer_Mass(I_Bin)/State_Met%AirVol(I,J,L)
 
 	    !!! shw40
-            if(I==10.and.J==10.and.L==35)then
-	      if (I_Bin==1) write(6,*)'=== I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
+            if(I==10.and.J==23.and.L==37)then
+	      if (I_Bin==1) write(6,*)'===23 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
+              write(6,*)I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1))
+            endif
+
+            if(I==10.and.J==10.and.L==37)then
+              if (I_Bin==1) write(6,*)'===10 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
+              write(6,*)I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1))
+            endif
+
+            if(I==22.and.J==27.and.L==37)then
+              if (I_Bin==1) write(6,*)'===27 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
               write(6,*)I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1))
             endif
 
@@ -2610,6 +2733,24 @@ CONTAINS
                 Rad_Bin,Gamma_Bin)
             Gamma_Box = Gamma_Box + (Gamma_Bin*SAD_Bin)
           End Do
+
+
+            !!! shw40
+            if(I==10.and.J==23.and.L==37)then
+              write(6,*)'===23 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
+              write(6,*) '===23mass:', Mass_Sum, SUM( Spc(I,J,L,ID_Bins(:,1)) )
+            endif
+
+            if(I==10.and.J==10.and.L==37)then
+              write(6,*)'===10 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
+              write(6,*) '===10mass:', Mass_Sum, SUM( Spc(I,J,L,ID_Bins(:,1)) )
+            endif
+
+            if(I==22.and.J==27.and.L==37)then
+              write(6,*)'===27 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
+              write(6,*) '===27mass:', Mass_Sum, SUM( Spc(I,J,L,ID_Bins(:,1)) )
+            endif
+
           ! Mass-weighted mean (wet mass) for box density (kg/m3)
           Rho_Aer_Box = Mass_Sum/Vol_Sum
           ! Total water taken up by aerosol (v/v)
@@ -2629,8 +2770,16 @@ CONTAINS
           End If
 
           !!! shw40
-          if(I==10.and.J==10.and.L==35)then
-            write(6,*)'NDENS_AER_BOX 11:', NDENS_AER(I,J,L,I_SLA),  NDENS_AER_BOX
+          if(I==10.and.J==23.and.L==37)then
+            write(6,*)'23NDENS_AER_BOX 11:', NDENS_AER(I,J,L,I_SLA),  NDENS_AER_BOX
+          endif
+
+          if(I==10.and.J==10.and.L==37)then
+            write(6,*)'10NDENS_AER_BOX 11:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
+          endif
+
+          if(I==22.and.J==27.and.L==37)then
+            write(6,*)'27NDENS_AER_BOX 11:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
           endif
 
        ELSEIF (H2SO4_BOX_L.lt.1e-15_fp) THEN
@@ -2682,9 +2831,17 @@ CONTAINS
           RAD_AER_BOX = SLA_VR*SLA_RR*(VOL_SLA**0.249e+0_fp) ! m
           KG_AER_BOX  = RHO_AER_BOX*VOL_SLA*State_Met%AIRVOL(I,J,L) ! kg
 
-	  if(I==10.and.J==10.and.L==35)then
-	    write(6,*)"<KG_AER, RAD_AER [m]>", KG_AER_BOX, RAD_AER_BOX
+	  if(I==10.and.J==23.and.L==37)then
+	    write(6,*)"23<KG_AER, RAD_AER [m]>", KG_AER_BOX, RAD_AER_BOX
 	  endif
+
+          if(I==10.and.J==10.and.L==37)then
+            write(6,*)"10<KG_AER, RAD_AER [m]>", KG_AER_BOX, RAD_AER_BOX
+          endif
+
+          if(I==22.and.J==27.and.L==37)then
+            write(6,*)"27<KG_AER, RAD_AER [m]>", KG_AER_BOX, RAD_AER_BOX
+          endif
 
           IF (VOL_SLA.gt.1.e-30_fp) THEN
              ! Approximate particles as spherical for calculation
@@ -2707,8 +2864,16 @@ CONTAINS
           ENDIF
 
           !!! shw40
-          if(I==10.and.J==10.and.L==35)then
-            write(6,*)'NDENS_AER_BOX 22:', NDENS_AER(I,J,L,I_SLA),  NDENS_AER_BOX
+          if(I==10.and.J==23.and.L==37)then
+            write(6,*)'23 NDENS_AER_BOX 22:', NDENS_AER(I,J,L,I_SLA),  NDENS_AER_BOX
+          endif
+
+          if(I==10.and.J==10.and.L==37)then
+            write(6,*)'10 NDENS_AER_BOX 22:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
+          endif
+
+          if(I==22.and.J==27.and.L==37)then
+            write(6,*)'27 NDENS_AER_BOX 22:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
           endif
 
        ENDIF
@@ -2792,14 +2957,20 @@ CONTAINS
        NDENS_AER(I,J,L,I_SLA)= NDENS_AER_BOX    ! #/m3
        SAD_AER(I,J,L,I_SLA)  = SAD_AER_BOX      ! cm2/cm3
 
+       !!! shw40
+       IF (.not.IS_STRAT) THEN
+          InTropo_old(I,J,L) = 1
+       ELSE
+	  InTropo_old(I,J,L) = 0
+       ENDIF
+
     ENDDO
     ENDDO
     ENDDO
     !$OMP END PARALLEL DO
 
-    !!! shw40
-    Set_init=.False.
-    WRITE(6,*)'After, NDENS_AER-SLA:', NDENS_AER(10,10,35,I_SLA)
+!    !!! shw40
+!    WRITE(6,*)'After, NDENS_AER-SLA:', NDENS_AER(10,10,37,I_SLA)
 
 
     ! Free pointers
@@ -4975,11 +5146,11 @@ CONTAINS
 
     ! For sectional aerosols, just set these to 1 so that
     ! they have no effect
-    If (Input_Opt%LStratMicro) Then
-       SLA_VA = 1.0e+0_fp
-       SLA_RR = 1.0e+0_fp
-       SLA_VR = 1.0e+0_fp
-    Else
+!    If (Input_Opt%LStratMicro) Then !!! shw40
+!       SLA_VA = 1.0e+0_fp
+!       SLA_RR = 1.0e+0_fp
+!       SLA_VR = 1.0e+0_fp
+!    Else
        !Calculate conversion factors for SLA
        ! Factor to convert volume (m3 SLA/m3 air) to
        ! surface area density (cm2 SLA/cm3 air)
@@ -4992,7 +5163,7 @@ CONTAINS
        ! Factor to convert volume (m3/m3) to effective
        ! radius (m)
        SLA_VR = (0.357e-6_fp)*(10.e+0_fp**(12.e+0_fp*0.249))
-    End If
+!    End If !!! shw40
 
     ! Initialize NOx coefficient arrays
     ALLOCATE( NOX_O( State_Grid%NX, State_Grid%NY, State_Grid%NZ, 2 ), &
@@ -5053,6 +5224,19 @@ CONTAINS
     AERFRACIND(5) = id_HBr
     AERFRACIND(6) = id_HOBr
     AERFRACIND(7) = id_H2O
+
+
+    !!! shw40
+    ALLOCATE( SetInit( State_Grid%NX, State_Grid%NY, State_Grid%NZ), &
+              STAT=AS )
+    IF ( AS /= 0 ) CALL ALLOC_ERR( 'SetInit' )
+    SetInit = 1
+
+    !!! shw40
+    ALLOCATE( InTropo_old( State_Grid%NX, State_Grid%NY, State_Grid%NZ), &
+              STAT=AS )
+    IF ( AS /= 0 ) CALL ALLOC_ERR( 'InTropo_old' )
+    InTropo_old = 1
 
     ! H2SO4 photolysis rate at the top of the chemgrid
     ALLOCATE( SO4_TOPPHOT( State_Grid%NX,State_Grid%NY ), STAT=AS )
@@ -5146,6 +5330,7 @@ CONTAINS
     IF ( ALLOCATED( RHO_AER    ) ) DEALLOCATE( RHO_AER    )
     IF ( ALLOCATED( NDENS_AER  ) ) DEALLOCATE( NDENS_AER  )
     IF ( ALLOCATED( AERFRAC    ) ) DEALLOCATE( AERFRAC    )
+    IF ( ALLOCATED( SetInit    ) ) DEALLOCATE( SetInit    ) !!! shw40
     IF ( ALLOCATED( AERFRACIND ) ) DEALLOCATE( AERFRACIND )
     IF ( ALLOCATED( UCX_REGRID ) ) DEALLOCATE( UCX_REGRID )
     IF ( ALLOCATED( UCX_PLEVS  ) ) DEALLOCATE( UCX_PLEVS  )
