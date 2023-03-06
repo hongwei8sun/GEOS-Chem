@@ -1,6 +1,16 @@
 !------------------------------------------------------------------------------
 !               MIT Laboratory for Aviation and the Environment               !
 !------------------------------------------------------------------------------
+!!! shw40 - Feb 27, 2023
+! optimize SetInit to set initial 40-bin particle size distribution not only at
+! the beginning of the simulation, but also when the grid cell enter the
+! stratosphere from troposphere due to tropopause vertical movement.
+!
+!!! shw40 - Mar 3, 2023
+! add IF(AERFRAC(I,J,L,1)==0.0) to avoid creating NaN when asign initial value
+! for 40-bin particle size distribution. NaN used to happen in the high altitude
+! (>35 km) when AERFRAC(I,J,L,1)==0.0
+
 !BOP
 !
 ! !MODULE: ucx_mod.F90
@@ -1796,8 +1806,12 @@ CONTAINS
 	 ENDIF
 
 	 if(I==22.and.J==27.and.L==37)then
-	   write(6,*)"AerFrac, SetInit:", AerFrac(I,J,L,1), SetInit(I,J,L)
+	   write(6,*)"27 AerFrac, SetInit:", AerFrac(I,J,L,1), SetInit(I,J,L)
 	 endif
+
+         if(I==22.and.J==1.and.L==60)then
+           write(6,*)"1 AerFrac, SetInit:", AerFrac(I,J,L,1), SetInit(I,J,L)
+         endif
 
        END DO
        END DO
@@ -2570,9 +2584,21 @@ CONTAINS
             WRITE(6,*)"27 Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)=", AERFRAC(I,J,L,1), Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)
           endif
 
-	  do I_Bin=1,40
-            Spc(I,J,L,ID_Bins(I_Bin,1)) = Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1) * Wts(I_Bin)/SUM(Wts(:))
-          enddo
+          if(I==22.and.J==1.and.L==60)then
+            WRITE(6,*)"1 *** SHW40: this is working!!! ---"
+            WRITE(6,*)"1 RAD_AER_BOX, Rm:", RAD_AER_BOX*1e6, Rm
+            WRITE(6,*)"1 SLA_VR, SLA_RR, VOL_SLA=", SLA_VR, SLA_RR, VOL_SLA
+            WRITE(6,*)"1 KG_AER_BOX=", KG_AER_BOX
+            WRITE(6,*)"1 Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)=", AERFRAC(I,J,L,1), Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)
+          endif
+
+	  IF(AERFRAC(I,J,L,1)==0.0)THEN
+            Spc(I,J,L,ID_Bins(:,1)) = 0.0
+	  ELSE
+	    do I_Bin=1,40
+              Spc(I,J,L,ID_Bins(I_Bin,1)) = Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1) * Wts(I_Bin)/SUM(Wts(:))
+            enddo
+	  ENDIF
           Spc(I,J,L,id_SO4) = Spc(I,J,L,id_SO4)*(1-AERFRAC(I,J,L,1)) ! [kg]
 	  AERFRAC(I,J,L,1) = 0.0
 
@@ -2708,6 +2734,10 @@ CONTAINS
               write(6,*)I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1))
             endif
 
+            if(I==22.and.J==1.and.L==60)then
+              if (I_Bin==1) write(6,*)'===1 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
+              write(6,*)I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1))
+            endif
 
             NDens_Aer_Box = NDens_Aer_Box + NDens_Bin
             ! RHO_BIN is in g/cm3, RHO_AER_BOX is in kg/m3
@@ -2738,7 +2768,7 @@ CONTAINS
             !!! shw40
             if(I==10.and.J==23.and.L==37)then
               write(6,*)'===23 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
-              write(6,*) '===23mass:', Mass_Sum, SUM( Spc(I,J,L,ID_Bins(:,1)) )
+              write(6,*) '===23 mass:', Mass_Sum, SUM( Spc(I,J,L,ID_Bins(:,1)) )
             endif
 
             if(I==10.and.J==10.and.L==37)then
@@ -2748,7 +2778,12 @@ CONTAINS
 
             if(I==22.and.J==27.and.L==37)then
               write(6,*)'===27 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
-              write(6,*) '===27mass:', Mass_Sum, SUM( Spc(I,J,L,ID_Bins(:,1)) )
+              write(6,*) '===27 mass:', Mass_Sum, SUM( Spc(I,J,L,ID_Bins(:,1)) )
+            endif
+
+            if(I==22.and.J==1.and.L==60)then
+              write(6,*)'===1 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
+              write(6,*) '===1 mass:', Mass_Sum, SUM( Spc(I,J,L,ID_Bins(:,1)) )
             endif
 
           ! Mass-weighted mean (wet mass) for box density (kg/m3)
@@ -2771,15 +2806,19 @@ CONTAINS
 
           !!! shw40
           if(I==10.and.J==23.and.L==37)then
-            write(6,*)'23NDENS_AER_BOX 11:', NDENS_AER(I,J,L,I_SLA),  NDENS_AER_BOX
+            write(6,*)'23 NDENS_AER_BOX 11:', NDENS_AER(I,J,L,I_SLA),  NDENS_AER_BOX
           endif
 
           if(I==10.and.J==10.and.L==37)then
-            write(6,*)'10NDENS_AER_BOX 11:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
+            write(6,*)'10 NDENS_AER_BOX 11:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
           endif
 
           if(I==22.and.J==27.and.L==37)then
-            write(6,*)'27NDENS_AER_BOX 11:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
+            write(6,*)'27 NDENS_AER_BOX 11:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
+          endif
+
+          if(I==22.and.J==1.and.L==60)then
+            write(6,*)'1 NDENS_AER_BOX 11:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
           endif
 
        ELSEIF (H2SO4_BOX_L.lt.1e-15_fp) THEN
@@ -2843,6 +2882,10 @@ CONTAINS
             write(6,*)"27<KG_AER, RAD_AER [m]>", KG_AER_BOX, RAD_AER_BOX
           endif
 
+          if(I==22.and.J==1.and.L==60)then
+            write(6,*)"1<KG_AER, RAD_AER [m]>", KG_AER_BOX, RAD_AER_BOX
+          endif
+
           IF (VOL_SLA.gt.1.e-30_fp) THEN
              ! Approximate particles as spherical for calculation
              ! of aerosol number density
@@ -2874,6 +2917,10 @@ CONTAINS
 
           if(I==22.and.J==27.and.L==37)then
             write(6,*)'27 NDENS_AER_BOX 22:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
+          endif
+
+          if(I==22.and.J==1.and.L==60)then
+            write(6,*)'1 NDENS_AER_BOX 22:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
           endif
 
        ENDIF
