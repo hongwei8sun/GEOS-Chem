@@ -3617,6 +3617,7 @@ CONTAINS
                 ENDIF
              ENDDO    ! IR (RH bins)
           ENDDO ! M (Aerosol)
+
        ENDDO ! KMIE (Mie scattering wavelength bin)
 
        ! Normalize
@@ -5211,7 +5212,8 @@ CONTAINS
        ! Calculate if H2SO4 expected to be gaseous or aqueous
        ! Only allow photolysis above 6 hPa
        ! RXN_H2SO4 specifies SO4 + hv -> SO2 + OH + OH
-       ZPJ(L,RXN_H2SO4,I,J) = ZPJ(L,RXN_H2SO4,I,J) * FRAC
+!       ZPJ(L,RXN_H2SO4,I,J) = ZPJ(L,RXN_H2SO4,I,J) * FRAC
+       ZPJ(L,RXN_H2SO4,I,J) = ZPJ(L,RXN_H2SO4,I,J)         !!! shw40
 
        !==============================================================
        ! %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

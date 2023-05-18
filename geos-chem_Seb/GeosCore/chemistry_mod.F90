@@ -392,6 +392,10 @@ CONTAINS
                 CALL Timer_Start( "=> Strat chem",       RC )
              ENDIF
 
+
+	     !!! shw40
+	     WRITE(6,*)'chemistry_mod: Calc_Strat_Aer() => Do_Sect_Aer'
+
              ! Recalculate PSC
              CALL Calc_Strat_Aer( Input_Opt, State_Chm,                      &
                                   State_Grid, State_Met, State_Diag,         &

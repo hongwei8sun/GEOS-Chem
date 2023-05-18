@@ -158,6 +158,7 @@ contains
        aer_Vrat = 2.0**(real(39,dp)/real(n_aer_bin-1,dp))
     end if
     
+    write(6,*)'shw40: 40-bin radius [um]:'
     do k=1,n_aer_bin
       if (k.eq.1) then
          aer_mass(k)=den_h2so4*4./3.*aer_pi*aer_R0**3 !mass H2SO4/particle in g
@@ -166,6 +167,7 @@ contains
          aer_mass(k)=aer_mass(k-1)*aer_Vrat !mass H2SO4/particle in g
          aer_dry_rad(k) = (3.0*aer_mass(k)/(4.0*aer_pi*den_h2so4))**(1.0/3.0)
       endif
+      write(6,*)k, aer_dry_rad(k) !!! shw400
     enddo
     aer_molec=aer_mass/aer_mwh2so4*aer_av !molec H2SO4/particle 
     

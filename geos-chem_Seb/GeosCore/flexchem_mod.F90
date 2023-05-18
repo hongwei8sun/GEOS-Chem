@@ -299,6 +299,9 @@ CONTAINS
        ! Special handling for UCX
        IF ( Input_Opt%LUCX ) THEN
 
+          !!! shw40
+          WRITE(6,*)'flexchem_mod: Calc_Strat_Aer() => Do_Sect_Aer'
+
           ! Calculate stratospheric aerosol properties (SDE 04/18/13)
           CALL CALC_STRAT_AER( Input_Opt, State_Chm,                         &
                                State_Grid, State_Met, State_Diag,            &
@@ -529,7 +532,8 @@ CONTAINS
        ! UCX-based mechanisms
        !RTOL      = 2e-2_dp
        !RTOL      = 1e-2_dp
-       RTOL      = 0.5e-2_dp
+       !RTOL      = 0.5e-2_dp
+       RTOL      = 0.1e-3_dp
     ELSE
        ! Non-UCX mechanisms
        RTOL      = 1e-2_dp
