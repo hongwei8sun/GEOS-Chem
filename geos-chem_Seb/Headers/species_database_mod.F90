@@ -3685,6 +3685,34 @@ CONTAINS
              WD_KcScaleFac = KcScale
              WD_RainoutEff = RainEff
 
+          CASE( 'H2SO4G' ) !!! shw40
+	     !!! shw40: this is borrowed from TOMAS, need further checking!!!
+
+             !%%% NOTE: The TOMAS H2SO4 species dry-deposits like a gas,
+             !%%% wet-deposits as an aerosol.  So we need to give this
+             !%%% both gas and aerosol properties (ewl, bmy, 10/13/15)
+
+             ! Halve the Kc (cloud condensate -> precip) rate
+             ! for the temperature range 237 K <= T < 258 K.
+             KcScale       = (/ 1.0_fp, 0.5_fp, 1.0_fp /)
+
+             ! Turn off rainout only when 237 K <= T < 258K.
+             RainEff       = (/ 1.0_fp, 0.0_fp, 1.0_fp /)
+
+             FullName      = 'Sulfuric acid'
+             Formula       = 'H2SO4G'
+             MW_g          = 98.0_fp
+             MolecRatio    = 1.0_fp
+             Is_Gas        = T
+             Is_Drydep     = T
+             Is_Wetdep     = T
+             DD_F0         = 0.0_fp
+             DD_Hstar_old  = 1.00e+5_fp
+             MP_SizeResAer = T
+             WD_AerScavEff = 1.0_fp
+             WD_KcScaleFac = KcScale
+             WD_RainoutEff = RainEff
+
           CASE( 'SO4S' )
 
              ! NOTE: SO4s (SO4 on coarse sea salt aerosol) needs to use

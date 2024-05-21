@@ -529,7 +529,8 @@ CONTAINS
        ! UCX-based mechanisms
        !RTOL      = 2e-2_dp
        !RTOL      = 1e-2_dp
-       RTOL      = 0.5e-2_dp
+       !RTOL      = 0.5e-2_dp
+       RTOL      = 0.1e-3_dp !!! shw40
     ELSE
        ! Non-UCX mechanisms
        RTOL      = 1e-2_dp

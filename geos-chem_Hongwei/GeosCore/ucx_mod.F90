@@ -1968,6 +1968,10 @@ CONTAINS
     Real(fp)                :: MASS_WET,  VOL_WET,    RAD_WET  
     Real(fp)                :: MASS_SUM,  VOL_SUM,    RAD_SUM  
 
+    !!! shw40
+    LOGICAL, SAVE           :: Set_init=.TRUE.
+    REAL                    :: Wts(40)
+
     !=================================================================
     ! CALC_STRAT_AER begins here!
     !=================================================================
@@ -2379,6 +2383,39 @@ CONTAINS
           GAMMA_40BOXs(11,:) = 0.0e+0_fp
        !!! shw40: (1)
        ELSEIF (LStratMicro) Then
+
+
+
+          !******************************************************
+          !!! shw40: set initial value for 40-bin
+          if (Set_init .eqv. .True.) then
+
+            !----------- assign the SO4 mass into 40-bin 
+            !!! shw40: lognormal distribution from 1-mon simulating results
+
+            Wts = (/ &
+                5.0e-44_fp, 5.0e-42_fp, 5.0e-40_fp, 1.0e-38_fp, 1.0e-36_fp,&
+                2.0e-34_fp, 3.0e-31_fp, 2.0e-27_fp, 2.0e-22_fp, 3.0e-16_fp,&
+                2.0e-11_fp, 8.0e-8_fp, 3.0e-5_fp, 2.0e-3_fp, 6.0e-2_fp,    &
+                7.0e-1_fp, 5.0e+0_fp, 26.0e+0_fp, 96.0_fp, 281.0e+0_fp,    &
+                662.0e+0_fp, 1201.0e+0_fp, 1580.0e+0_fp, 1458.0e+0_fp, 1021.0e+0_fp, &
+                669.0e+0_fp, 498.0e+0_fp, 302.0e+0_fp, 194.0e+0_fp, 150.0e+0_fp,&
+                123.0e+0_fp, 99.0e+0_fp, 78.0e+0_fp, 58.0e+0_fp, 39.0e+0_fp,&
+                20.0e+0_fp, 5.0e+0_fp, 8.0e-10_fp, 5.0e-10_fp, 1.0e-9_fp&
+                /)
+
+            do I_Bin=1,40
+              Spc(I,J,L,id_Bins(I_Bin,1)) = Spc(I,J,L,id_SO4) * Wts(I_Bin) / SUM(Wts(:))
+            enddo
+
+            Spc(I,J,L,id_SO4) = 0.0
+
+          endif ! if (Set_init=.True.) then
+
+          !*******************************************************
+
+
+
           ! Sum target quantities over all bins
           GAMMA_BOX(:)  = 0.0e+0_fp
           GAMMA_40BOXs(:,:)  = 0.0e+0_fp !!! shw40
@@ -2675,6 +2712,10 @@ CONTAINS
     ENDDO
     ENDDO
     !$OMP END PARALLEL DO
+
+    !!! shw40
+    Set_init=.False.
+    WRITE(6,*)'After, NDENS_AER-SLA:', NDENS_AER(10,10,35,I_SLA)
 
 
     ! Free pointers

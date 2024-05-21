@@ -1684,19 +1684,19 @@ CONTAINS
                 ! Aerosol optical depth
                 ODAER(I,J,L,IWV,N) = BXHEIGHT(I,J,L) * XSASTRAT * QQAA(IWV,1,N)
 
-		if(I==47.and.J==3.and.L==29.and.IWV==IWVSELECT(1,1))then !!! shw400
+		if(I==10.and.J==10.and.L==37.and.IWV==IWVSELECT(1,1))then !!! shw400
 		  write(6,*)'==10 IWV, N, ODAER(I,J,L,IWV,N) :'
 		  write(6,*) IWV, N, ODAER(I,J,L,IWV,N)
 		  write(6,*) '=10 AODs:', BXHEIGHT(I,J,L),  XSASTRAT, QQAA(IWV,1,N)
 		endif
 
-                if(I==10.and.J==23.and.L==29.and.IWV==IWVSELECT(1,1))then !!! shw400
+                if(I==10.and.J==23.and.L==37.and.IWV==IWVSELECT(1,1))then !!! shw400
                   write(6,*)'==23 IWV, N, ODAER(I,J,L,IWV,N) :'
                   write(6,*) IWV, N, ODAER(I,J,L,IWV,N)
                   write(6,*) '=23 AODs:', BXHEIGHT(I,J,L),  XSASTRAT, QQAA(IWV,1,N)
                 endif
 
-                if(I==22.and.J==27.and.L==29.and.IWV==IWVSELECT(1,1))then !!! shw400
+                if(I==22.and.J==27.and.L==37.and.IWV==IWVSELECT(1,1))then !!! shw400
                   write(6,*)'==27 IWV, N, ODAER(I,J,L,IWV,N) :'
                   write(6,*) IWV, N, ODAER(I,J,L,IWV,N)
                   write(6,*) '=27 AODs:', BXHEIGHT(I,J,L),  XSASTRAT, QQAA(IWV,1,N)
@@ -1959,13 +1959,13 @@ CONTAINS
                    IF ( State_Diag%Archive_AODSLAWL1 ) THEN
                       State_Diag%AODSLAWL1(I,J,L) = &
                            ODAER(I,J,L,IWVSELECT(1,1),N)
-		      if(I==47.and.J==3.and.L==29)then !!! shw400
+		      if(I==10.and.J==10.and.L==37)then !!! shw400
 			write(6,*)"-10 AOD:", IWVSELECT(1,1),N, State_Diag%AODSLAWL1(I,J,L)
 		      endif
-                      if(I==10.and.J==23.and.L==29)then !!! shw400
+                      if(I==10.and.J==23.and.L==37)then !!! shw400
                         write(6,*)"-23 AOD:", IWVSELECT(1,1),N, State_Diag%AODSLAWL1(I,J,L)
                       endif
-                      if(I==22.and.J==27.and.L==29)then !!! shw400
+                      if(I==22.and.J==27.and.L==37)then !!! shw400
                         write(6,*)"-27 AOD:", IWVSELECT(1,1),N, State_Diag%AODSLAWL1(I,J,L)
                       endif
                       if(I==22.and.J==1.and.L==60)then !!! shw400

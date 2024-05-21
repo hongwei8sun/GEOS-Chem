@@ -921,6 +921,7 @@ CONTAINS
        ! Loop over all entries to register each category individually
        DO N = 1, State_Chm%nAeroType
 
+!!! shw40_1
 !          ! Define identifying string
 !          SELECT CASE( N )
 !             CASE( 1  )
@@ -1090,6 +1091,7 @@ CONTAINS
        ! Loop over all entries to register each category individually
        DO N = 1, State_Chm%nAeroType
 
+!!! shw40_1
 !          ! Define identifying string
 !          SELECT CASE( N )
 !             CASE( 1  )
@@ -1261,6 +1263,7 @@ CONTAINS
        ! Loop over all entries to register each category individually
        DO N = 1, State_Chm%nAeroType
 
+!!! shw40_1
 !          ! Define identifying string
 !          SELECT CASE( N )
 !             CASE( 1  )
@@ -4747,6 +4750,7 @@ CONTAINS
           IF ( isUnits ) Units = '1'
           IF ( isRank  ) Rank  = 3
 
+!!! shw40_1
        CASE ( 'KHETISLAN2O5H2O_1' )
           IF ( isDesc  ) Desc  = 'BIN1 Sticking coefficient for N2O5 + H2O reaction'
           IF ( isUnits ) Units = '1'

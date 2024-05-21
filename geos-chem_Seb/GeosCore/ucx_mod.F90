@@ -10,25 +10,6 @@
 ! add IF(AERFRAC(I,J,L,1)==0.0) to avoid creating NaN when asign initial value
 ! for 40-bin particle size distribution. NaN used to happen in the high altitude
 ! (>35 km) when AERFRAC(I,J,L,1)==0.0
-!
-!!! shw40 - Mar 10, 2023
-! add variable H2SO4G into GC, to represent gas phase H2SO4 in the stratosphere.
-! H2SO4G is 0 in the troposphere.
-!
-! 1. Add H2SO4G into %%% ADVECTED SPECIES MENU %%% in input.geos
-! 2. Add H2SO4G into GEOS-Chem_Species_Database.json
-! 3. Add H2SO4G into Headers/species_database_mod.F90
-!
-! 1. Set initial value to H2SO4G based on H2SO4_BOX_G in ucx_mod.F90.
-! 2. Replace SO4 with H2SO4G (as the gas sulfate aerosol) in sect_aer_mod.F90.
-!
-!!! shw40 - Mar 15, 2023
-! for adding H2SO4
-! sulfate related photolysis is modified, incluing:
-! 1. SO4_IN, SO4_DELTA, Spc(I,J,L,Ind_('H2SO4G')) in SUBROUTINE UCX_H2SO4PHOT()
-! 2. ZPJ(L,RXN_H2SO4,I,J) in SUBROUTINE PHOTRATE_ADJ()
-
-
 
 !BOP
 !
@@ -239,7 +220,6 @@ MODULE UCX_MOD
   INTEGER :: id_NIT,     id_NO,       id_NO2,    id_NO3,   id_O3
   INTEGER :: id_OClO,    id_PAN,      id_SO2,    id_SO4
   INTEGER :: id_OCPI
-  INTEGER :: id_H2SO4G !!! shw40
 
 CONTAINS
 !
@@ -1825,16 +1805,12 @@ CONTAINS
 
 	 ENDIF
 
-	 if(I==22.and.J==27.and.L==29)then
+	 if(I==22.and.J==27.and.L==37)then
 	   write(6,*)"27 AerFrac, SetInit:", AerFrac(I,J,L,1), SetInit(I,J,L)
 	 endif
 
          if(I==22.and.J==1.and.L==60)then
            write(6,*)"1 AerFrac, SetInit:", AerFrac(I,J,L,1), SetInit(I,J,L)
-         endif
-
-         if(I==47.and.J==3.and.L==29)then
-           write(6,*)"10 AerFrac, SetInit:", AerFrac(I,J,L,1), SetInit(I,J,L)
          endif
 
        END DO
@@ -1917,7 +1893,7 @@ CONTAINS
     USE ERROR_MOD,          ONLY : ERROR_STOP
     USE ERROR_MOD,          ONLY : IS_SAFE_DIV
     USE Input_Opt_Mod,      ONLY : OptInput
-    USE State_Chm_Mod,      ONLY : ChmState, Ind_
+    USE State_Chm_Mod,      ONLY : ChmState
     USE State_Grid_Mod,     ONLY : GrdState
     USE State_Met_Mod,      ONLY : MetState
     Use State_Diag_Mod,     Only : DgnState
@@ -1993,7 +1969,7 @@ CONTAINS
     REAL(fp)                :: PSATHNO3_SUPERCOOL
     REAL(fp)                :: PSATH2O_SUPERSAT
     REAL(fp)                :: PSATHNO3, PSATH2O
-    REAL(fp)                :: H2SO4SUM, H2SO4GSUM
+    REAL(fp)                :: H2SO4SUM
     REAL(fp)                :: ClNO3SUM, HClSUM, HOClSUM
     REAL(fp)                :: BrNO3SUM, HBrSUM, HOBrSUM
 
@@ -2058,7 +2034,6 @@ CONTAINS
     Real(fp)                :: MASS_SUM,  VOL_SUM,    RAD_SUM  
 
     !!! shw40
-    LOGICAL,SAVE            :: FIRST=.TRUE.
 !    LOGICAL, SAVE           :: Set_init=.TRUE.
     REAL		    :: Wts(40), NDens_Unit(40), AER_Unit(40)
     REAL                    :: Wts1(40), Wts2(40)
@@ -2091,12 +2066,6 @@ CONTAINS
     If (LStratMicro) Then
        Call Do_Sect_Aer(Input_Opt, State_Met, State_Chm, &
                         State_Diag, State_Grid, Run_Micro, RC)
-
-
-       !!! shw40
-       write(6,*) '===10mass:',1, SUM( State_Chm%Species(10,10,37,ID_Bins(:,1)) )
-
-
        If (RC.ne.0) Then
           Call Error_Stop('Failure in sectional aerosol calculations', &
                           'UCX_mod.F90')
@@ -2161,19 +2130,12 @@ CONTAINS
     !$OMP PRIVATE( Rm, 	         Sigma, 	     r		   ) &
     !$OMP PRIVATE( R1, 	         Sigma1, 	     Wts1	   ) &
     !$OMP PRIVATE( R2, 	         Sigma2, 	     Wts2	   ) &
-    !$OMP PRIVATE( Dr, 		 H2SO4GSUM			   ) &
+    !$OMP PRIVATE( Dr						   ) &
     !$OMP SCHEDULE( DYNAMIC )
 
     DO L = 1, State_Grid%NZ
     DO J = 1, State_Grid%NY
     DO I = 1, State_Grid%NX
-
-	  !!! shw40
-          if(I==47.and.J==3.and.L==29)then
-            write(6,*)'===10a SUM( Spc(I,J,L,ID_Bins(:,1)) ):'
-            write(6,*) '===10mass:',2, SUM( Spc(I,J,L,ID_Bins(:,1)) )
-          endif
-
 
        ! Now do IS_POLAR check for every grid box separately
        ! and using mid-point instead of edges. This is to be
@@ -2431,35 +2393,7 @@ CONTAINS
 !         Spc(I,J,L,id_SO4) = 0.0
 !       endif
 
-
-       !!! shw40: 
-       ! asign initial value for H2SO4G when:
-       ! (1) at the beginning of the simulation;
-       ! (2) when the grid cell is moving from tropopause into the stratosphere.
-       ! AERFRAC is always 1 in the troposphere, so H2SO4G is 0 in the
-       ! troposphere.
-
-       IF(FIRST .or. SetInit(I,J,L)==1) THEN
-
-         Spc(I,J,L,id_H2SO4G) = Spc(I,J,L,id_SO4) * (1-AERFRAC(I,J,L,1))
-         Spc(I,J,L,id_SO4) = Spc(I,J,L,id_SO4) * AERFRAC(I,J,L,1)
-
-       ENDIF
-
-
-       IF(      State_Met%InTroposphere(I,J,L) &
-          .and. InTropo_old(I,J,L)==0     ) THEN
-
-         Spc(I,J,L,id_SO4) = Spc(I,J,L,id_SO4) + Spc(I,J,L,id_H2SO4G)
-         Spc(I,J,L,id_H2SO4G) = 0
-
-       ENDIF
-
-
        ! Calculate mixing ratios of other relevant species
-       H2SO4GSUM = Spc(I,J,L,id_H2SO4G) * INVAIR / & !!! shw40
-                  State_Chm%SpcData(id_H2SO4G)%Info%emMW_g
-
        H2SO4SUM = Spc(I,J,L,id_SO4) * INVAIR / &
                   State_Chm%SpcData(id_SO4)%Info%emMW_g
        BrNO3SUM = Spc(I,J,L,id_BrNO3) * INVAIR / &
@@ -2475,24 +2409,15 @@ CONTAINS
        HBrSUM   = Spc(I,J,L,id_HBr) * INVAIR / &
                   State_Chm%SpcData(id_HBr)%Info%emMW_g
 
-
+       ! H2SO4 gas fraction calculated earlier throughout grid
+       ! Consider gaseoues H2SO4 to be unavailable for SLA
+       H2SO4_BOX_L = H2SO4SUM * AERFRAC(I,J,L,1)
+       H2SO4_BOX_G = H2SO4SUM - H2SO4_BOX_L
        ! shw40 --------------------------------------------------------------
        ! gas phase h2so4 is used for nucleation
        ! liquid phase h2so4 should be asigned to the initial values of 40-bin
        ! h2so4, at the initial time step.
        ! shw40 --------------------------------------------------------------
-       ! H2SO4 gas fraction calculated earlier throughout grid
-       ! Consider gaseoues H2SO4 to be unavailable for SLA
-!       H2SO4_BOX_L = H2SO4SUM * AERFRAC(I,J,L,1)
-!       H2SO4_BOX_G = H2SO4SUM - H2SO4_BOX_L
-       IF(State_Met%InTroposphere(I,J,L))THEN !!! shw40: AERFRAC=1 in troposphere
-         H2SO4_BOX_L = H2SO4SUM * AERFRAC(I,J,L,1)
-         H2SO4_BOX_G = H2SO4SUM - H2SO4_BOX_L
-       ELSE
-         H2SO4_BOX_L = H2SO4SUM
-         H2SO4_BOX_G = H2SO4GSUM
-       ENDIF
-
 
 
        ! Zero local properties
@@ -2528,15 +2453,15 @@ CONTAINS
 	  ! (2) set again PSD when the grid cell change from tropophere to
 	  ! stratosphere due to tropopause change.
 	  if (SetInit(I,J,L)==1) then
-	  !	  SUM(Spc(I,J,L,ID_Bins(:,1))) < &
-	  !		MIN( 5.0, 0.5*Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)) ) then
+!	  SUM(Spc(I,J,L,ID_Bins(:,1))) < &
+!		MIN( 5.0, 0.5*Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)) ) then
 
 	  ! SLA radius: RAD_AER_BOX ! m
 	  ! SLA mass/concnt: Spc(I,J,L,id_Bins(I_Bin,1)) ! kg
 
 	  !Spc(I,J,L,id_Bins(I_Bin,1)) = KG_AER_BOX/100.0*aWP(I,J,L,I_Bin)
 
-!	  if(I==10.and.J==23.and.L==29)then
+!	  if(I==10.and.J==23.and.L==37)then
 !            Spc(I,J,L,id_Bins(:,1)) = 0.0
 !	    write(6,*)"-- initial value [kg]:"
 
@@ -2565,7 +2490,7 @@ CONTAINS
 !            Spc(I,J,L,id_SO4) = 0.0
 
 
-!	  endif !  if(I==10.and.J==23.and.L==29)then
+!	  endif !  if(I==10.and.J==23.and.L==37)then
 
 
           ! ------------unimodal set lognormal distribution ------------------
@@ -2635,33 +2560,28 @@ CONTAINS
 	  enddo
 
 
-!	  if( ISNAN(SUM(Wts(:))) .or. SUM(Wts(:))==0 )then
-!	    CALL ERROR_STOP( "SHW: Error in SetInit, CALC_STRAT_AER()","ucx_mod.F90" )
-!	  endif
-
-
-          if(I==10.and.J==23.and.L==29)then
+          if(I==10.and.J==23.and.L==37)then
             WRITE(6,*)"23 *** SHW40: this is working!!! ---"
             WRITE(6,*)"23 RAD_AER_BOX, Rm:", RAD_AER_BOX*1e6, Rm
             WRITE(6,*)"23 SLA_VR, SLA_RR, VOL_SLA=", SLA_VR, SLA_RR, VOL_SLA
             WRITE(6,*)"23 KG_AER_BOX=", KG_AER_BOX
-            WRITE(6,*)"23 Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)=", AERFRAC(I,J,L,1), Spc(I,J,L,id_SO4)
+            WRITE(6,*)"23 Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)=", AERFRAC(I,J,L,1), Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)
           endif
 
-          if(I==47.and.J==3.and.L==29)then
+          if(I==10.and.J==10.and.L==37)then
             WRITE(6,*)"10 *** SHW40: this is working!!! ---"
             WRITE(6,*)"10 RAD_AER_BOX, Rm:", RAD_AER_BOX*1e6, Rm
             WRITE(6,*)"10 SLA_VR, SLA_RR, VOL_SLA=", SLA_VR, SLA_RR, VOL_SLA
             WRITE(6,*)"10 KG_AER_BOX=", KG_AER_BOX
-            WRITE(6,*)"10 Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)=", AERFRAC(I,J,L,1), Spc(I,J,L,id_SO4)
+            WRITE(6,*)"10 Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)=", AERFRAC(I,J,L,1), Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)
           endif
 
-          if(I==22.and.J==27.and.L==29)then
+          if(I==22.and.J==27.and.L==37)then
             WRITE(6,*)"27 *** SHW40: this is working!!! ---"
             WRITE(6,*)"27 RAD_AER_BOX, Rm:", RAD_AER_BOX*1e6, Rm
             WRITE(6,*)"27 SLA_VR, SLA_RR, VOL_SLA=", SLA_VR, SLA_RR, VOL_SLA
             WRITE(6,*)"27 KG_AER_BOX=", KG_AER_BOX
-            WRITE(6,*)"27 Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)=", AERFRAC(I,J,L,1), Spc(I,J,L,id_SO4)
+            WRITE(6,*)"27 Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)=", AERFRAC(I,J,L,1), Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)
           endif
 
           if(I==22.and.J==1.and.L==60)then
@@ -2669,17 +2589,17 @@ CONTAINS
             WRITE(6,*)"1 RAD_AER_BOX, Rm:", RAD_AER_BOX*1e6, Rm
             WRITE(6,*)"1 SLA_VR, SLA_RR, VOL_SLA=", SLA_VR, SLA_RR, VOL_SLA
             WRITE(6,*)"1 KG_AER_BOX=", KG_AER_BOX
-            WRITE(6,*)"1 Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)=", AERFRAC(I,J,L,1), Spc(I,J,L,id_SO4)
+            WRITE(6,*)"1 Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)=", AERFRAC(I,J,L,1), Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1)
           endif
 
-	  IF(AERFRAC(I,J,L,1)==0.0.or.Spc(I,J,L,id_SO4)==0.0)THEN
+	  IF(AERFRAC(I,J,L,1)==0.0)THEN
             Spc(I,J,L,ID_Bins(:,1)) = 0.0
 	  ELSE
 	    do I_Bin=1,40
-              Spc(I,J,L,ID_Bins(I_Bin,1)) = Spc(I,J,L,id_SO4) * Wts(I_Bin)/SUM(Wts(:))
+              Spc(I,J,L,ID_Bins(I_Bin,1)) = Spc(I,J,L,id_SO4)*AERFRAC(I,J,L,1) * Wts(I_Bin)/SUM(Wts(:))
             enddo
 	  ENDIF
-          Spc(I,J,L,id_SO4) = 0.0 ! [kg]
+          Spc(I,J,L,id_SO4) = Spc(I,J,L,id_SO4)*(1-AERFRAC(I,J,L,1)) ! [kg]
 	  AERFRAC(I,J,L,1) = 0.0
 
           ! ------------bimodal set lognormal distribution ------------------
@@ -2744,7 +2664,7 @@ CONTAINS
 !          enddo
 !          Spc(I,J,L,id_SO4) = Spc(I,J,L,id_SO4)*(1-AERFRAC(I,J,L,1))
 !
-!          if(I==10.and.J==23.and.L==29)then
+!          if(I==10.and.J==23.and.L==37)then
 !            WRITE(6,*)"*** SHW40: this is working!!! ---"
 !          endif
 
@@ -2761,20 +2681,6 @@ CONTAINS
 
 	  !*******************************************************
 
-          if(I==47.and.J==3.and.L==29)then
-            write(6,*)'===10 SUM( Spc(I,J,L,ID_Bins(:,1)) ):'
-            write(6,*) '===10mass:',3, SUM( Spc(I,J,L,ID_Bins(:,1)) )
-          endif
-
-          if(I==22.and.J==27.and.L==29)then
-            write(6,*)'===27 SUM( Spc(I,J,L,ID_Bins(:,1)) ):'
-            write(6,*) '===27mass:', SUM( Spc(I,J,L,ID_Bins(:,1)) )
-          endif
-
-          if(I==22.and.J==1.and.L==60)then
-            write(6,*)'===1 SUM( Spc(I,J,L,ID_Bins(:,1)) ):'
-            write(6,*) '===1mass:', SUM( Spc(I,J,L,ID_Bins(:,1)) )
-          endif
 
 
           ! Sum target quantities over all bins
@@ -2784,12 +2690,10 @@ CONTAINS
           SAD_AER_BOX   = 0.0e+0_fp
           KG_AER_BOX    = 0.0e+0_fp
           NDENS_AER_BOX = 0.0e+0_fp
-          H2SO4_BOX_L   = 0.0e+0_fp !!! shw40: liquid is represented by 40-bin
-!          H2SO4SUM      = Spc(I,J,L,id_SO4) * INVAIR / & !!! shw40: volume mixing ratio
-!                          State_Chm%SpcData(id_SO4)%Info%emMW_g
-          H2SO4SUM      = Spc(I,J,L,id_H2SO4G) * INVAIR / &
-                          State_Chm%SpcData(id_H2SO4G)%Info%emMW_g
-          H2SO4_BOX_G   = H2SO4SUM !!! shw40 id_SO4 should change to id_H2SO4
+          H2SO4_BOX_L   = 0.0e+0_fp !!! shw40: this should change!!!
+          H2SO4SUM      = Spc(I,J,L,id_SO4) * INVAIR / & !!! shw40: volume mixing ratio
+                          State_Chm%SpcData(id_SO4)%Info%emMW_g
+          H2SO4_BOX_G   = H2SO4SUM
           ! Accumulators
           MASS_WET      = 0.0e+0_fp
           VOL_WET       = 0.0e+0_fp
@@ -2815,17 +2719,17 @@ CONTAINS
                         Aer_Mass(I_Bin)/State_Met%AirVol(I,J,L)
 
 	    !!! shw40
-            if(I==10.and.J==23.and.L==29)then
+            if(I==10.and.J==23.and.L==37)then
 	      if (I_Bin==1) write(6,*)'===23 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
               write(6,*)I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1))
             endif
 
-            if(I==47.and.J==3.and.L==29)then
+            if(I==10.and.J==10.and.L==37)then
               if (I_Bin==1) write(6,*)'===10 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
               write(6,*)I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1))
             endif
 
-            if(I==22.and.J==27.and.L==29)then
+            if(I==22.and.J==27.and.L==37)then
               if (I_Bin==1) write(6,*)'===27 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
               write(6,*)I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1))
             endif
@@ -2862,17 +2766,17 @@ CONTAINS
 
 
             !!! shw40
-            if(I==10.and.J==23.and.L==29)then
+            if(I==10.and.J==23.and.L==37)then
               write(6,*)'===23 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
               write(6,*) '===23 mass:', Mass_Sum, SUM( Spc(I,J,L,ID_Bins(:,1)) )
             endif
 
-            if(I==47.and.J==3.and.L==29)then
+            if(I==10.and.J==10.and.L==37)then
               write(6,*)'===10 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
               write(6,*) '===10mass:', Mass_Sum, SUM( Spc(I,J,L,ID_Bins(:,1)) )
             endif
 
-            if(I==22.and.J==27.and.L==29)then
+            if(I==22.and.J==27.and.L==37)then
               write(6,*)'===27 I_Bin, NDens_Bin, Spc(I,J,L,ID_Bins(I_Bin,1)):'
               write(6,*) '===27 mass:', Mass_Sum, SUM( Spc(I,J,L,ID_Bins(:,1)) )
             endif
@@ -2901,15 +2805,15 @@ CONTAINS
           End If
 
           !!! shw40
-          if(I==10.and.J==23.and.L==29)then
+          if(I==10.and.J==23.and.L==37)then
             write(6,*)'23 NDENS_AER_BOX 11:', NDENS_AER(I,J,L,I_SLA),  NDENS_AER_BOX
           endif
 
-          if(I==47.and.J==3.and.L==29)then
+          if(I==10.and.J==10.and.L==37)then
             write(6,*)'10 NDENS_AER_BOX 11:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
           endif
 
-          if(I==22.and.J==27.and.L==29)then
+          if(I==22.and.J==27.and.L==37)then
             write(6,*)'27 NDENS_AER_BOX 11:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
           endif
 
@@ -2966,15 +2870,15 @@ CONTAINS
           RAD_AER_BOX = SLA_VR*SLA_RR*(VOL_SLA**0.249e+0_fp) ! m
           KG_AER_BOX  = RHO_AER_BOX*VOL_SLA*State_Met%AIRVOL(I,J,L) ! kg
 
-	  if(I==10.and.J==23.and.L==29)then
+	  if(I==10.and.J==23.and.L==37)then
 	    write(6,*)"23<KG_AER, RAD_AER [m]>", KG_AER_BOX, RAD_AER_BOX
 	  endif
 
-          if(I==47.and.J==3.and.L==29)then
+          if(I==10.and.J==10.and.L==37)then
             write(6,*)"10<KG_AER, RAD_AER [m]>", KG_AER_BOX, RAD_AER_BOX
           endif
 
-          if(I==22.and.J==27.and.L==29)then
+          if(I==22.and.J==27.and.L==37)then
             write(6,*)"27<KG_AER, RAD_AER [m]>", KG_AER_BOX, RAD_AER_BOX
           endif
 
@@ -3003,15 +2907,15 @@ CONTAINS
           ENDIF
 
           !!! shw40
-          if(I==10.and.J==23.and.L==29)then
+          if(I==10.and.J==23.and.L==37)then
             write(6,*)'23 NDENS_AER_BOX 22:', NDENS_AER(I,J,L,I_SLA),  NDENS_AER_BOX
           endif
 
-          if(I==47.and.J==3.and.L==29)then
+          if(I==10.and.J==10.and.L==37)then
             write(6,*)'10 NDENS_AER_BOX 22:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
           endif
 
-          if(I==22.and.J==27.and.L==29)then
+          if(I==22.and.J==27.and.L==37)then
             write(6,*)'27 NDENS_AER_BOX 22:', NDENS_AER(I,J,L,I_SLA), NDENS_AER_BOX
           endif
 
@@ -3300,8 +3204,6 @@ CONTAINS
 !\\
 ! !INTERFACE:
 !
-!!! shw40: TERNARY() is a diagnostic subroutine, which calculats the liquid
-!          aerosol based on liquid H2SO4.
   SUBROUTINE TERNARY( PCENTER_IN,TCENTER_IN,H2OSUM_IN,H2SO4SUM,       &
                       HNO3SUM,HClSUM,HOClSUM,HBRSum,HOBrSUM,          &
                       W_H2SO4,W_H2O,W_HNO3,W_HCl,W_HOCl,W_HBr,W_HOBr, &
@@ -4677,7 +4579,7 @@ CONTAINS
     USE CMN_FJX_MOD,        ONLY : ZPJ
     USE FAST_JX_MOD,        ONLY : RXN_H2SO4
     USE Input_Opt_Mod,      ONLY : OptInput
-    USE State_Chm_Mod,      ONLY : ChmState, Ind_
+    USE State_Chm_Mod,      ONLY : ChmState
     USE State_Grid_Mod,     ONLY : GrdState
     USE State_Met_Mod,      ONLY : MetState
     USE TIME_MOD,           ONLY : GET_TS_CHEM
@@ -4748,12 +4650,10 @@ CONTAINS
           DO L=LMINPHOT+1,State_Grid%NZ
              ! Apply photolysis to SO4
              ! First retrieve gaseous fraction
-!             SO4_IN = Spc(I,J,L,id_SO4)*SO4_PHOTFRAC(I,J,L)
-             SO4_IN = Spc(I,J,L,id_H2SO4G) !!! shw40
+             SO4_IN = Spc(I,J,L,id_SO4)*SO4_PHOTFRAC(I,J,L)
              SO4_DELTA = PHOTDELTA*SO4_IN
              ! Remove from SO4
-!             Spc(I,J,L,id_SO4) = Spc(I,J,L,id_SO4) - SO4_DELTA
-             Spc(I,J,L,id_H2SO4G) = Spc(I,J,L,id_H2SO4G) - SO4_DELTA !!! shw40
+             Spc(I,J,L,id_SO4) = Spc(I,J,L,id_SO4) - SO4_DELTA
              ! Add to SO2. Note change in molar mass
              Spc(I,J,L,id_SO2) = Spc(I,J,L,id_SO2) + (SO4_DELTA*RELWT)
           ENDDO
@@ -5151,7 +5051,6 @@ CONTAINS
     id_O3    = Ind_('O3'        )
     id_SO2   = Ind_('SO2'       )
     id_SO4   = Ind_('SO4'       )
-    id_H2SO4G = Ind_('H2SO4G'   ) !!! shw40
     id_OCPI  = Ind_('OCPI'      )
 
     ! Print info

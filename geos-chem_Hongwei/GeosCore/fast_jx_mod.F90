@@ -2503,11 +2503,11 @@ CONTAINS
     ! info but ref index is similar e.g. Scarchilli et al. (2005)
     !(DAR 05/2015)
 
+!!! shw40
 !    DATA SPECFIL_UCX /"so4.dat","soot.dat","org.dat", &
 !                      "ssa.dat","ssc.dat",            &
 !                      "h2so4.dat","h2so4.dat",        &
 !                      "dust.dat"/
-
     DATA SPECFIL_UCX /"so4.dat","soot.dat","org.dat", &                                                         
     "ssa.dat","ssc.dat",            &                                                             
     "h2so4_bin_1.dat", "h2so4_bin_2.dat", "h2so4_bin_3.dat", "h2so4_bin_4.dat",&                                   

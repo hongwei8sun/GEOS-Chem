@@ -14,23 +14,6 @@
 !\\
 ! !INTERFACE: 
 !
-
-! shw: May 1, 2023
-!
-! add "H2SO4_vv>0.0" to decide whether call AER_grow and AER_nuc process, 
-! in order to avoid NaN for H2SO4.
-!
-! If (LAER_grow.and.H2SO4_vv>0.0) &
-! If (LAER_nuc.and.H2SO4_vv>0.0) & !!! shw40
-
-! shw: May 3, 2023
-!
-! add max(0., *) to avoid NaN for Sul_vv(:,:) due to dens(1:nlev)=0
-!
-! Sul_vv(1:nlev,k) = max(0., yt(1:nlev,k)*aer_molec(k)/dens(1:nlev)) !!! shw40
-
-
-
 module sect_aer_mod
 !
 ! !USES:
@@ -116,8 +99,7 @@ module sect_aer_mod
   REAL(dp),ALLOCATABLE        :: aero_grow_d(:,:,:)  ! Aerosol growth rate
   REAL(dp),ALLOCATABLE        :: aero_nrate_d(:,:,:) ! Aerosol nucleation rate
   INTEGER                     :: id_H2O              ! Index of the H2O tracer
-  INTEGER                     :: id_H2SO4            ! Index of gas-phase H2SO4 in the stratosphere
-  INTEGER                     :: id_SO4              ! Index of liquid-phase H2SO4 in the troposphere
+  INTEGER                     :: id_H2SO4            ! Index of gas-phase H2SO4
   
 ! !REVISION HISTORY:
 !  28 Nov 2018 - S.D.Eastham - Initial version
@@ -135,8 +117,6 @@ module sect_aer_mod
    Real(dp), PARAMETER :: so4gmin=1.0e+04_dp
    Real(dp), PARAMETER :: so4gmax=1.0e+11_dp
    INTEGER,  PARAMETER :: n_aer_type=1   ! Only SUL for now
-
-   LOGICAL             :: Set_init !!! shw40
 
 CONTAINS
 !EOC
@@ -232,14 +212,6 @@ CONTAINS
     Real(fp), Pointer      :: CK_Box(:,:)
     Real(fp), Pointer      :: Spc_vv(:)
 
-    !!! shw40
-!    Real(fp)      :: aWP_Box_tmp(n_aer_bin)
-!    Real(fp)      :: aDen_Box_tmp(n_aer_bin) 
-!    Real(fp)      :: ST_Box_tmp(n_aer_bin)
-!    Real(fp)      :: BVP_Box_tmp(n_aer_bin)
-!    Real(fp)      :: CK_Box_tmp(n_aer_bin,n_aer_bin)
-
-
     ! Pointers to larger sets
     Real(fp), Pointer      :: Spc_col(:,:)
     Real(fp), Pointer      :: T_Col(:)
@@ -292,16 +264,9 @@ CONTAINS
     ! Implicit coagulation?
     LAER_coag_imp = .False.
 
-!    If (Input_Opt%amIRoot) Then
-!       write(*,*) 'Running Do_Sect_Aer'
-!    End If
-
-    !!! shw40
     If (Input_Opt%amIRoot) Then
-      If (Run_Micro) write(*,*) '-> Do_Sect_Aer for PSC in chemistry_mod'
-      If (.not.Run_Micro) write(*,*) '-> Do_Sect_Aer for Stra Aer Prop in flexchem_mod'
+       write(*,*) 'Running Do_Sect_Aer'
     End If
-
 
     ! Get the length of the microphysics substeps
     dt_step    = Real(GET_TS_CHEM())
@@ -322,13 +287,13 @@ CONTAINS
     ! First, loop over the standard Eulerian grid cells
     !$OMP PARALLEL  DO                                               &
     !$OMP DEFAULT(  SHARED                                         ) &
-    !$OMP PRIVATE(  I,           J,           K,          L            ) &
-    !$OMP PRIVATE(  aWP_Box,     aDen_Box,    Sul_vv,     Spc_vv       ) &
-    !$OMP PRIVATE(  H2O_vv,      H2SO4_vv,    H2O_vv_old, H2SO4_vv_old ) &
-    !$OMP PRIVATE(  Sul_vv_old,  T_K,         P_hPa,      ST_Box       ) &
-    !$OMP PRIVATE(  air_dens,    CK_Box,      BVP_Box,    rWet         ) &
-    !$OMP PRIVATE(  box_grow_d,  box_wp_d,    box_nrate_d,fijk_Box     ) &
-    !$OMP PRIVATE(  s_start,     s_end,       RCOMP                    ) &
+    !$OMP PRIVATE(  I,          J,        K,          L            ) &
+    !$OMP PRIVATE(  aWP_Box,    aDen_Box, Sul_vv,     Spc_vv       ) &
+    !$OMP PRIVATE(  H2O_vv,     H2SO4_vv, H2O_vv_old, H2SO4_vv_old ) &
+    !$OMP PRIVATE(  Sul_vv_old, T_K,      P_hPa,      ST_Box       ) &
+    !$OMP PRIVATE(  air_dens,   CK_Box,   BVP_Box,    rWet         ) &
+    !$OMP PRIVATE(  box_grow_d, box_wp_d, box_nrate_d,fijk_Box     ) &
+    !$OMP PRIVATE(  s_start,    s_end,    RCOMP                    ) &
     !$OMP SCHEDULE( DYNAMIC, 1                                     )
     Do I=1,NX
     Do J=1,NY
@@ -337,9 +302,6 @@ CONTAINS
        aWP_Box  => State_Chm%Strat_WPcg(I,J,L,:)
        aDen_Box => State_Chm%Strat_Den(I,J,L,:)
        Spc_vv   => State_Chm%Species(I,J,L,:)
-       !!! shw40
-!       aWP_Box_tmp  = State_Chm%Strat_WPcg(I,J,L,:)
-!       aDen_Box_tmp = State_Chm%Strat_Den(I,J,L,:)
        
        ! Get properties of the box
        H2O_vv   = Spc_vv(id_H2O)
@@ -348,37 +310,17 @@ CONTAINS
           Sul_vv(k) = Spc_vv(ID_Bins(k,1))
        End Do
 
-
-       !!! shw40: set initial value for 40-bin
-       if(Set_init==.True.)then
-
-       endif
-       Set_init = .False. !!! shw400: this should outside the parallel loop
-
-
        ! Store the starting values
        H2O_vv_old    = H2O_vv
        H2SO4_vv_old  = H2SO4_vv
        Sul_vv_old(:) = Sul_vv(:)
-
-
        If (State_Met%InTroposphere(I,J,L)) Then
           ! Apply some feasible stand-in values
           aWP_Box(:) = 60.0e+0_fp
           aDen_Box(:) = 1.5e+0_fp
-	  !!! shw40
-!	  aWP_Box_tmp(:)  = 60.0e+0_fp
-!	  aDen_Box_tmp(:) = 1.5e+0_fp
-
-
-          !!! shw40: Dump all sulfate into the "SO4" container
-          !!! shw40: This represents tropospheric aerosol
-          Spc_vv(id_SO4) = H2SO4_vv + Sum(Sul_vv)
-          H2SO4_vv = 0.0
-!          ! Dump all sulfate into the "H2SO4" container
-!          ! This represents tropospheric aerosol
-!          Spc_vv(id_H2SO4) = H2SO4_vv + Sum(Sul_vv)
-
+          ! Dump all sulfate into the "H2SO4" container
+          ! This represents tropospheric aerosol
+          Spc_vv(id_H2SO4) = H2SO4_vv + Sum(Sul_vv)
           Do k=1,n_aer_bin
              Spc_vv(ID_Bins(k,1)) = 0.0e+0_fp
           End Do
@@ -394,15 +336,10 @@ CONTAINS
           ! Surface tension (ST) and equilibrium vapor pressure (BVP)
           ST_Box  => st(I,J,L,:)
           BVP_Box => bvp(I,J,L,:)
-	  !!! shw40
-!          ST_Box_tmp  = st(I,J,L,:)
-!          BVP_Box_tmp = bvp(I,J,L,:)
 
           ! Calculate updated weight % H2SO4 and density
           Call AER_wpden(aWP_Box, aDen_Box, ST_Box, BVP_Box,&
                          T_K,     P_hPa,    H2O_vv, rWet)
-!          Call AER_wpden(aWP_Box_tmp, aDen_Box_tmp, ST_Box_tmp, BVP_Box_tmp,&
-!                         T_K,     P_hPa,    H2O_vv, rWet)
 
           ! If we aren't running a microphysics step, stop here
           If (Run_Micro) Then
@@ -411,80 +348,31 @@ CONTAINS
 
              ! Calculate coagulation kernel
              CK_Box => ck(I,J,L,:,:)
-!             CK_Box_tmp = ck(I,J,L,:,:)
-
              If (LAER_coag) &
              Call Cal_Coag_Kernel(CK_Box,aWP_Box,aDen_Box,T_K,P_hPa)          
-!             Call Cal_Coag_Kernel(CK_Box_tmp,aWP_Box_tmp,aDen_Box_tmp,T_K,P_hPa)          
 
              ! Calculate volume fractions
              fijk_Box = 0.0e+0_fp
              If (LAER_coag.and.LAER_Coag_Imp) &
              Call Cal_Coag_Kernel_Implicit(fijk_Box,aWP_Box,aDen_Box)
-!             Call Cal_Coag_Kernel_Implicit(fijk_Box,aWP_Box_tmp,aDen_Box_tmp)
 
              ! Run microphysical processes
              box_grow_d  = 0.0e+0_fp
              box_nrate_d = 0.0e+0_fp
 
              Do K=1,NAStep
-
-       		!!! shw40
-       		if(I==47.and.J==3.and.L==29)then
-         	  write(6,*)'00-H2SO4_vv->', H2SO4_vv, Sul_vv
-		  write(6,*) 'max(SUM(Sul_vv), 0.0):', max(SUM(Sul_vv), 0.0)
-       		endif
-
-		
-
-!                If (LAER_grow) &
-                If (LAER_grow.and.H2SO4_vv>0.0) & !!! shw40
+                If (LAER_grow) &
                 Call AER_grow(T_K,      air_dens,   dt_substep, aWP_Box, &
                               aDen_box, ST_Box,     BVP_Box,    H2SO4_vv, &
                               Sul_vv,   box_grow_d)
-!                Call AER_grow(T_K,          air_dens,   dt_substep, aWP_Box_tmp, &
-!                              aDen_box_tmp, ST_Box_tmp, BVP_Box_tmp,H2SO4_vv, &
-!                              Sul_vv,       box_grow_d)
-
-
-                !!! shw40
-                if(I==47.and.J==3.and.L==29)then
-                  write(6,*)'11-H2SO4_vv->', H2SO4_vv, Sul_vv
-                endif
-
-
-!                If (LAER_nuc) &
-                If (LAER_nuc.and.H2SO4_vv>0.0) & !!! shw40
+                If (LAER_nuc) &
                 Call AER_nucleation(T_K,     P_hPa,       air_dens, dt_substep, &
                                     aWP_Box, aDen_Box,    H2O_vv,   H2SO4_vv,   &
                                     Sul_vv,  box_nrate_d, box_wp_d              )
-!                Call AER_nucleation(T_K,     P_hPa,       air_dens, dt_substep, &
-!                                    aWP_Box_tmp, aDen_Box_tmp,    H2O_vv,   H2SO4_vv, &
-!                                    Sul_vv,  box_nrate_d, box_wp_d )
-
-
-                !!! shw40
-                if(I==47.and.J==3.and.L==29)then
-                  write(6,*)'22-H2SO4_vv->', H2SO4_vv, Sul_vv
-                endif
-
-
-                !!! shw40
-                Sul_vv(:) = max(0., Sul_vv(:))
-
-
                 If (LAER_coag.and.(.not.LAER_Coag_Imp)) &
                 Call AER_coagulation(Sul_vv,CK_box,air_dens,dt_substep)
-!                Call AER_coagulation(Sul_vv,CK_box_tmp,air_dens,dt_substep)
                 If (LAER_coag.and.LAER_Coag_Imp) &
                 Call AER_coagulation_Implicit(Sul_vv,fijk_box,CK_box,aWP_Box,aDen_Box,air_dens,dt_substep)
-!                Call AER_coagulation_Implicit(Sul_vv,fijk_box,CK_box_tmp,aWP_Box_tmp,aDen_Box_tmp,air_dens,dt_substep)
-
-
-		!!! shw40
-		Sul_vv(:) = max(0., Sul_vv(:))
-
-
              End Do
              aero_grow_d(I,J,L)  = box_grow_d/real(NAStep)
              aero_nrate_d(I,J,L) = box_nrate_d/real(NAStep)
@@ -494,17 +382,7 @@ CONTAINS
                                  air_dens, s_start, s_end,        RCOMP       )
              If (RCOMP.ne.0) RC = RCOMP
              !Call AER_Washout(?,?,?,?)
-
-	     !!! shw40
-!	     ck(I,J,L,:,:) = CK_Box_tmp
-
-            !!! shw40
-            if(I==47.and.J==3.and.L==29)then
-              write(6,*)'33-H2SO4_vv->', H2SO4_vv, Sul_vv
-            endif
-
-
-          End If ! If (Run_Micro) Then
+          End If
 
           ! Update properties that WEREN'T held in pointers
           Spc_vv(id_H2O)   = H2O_vv
@@ -512,21 +390,6 @@ CONTAINS
           Do k=1,n_aer_bin
              Spc_vv(ID_Bins(k,1)) = Sul_vv(k)
           End Do
-
-
-            !!! shw40
-!            if(I==10.and.J==10.and.L==40)then
-!              write(6,*)'1 =Spc_vv(id_H2SO4)=>', Spc_vv(id_H2SO4)
-!	      Do k=1,n_aer_bin
-!                write(6,*) Sul_vv(k)
-!              End Do
-!            endif
-
-
-
-	  !!! shw40
-!          st(I,J,L,:)  = ST_Box_tmp
-!          bvp(I,J,L,:) = BVP_Box_tmp
 
        End If
 
@@ -537,10 +400,6 @@ CONTAINS
        !      State_Diag%Strat_RWet(I,J,L,K) = rWet(K)
        !   End Do
        End If
-
-       !!! shw40
-!       State_Chm%Strat_WPcg(I,J,L,:) = aWP_Box_tmp 
-!       State_Chm%Strat_Den(I,J,L,:)  = aDen_Box_tmp
 
        ! Free up pointers
        aWP_Box  => Null()
@@ -587,28 +446,9 @@ CONTAINS
           air_dens_col => State_Met%AIRNUMDEN(I,J,:)
           dz_col       => State_Met%BxHeight(I,J,:)
 
-
-            !!! shw40
-            if(I==47.and.J==3)then
-              write(6,*)'44-before sedi->', Sul_col(29,:)
-            endif
-
-
           ! Run sedimentation in the column
-!          Call AER_sedimentation(Sul_Col, T_Col, P_Col, aWP_Col, aDen_Col,   & 
-!                                 dt_step, air_dens_col, dz_col,  NZ)
-
-!!! shw40
-          Call AER_sedimentation(Sul_Col, T_Col, P_Col, aWP_Col, aDen_Col,   &
-                                 dt_step, air_dens_col, dz_col,  NZ, I, J)
-
-
-
-            !!! shw40
-            if(I==47.and.J==3)then
-              write(6,*)'44-after sedi->', Sul_col(29,:)
-            endif
-
+          Call AER_sedimentation(Sul_Col, T_Col, P_Col, aWP_Col, aDen_Col,   & 
+                                 dt_step, air_dens_col, dz_col,  NZ)
 
           ! Store updated VMRs
           Do k=1,n_aer_bin
@@ -838,7 +678,6 @@ CONTAINS
     RC = 0
   end subroutine do_sect_aer
 #endif
-
 #if !defined( MDL_BOX )
 !------------------------------------------------------------------------------
 !                  GEOS-Chem Global Chemical Transport Model                  !
@@ -899,8 +738,6 @@ CONTAINS
 
     ! Assume success
     RC = 0
-
-    Set_init = .True. !!! shw40
 
     ! Get grid information
     NX = State_Grid%NX
@@ -975,20 +812,12 @@ CONTAINS
     End Do
 
     ! Check the gas phase species too
-    id_H2SO4 = Ind_('H2SO4G') !!! shw40
+    id_H2SO4 = Ind_('SO4')
     If (id_H2SO4.le.0) Then
-       Write(err_msg,'(a)') 'ID not found for H2SO4G'
-       Call Debug_Msg(Trim(err_msg))
-       RC = -1
-    End If
-
-    id_SO4 = Ind_('SO4')
-    If (id_SO4.le.0) Then
        Write(err_msg,'(a)') 'ID not found for SO4'
        Call Debug_Msg(Trim(err_msg))
        RC = -1
     End If
-
     id_H2O   = Ind_('H2O')
     If (id_H2O  .le.0) Then
        Write(err_msg,'(a)') 'ID not found for H2O'
@@ -998,7 +827,6 @@ CONTAINS
 
   end subroutine init_sect_aer
 #endif
-
 #if defined( MDL_BOX )
   subroutine init_sect_aer( n_boxes, n_bins, RC )
 
@@ -3008,12 +2836,7 @@ CONTAINS
   write(*,*) 'SEDIMENTATION NOT VALID IN BOX MODEL'
   end subroutine aer_sedimentation
 #else
-
-!  SUBROUTINE AER_sedimentation(Sul_vv,T_K,P_hPa,aWP_Col,aDen_Col,dt,dens,dz,NZ)
-
-  !!! shw40
-  SUBROUTINE AER_sedimentation(Sul_vv,T_K,P_hPa,aWP_Col,aDen_Col,dt,dens,dz,NZ, I, J)
-
+  SUBROUTINE AER_sedimentation(Sul_vv,T_K,P_hPa,aWP_Col,aDen_Col,dt,dens,dz,NZ)
 !
 ! !USES:
 !
@@ -3022,10 +2845,6 @@ CONTAINS
 !
 ! !INPUT VARIABLES:
 !           
-
-    !!! shw40:
-    integer, intent(in) :: I, J
-
     integer,  intent(in) :: NZ                       ! Number of levels
     real(dp), intent(in) :: T_K(NZ)                  ! Temperature (K)
     real(dp), intent(in) :: P_hPa(NZ)                ! Pressure (hPa)
@@ -3131,21 +2950,7 @@ CONTAINS
            vtte(jk,k) = vtte(jk,k)*v12 ! [kg/kg]*[m/s]
        enddo
 
-
-	!!! shw40:
-	do jk=1,nlev
-           if( ISNAN(yt(jk-1,k)).or.ISNAN(yt(jk,k)) )then
-             write(6,*) '=0 ISNAN(vtte(jk,k))=>', k
-	     write(6,*) I, J, jk
-             write(6,*) vtte(jk,k), yt(jk,k), yt(jk-1,k)
-	     write(6,*) 'test Max(NaN, 0):', max(0., yt(jk-1,k)), max(0., yt(jk,k))
-           endif
-	enddo
-
-
-
-!       vtte(:,k) = min(yt(:,k)*dz/dt,vtte(:,k))
-       vtte(:,k) =max( 0., min(yt(:,k)*dz/dt,vtte(:,k)) ) !!! shw40: avoid vtte=0
+       vtte(:,k) = min(yt(:,k)*dz/dt,vtte(:,k))
        yt(:,k) = max(0., yt(:,k) - vtte(:,k)*dt/dz(:))
 
        ! Diagnostic: Fall speed?
@@ -3153,21 +2958,8 @@ CONTAINS
 
        ! Calculate new concentrations and clip to be >= 0
        yt(1:nlev-1,k) = max(0., yt(1:nlev-1,k) + vtte(2:nlev,k)*dt/dz(1:nlev-1)) !eth_af_dryS 
-                          
-!       Sul_vv(1:nlev,k) = yt(1:nlev,k)*aer_molec(k)/dens(1:nlev) ![particles/cm3]->[mol/mol]     
-       Sul_vv(1:nlev,k) = max(0., yt(1:nlev,k)*aer_molec(k)/dens(1:nlev)) !!! shw40: in case dens(1:nlev)=0
-
-
-
-        !!! shw40:
-        do jk=1,nlev
-           if( ISNAN(yt(jk-1,k)).or.ISNAN(yt(jk,k)) )then
-             write(6,*) '=1 ISNAN(vtte(jk,k))=>', jk, k
-             write(6,*) vtte(jk,k), yt(jk,k), yt(jk-1,k)
-           endif
-        enddo
-
-
+                               
+       Sul_vv(1:nlev,k) = yt(1:nlev,k)*aer_molec(k)/dens(1:nlev) ![particles/cm3]->[mol/mol]
     end do
 
   END SUBROUTINE AER_sedimentation

@@ -1,6 +1,6 @@
 !           $Id: aerosol.i,v 1.5 2012/12/14 21:04:09 dkweis Exp $
-      PARAMETER (NSIZE=150,RZERO=3.9376E-4,Vrat=1.2,NHA=43,ICN=14)
-!      PARAMETER (NSIZE=40,RZERO=3.9376E-4,Vrat=2.0,NHA=43,ICN=14)
+!      PARAMETER (NSIZE=150,RZERO=3.9376E-4,Vrat=1.2,NHA=43,ICN=14)
+      PARAMETER (NSIZE=40,RZERO=3.9376E-4,Vrat=2.0,NHA=43,ICN=14)
 !  AL2O3 number of particles, smallest size bin, density (gm/cc), 
 !  fractal dimension for volume (Df) for area (Dh)
 !  for sphere, Df=3, Dfh=3

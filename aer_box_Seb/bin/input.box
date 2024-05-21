@@ -1,0 +1,27 @@
+ AEROSOL BOX MODEL INPUT FILE       
+-----------------------------+----------
+ Simulation length (hr)      | 1       
+ Outer time step (sec)       | 4     
+ Coagulation step (sec)      | 4      
+ Output time step (sec)      | 60      
+ Number of bins              | 40       
+ Number of simulations       | 1       
+ Output file name            | output.nc
+ H2O (ppbv)                  | 314.0     
+ SO2 (ppbv)                  | 0.0      
+ H2SO4 prodn rate (ppbv/day) | 0.0
+ Minimum temperature (K)     | 200.0    
+ Maximum temperature (K)     | 200.0    
+ Minimum pressure (hPa)      | 124.0     
+ Maximum pressure (hPa)      | 124.0     
+ Minimum H2SO4 (ppbv)        | 0.1    
+ Maximum H2SO4 (ppbv)        | 0.1   
+ Initial aerosol (ppbv)      | 0.1
+ Initial mode radius (um)    | 3.94e-4
+ Initial geom. std. dev.     | 2.0
+ lNuc                        | F
+ lGrow                       | F
+ lCoag                       | F
+ Implicit coag scheme?       | T
+ Show debug info?            | T
+-----------------------------+----------

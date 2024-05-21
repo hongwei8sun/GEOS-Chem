@@ -15,14 +15,14 @@
 !      data H2O/50.E-9/
 !      data TMP/240./
 ! SPARC Fig 6.2a
-      data TMP/199./            ! [K]
+      data TMP/200./            ! [K]
       data PR/124./             ! [mb]
-      data H2O/3.14E-6/         ! [mol/mol]
+      data H2O/3.14E-4/         ! [mol/mol]
       DATA H2SO4/40.E-12/       ! [mol/mol]
 !  H2SO4 injection rate of 40 pptv per day
-      H2SO4rate = 40.E-12/86400. ! [(mol/mol)/s]
+      H2SO4rate = 0.0 ! [(mol/mol)/s]
 !        AN is sulfate particle concentration in #/cc
-      AN(:) = 0
+      AN(:) = 1000.0
       write(6,*) 'Initial AN:  ',AN
 !      AN(1) = 1.E5
 !       ALN, ALM, ALSO4 are solid, mixed particles and SO4 on mixed particles

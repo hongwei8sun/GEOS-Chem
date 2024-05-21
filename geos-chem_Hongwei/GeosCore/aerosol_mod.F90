@@ -1898,7 +1898,14 @@ CONTAINS
     !==============================================================
     IF ( LUCX ) THEN
 
+       !!! shw40: zero initail value before accumulation for 40-bin
        State_Diag%AerSurfAreaSLA(:,:,:) = 0.0 !!! shw40
+
+       State_Diag%AerNumDenSLA(:,:,:) = 0.0
+       State_Diag%AODSLAWL1(:,:,:) = 0.0
+       State_Diag%AODSLAWL2(:,:,:) = 0.0
+       State_Diag%AODSLAWL3(:,:,:) = 0.0
+
 
        ! Loop over stratospheric aerosols
        DO ISTRAT = 1,NSTRATAER !!! shw: 40-bin h2so4
@@ -1978,22 +1985,35 @@ CONTAINS
              !  Strat. particulate aerosol opt. depth   [unitless]
              !  Strat. particulate aerosol num. density [#/cm3   ]
              ! NOTE: Diagnostic output for each wavelength
+
              IF ( State_Diag%Archive_AODStrat .and. ODSWITCH .EQ. 1 ) THEN
                 IF ( IsSLA ) THEN
                    IF ( State_Diag%Archive_AerNumDenSLA ) THEN
-                      State_Diag%AerNumDenSLA(I,J,L) = &
+!                      State_Diag%AerNumDenSLA(I,J,L) = &
+!                           NDENS_AER(I,J,L,ISTRAT)*1.d-6
+                      State_Diag%AerNumDenSLA(I,J,L) = & !!! shw40
+			   State_Diag%AerNumDenSLA(I,J,L) + &
                            NDENS_AER(I,J,L,ISTRAT)*1.d-6
                    ENDIF
                    IF ( State_Diag%Archive_AODSLAWL1 ) THEN
-                      State_Diag%AODSLAWL1(I,J,L) = &
+!                      State_Diag%AODSLAWL1(I,J,L) = &
+!                           ODAER(I,J,L,IWVSELECT(1,1),N)
+                      State_Diag%AODSLAWL1(I,J,L) = & !!! shw40
+                           State_Diag%AODSLAWL1(I,J,L) + &
                            ODAER(I,J,L,IWVSELECT(1,1),N)
                    ENDIF
                    IF ( State_Diag%Archive_AODSLAWL2 ) THEN
-                      State_Diag%AODSLAWL2(I,J,L) = &
+!                      State_Diag%AODSLAWL2(I,J,L) = &
+!                           ODAER(I,J,L,IWVSELECT(1,2),N)
+                      State_Diag%AODSLAWL2(I,J,L) = & !!! shw40
+                           State_Diag%AODSLAWL2(I,J,L) + &
                            ODAER(I,J,L,IWVSELECT(1,2),N)
                    ENDIF
                    IF ( State_Diag%Archive_AODSLAWL3 ) THEN
-                      State_Diag%AODSLAWL3(I,J,L) = &
+!                      State_Diag%AODSLAWL3(I,J,L) = &
+!                           ODAER(I,J,L,IWVSELECT(1,3),N)
+                      State_Diag%AODSLAWL3(I,J,L) = & !!! shw40
+                           State_Diag%AODSLAWL3(I,J,L) + &
                            ODAER(I,J,L,IWVSELECT(1,3),N)
                    ENDIF
                 ELSEIF ( IsPSC ) THEN
